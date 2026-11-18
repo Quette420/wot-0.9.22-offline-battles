@@ -31,6 +31,21 @@ descriptor. A displayed-mode change cannot impersonate a physical switch or
 retire an unchanged native gun. Checked-only mismatch records distinguish the
 two sources. Native retesting of this correction is still required.
 
+Native report `wot-error-report-20261119-060538-3454f01f2a70.zip` ran
+`d5f26672` through a complete round. It captured real worker mode 2 with a
+display descriptor whose hydraulic flag was still disabled. Weapon-identity
+resets disappeared; 86 worker stationary-turn proofs completed. A remaining
+review-liveness defect was also confirmed: current-target checked arc prefixes
+advanced from 3 to 7 segments, yet the stopping lease expired because it counted
+only completed point/armour reviews. The planner now reports the completed
+support/collision/hydraulic prefix for this exact point call, independently of
+its global support caches. Shared player/Bot stopping logic records a monotonic
+per-point high-water mark for the current target and loaded shell. Only a fresh,
+clear, still-progressing row with a larger checked prefix renews the existing
+stall allowance. Other targets, stale/blocked rows, repeated prefixes, dependency
+epoch changes and extra ground samples cannot renew it. No timeout or geometry
+guard was relaxed. Native acceptance of this correction remains pending.
+
 This is the latest authorized scope and supersedes the continuous hydraulic-Bot
 policy in the historical section below. Every player vehicle stays on complete
 support. Ordinary Bots retain their existing basic/edge switch. Hydraulic Bots

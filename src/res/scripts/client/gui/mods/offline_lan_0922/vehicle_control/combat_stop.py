@@ -93,6 +93,7 @@ class CombatStop(object):
         self._route_attack = False
         self._last_attackable_at = None
         self._review_progress = None
+        self._review_arc_progress = {}
         self._target_departed = False
         self._capture_lay = None
         self._capture_lay_retry = {}
@@ -1124,21 +1125,37 @@ class CombatStop(object):
     def _review_has_time(self, policy, now, siege):
         frame = policy.frame or {}
         scope = frame.get('loaded')
-        completed = frozenset(row['key'] for row in policy.rows.values()
+        current = [row for row in policy.rows.values()
             if row.get('target_key') == self._intent_target and row.get('shell_index') == scope and
             row.get('key') is not None and
-            policy.current_row(row, require_line=True) is not None and
+            policy.current_row(row, require_line=True) is not None]
+        completed = frozenset(row['key'] for row in current if
             (policy._reviewed(row, row['mode']) or policy._obstructed_lane(row) is not None))
+        arcs = dict((row['key'], int(row.get('stationary_verified_arcs') or 0))
+            for row in current if row.get('line') == 'clear' and row.get('stationary_progress'))
         previous = self._review_progress
         if previous is None or previous[0] != scope:
             self._review_progress = (scope, completed, now)
-        elif any(row.get('key') in completed.difference(previous[1]) and
-                 (row.get('line') == 'clear' or
-                  (policy._planned_evidence(row) or {}).get('line') == 'clear')
-                 for row in policy.rows.values()) or siege and frame.get('reloading'):
-            # Only useful current-target work renews a stopping lease.
-            # Target rotation, obstruction and pending work cannot do so.
-            self._review_progress = (scope, previous[1] | completed, now)
+            self._review_arc_progress = arcs
+        else:
+            advanced = any(count > self._review_arc_progress.get(key, 0)
+                           for key, count in arcs.items())
+            if any(row.get('key') in completed.difference(previous[1]) and
+                    (row.get('line') == 'clear' or
+                     (policy._planned_evidence(row) or {}).get('line') == 'clear')
+                    for row in current) or advanced or siege and frame.get('reloading'):
+                # Only newly completed current-target evidence renews the
+                # lease. Epoch changes, repeated prefixes, support samples,
+                # foreign targets and blocked/stale lines cannot renew it.
+                self._review_progress = (scope, previous[1] | completed, now)
+            if advanced and combat_detail_enabled():
+                combat_detail(self.runtime, 'combat_review_arc_progress',
+                    self.runtime.actor_id, now, self._intent_target,
+                    lambda: dict(target=self._intent_target, shell=scope,
+                        before=tuple(sorted(self._review_arc_progress.items())),
+                        checked=tuple(sorted(arcs.items()))))
+            for key, count in arcs.items():
+                self._review_arc_progress[key] = max(count, self._review_arc_progress.get(key, 0))
         return now - self._review_progress[2] < MECHANICAL_STALL_SECONDS
 
     def apply_order(self, order, now):

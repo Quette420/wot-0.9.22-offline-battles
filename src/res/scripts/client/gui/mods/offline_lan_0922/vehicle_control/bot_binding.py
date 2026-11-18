@@ -275,15 +275,18 @@ class BotControlBinding(MissionControl, CombatControl):
         if combat_detail_enabled():
             entity = self.source_entity()
             shown = getattr(entity, 'typeDescriptor', None)
-            if shown is not descriptor:
+            native_mode = int(self.state['siege_state'])
+            shown_mode = getattr(entity, 'siegeState', None)
+            native_gun, shown_gun = _field(descriptor, 'gun'), _field(shown, 'gun')
+            # Display wrappers can differ while sharing the same gun/mode.
+            # Repeated wrapper identities add no useful mismatch evidence.
+            if shown_mode != native_mode or shown_gun is not native_gun:
                 combat_detail(self, 'bot_source_descriptor', self.actor_id, self.now,
-                    (id(descriptor), id(shown)), lambda: dict(
-                        native_mode=int(self.state['siege_state']),
-                        shown_mode=getattr(entity, 'siegeState', None),
+                    (native_mode, shown_mode, id(native_gun), id(shown_gun)), lambda: dict(
+                        native_mode=native_mode, shown_mode=shown_mode,
                         native_hydraulic=hull_aiming.pitch_params(descriptor),
                         shown_hydraulic=hull_aiming.pitch_params(shown),
-                        native_gun=id(_field(descriptor, 'gun')),
-                        shown_gun=id(_field(shown, 'gun'))))
+                        native_gun=id(native_gun), shown_gun=id(shown_gun)))
         return descriptor
 
     def installed_descriptor(self):

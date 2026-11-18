@@ -3850,6 +3850,7 @@ class NativeAttackEvaluator(object):
                     reported['stationary_pending'] = projection.get('reason')
                     reported['stationary_progress'] = projection.get('progressing') is True
                     reported['stationary_progress_token'] = projection.get('progress_token')
+                    reported['stationary_verified_arcs'] = projection.get('verified_arcs', 0)
             if channel == 'atomic':
                 # Keep the actual observation cache separate from the priced
                 # future ray. A later evaluation of this same atomic job

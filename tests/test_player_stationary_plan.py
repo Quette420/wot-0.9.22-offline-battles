@@ -8,6 +8,7 @@ import copy
 import math
 import types
 import unittest
+from unittest import mock
 
 from test_player_limited_traverse import TraverseScene
 from test_player_fire_admission_complete import SpatialPose
@@ -124,6 +125,32 @@ class StationaryPlanTests(unittest.TestCase):
         scene.configure_plan(**kwargs)
         scene.plan_receipts = []
         return scene
+
+    def test_partial_progress_counts_only_finished_native_arc_receipts(self):
+        from gui.mods.offline_lan_0922.vehicle_control import stationary_plan
+        scene = self.scene(bearing=2.8)
+        frame, shell, target, raw = scene.plan_frame()
+        with mock.patch.object(stationary_plan, 'SLICES_PER_TICK', 1):
+            first = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+            self.assertEqual('pending', first['status'], first)
+            self.assertTrue(first['progressing'])
+            self.assertEqual(1, first['verified_arcs'])
+            self.assertFalse(first['proved'])
+            scene.fixture.now += .11
+            second = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+            self.assertEqual(2, second['verified_arcs'])
+            self.assertFalse(second['proved'])
+            # Revalidate cached arcs against a newly observed solid obstacle.
+            # Neither cached support nor earlier completed work clears it.
+            scene.catalog_status = 'hard'
+            scene.scene_revision += 1
+            scene.fixture.now += .11
+            frame, shell, target, raw = scene.plan_frame()
+            blocked = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+        self.assertEqual('pending', blocked['status'], blocked)
+        self.assertFalse(blocked['progressing'])
+        self.assertEqual(0, blocked['verified_arcs'])
+        self.assertEqual('stationary_native_rotation_blocked', blocked['reason'])
 
     def test_native_center_arc_and_support_produce_motion_only_receipt(self):
         scene = self.scene(bearing=.7)

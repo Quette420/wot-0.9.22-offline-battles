@@ -1303,6 +1303,39 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
 
 
 class SupportAndStationaryOwnershipRegressionTests(unittest.TestCase):
+    def test_current_target_finished_arc_segments_extend_only_real_progress(self):
+        scene = Scene(siege=siege_mechanics.ENABLED)
+        key = (0, ('bot', 2), 0, 'penetration')
+        row = dict(key=key, target_key=('bot', 2), shell_index=0,
+            mode='penetration', line='clear', armor='unknown',
+            stationary_progress=True, stationary_verified_arcs=0)
+        scene.policy.rows = {key: row}
+        self.assertTrue(scene.owner._review_has_time(scene.policy, 0., True))
+        for at, count in ((4., 3), (8., 7), (12., 10)):
+            row['stationary_verified_arcs'] = count
+            self.assertTrue(scene.owner._review_has_time(scene.policy, at, True))
+        # A restarted dependency epoch and repeated completed prefix are not
+        # additional checked motion. The original timeout still expires.
+        row['stationary_progress_token'] = (1000, 1000, 10, 0)
+        self.assertFalse(scene.owner._review_has_time(
+            scene.policy, 12. + MECHANICAL_STALL_SECONDS, True))
+
+    def test_foreign_blocked_or_stale_arc_work_cannot_extend_the_stop(self):
+        for changed in (dict(target_key=('bot', 3)), dict(line='world_blocked'),
+                        dict(fresh=False), dict(shell_index=1)):
+            with self.subTest(changed=changed):
+                scene = Scene(siege=siege_mechanics.ENABLED)
+                key = (0, ('bot', 2), 0, 'penetration')
+                row = dict(key=key, target_key=('bot', 2), shell_index=0,
+                    mode='penetration', line='clear', armor='unknown',
+                    stationary_progress=True, stationary_verified_arcs=0)
+                row.update(changed)
+                scene.policy.rows = {key: row}
+                self.assertTrue(scene.owner._review_has_time(scene.policy, 0., True))
+                row['stationary_verified_arcs'] = 20
+                self.assertFalse(scene.owner._review_has_time(
+                    scene.policy, MECHANICAL_STALL_SECONDS, True))
+
     def test_pending_target_rotation_cannot_restart_the_stopping_clock(self):
         scene = Scene(siege=siege_mechanics.ENABLED)
         scene.policy.rows.clear()

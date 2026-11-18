@@ -616,6 +616,7 @@ class StationaryPlanner(object):
 
     def project(self, frame, shell, target, raw_prediction, now, channel,
                 deadline=None):
+        receipts = []
         try:
             dependencies, pivot, peers, cap = self._dependencies(frame)
             if dependencies != self._epoch:
@@ -731,6 +732,10 @@ class StationaryPlanner(object):
             result = _pending(error.reason, error.progressing)
             result['progress_token'] = (self._epoch_serial, len(self._supports),
                                         len(self._arcs), len(self._plans))
+            # This prefix belongs to this exact target/point call. Counts of
+            # global cached supports/arcs may include work for another tank.
+            # Only complete support + collision + hydraulic slices qualify.
+            result['verified_arcs'] = len(receipts)
             return result
         except (AttributeError, TypeError, ValueError, KeyError, IndexError,
                 RuntimeError, OverflowError, ZeroDivisionError) as error:

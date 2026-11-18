@@ -392,15 +392,18 @@ class SharedRouteCombatOwnershipTests(unittest.TestCase):
     def test_worker_accepted_combat_recovery_and_death_preserve_route_task(self):
         with contextlib.redirect_stdout(io.StringIO()):
             scene = self.workers()
-            for unused in range(20):
+            for unused in range(50):
                 scene.step(.1)
                 binding = scene.engine._actor_controls[11]
-                if binding.attack_policy.decision['action'] == 'aim':
+                if binding.combat_stop.combat_owned:
                     break
+                self.assertEqual('route', binding._last_order['combat_mode'])
+                self.assertFalse(binding._last_order['fire_allowed'])
             policy = binding.attack_policy
             self.assertEqual('aim', policy.decision['action'])
             self.assertTrue(policy._executable_current(policy.decision['candidate']))
             self.assertTrue(binding.combat_stop.combat_owned)
+            self.assertGreaterEqual(binding.combat_stop.receipt['confirmation_seconds'], 2.)
             self.assertEqual('engage', binding._last_order['combat_mode'])
             scene.world[:] = [((-200., -20., -3.), (200., 20., 3.))]
             for unused in range(12):

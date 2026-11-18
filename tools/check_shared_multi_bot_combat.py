@@ -179,12 +179,20 @@ def run_case(actors, frames, warmup, enemies, schedule):
                 in frame['counts'].items() if channel == 'atomic' and kind == 'candidate' and value))
                 for frame in measured] or [0]),
             background_actors_served=sorted(set(actor for row in receipts for actor in row['background_grants'])),
+            background_actors_requested=sorted(set(actor for row in receipts
+                for actor in tuple(row['background_grants']) + tuple(row['background_waiting']))),
             longest_contiguous_background_wait_callbacks=longest_wait)
         if receipts:
             if result['work_budget']['max_background_granted'] > 8 or result['work_budget']['max_atomic_actors'] > 1:
                 raise AssertionError('whole-roster optional-work budget exceeded')
-            if enemies and set(result['work_budget']['background_actors_served']) != set(scene.actor_ids):
-                raise AssertionError('not every active combat actor received optional-work service')
+            # Ordered current-shell review may need no NEXT work at all.
+            # Check actual queued requesters with a full service window,
+            # rather than forcing optional computation on every live actor.
+            service_window = int(math.ceil(actors/4.))
+            requesters = set(actor for row in receipts[:-service_window]
+                             for actor in row['background_waiting'])
+            if requesters - set(result['work_budget']['background_actors_served']):
+                raise AssertionError('a queued combat actor received no optional-work service')
             if longest_wait > int(math.ceil(actors/4.)):
                 raise AssertionError(('background requester starved', longest_wait))
         # Exactly match all authoritative ammunition debits to actual launch

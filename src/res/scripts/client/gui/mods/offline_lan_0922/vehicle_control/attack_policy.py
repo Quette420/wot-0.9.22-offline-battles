@@ -640,7 +640,8 @@ class AttackPolicy(object):
             return row
         if now >= block['retry_at']:
             block['retry_at'] = now + SCATTER_RECHECK_INTERVAL
-            admission = getattr(getattr(self.runtime, 'controller', None), 'trigger_admission', None)
+            control = getattr(self.runtime, 'controller', None) or self.runtime
+            admission = getattr(control, 'trigger_admission', None)
             if (row['line'] == 'clear' and admission is not None and
                     admission.recheck_world_scatter(row, now) is True):
                 self._scatter_blocks.pop(key, None)

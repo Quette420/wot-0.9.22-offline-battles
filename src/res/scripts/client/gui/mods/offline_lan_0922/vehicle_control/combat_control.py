@@ -149,7 +149,7 @@ class CombatControl(object):
         if (candidate is None or not self._live() or self._mission_brakes() or
                 self.attack_policy.decision.get('action') not in
                     ('aim', 'preaim', 'wait', 'firing_position') or
-                int(getattr(self.entity, 'siegeState', 0)) != siege_mechanics.ENABLED or
+                observation(self).native_siege_state() != siege_mechanics.ENABLED or
                 self._siege_pending is not None or
                 not self.combat_stop.combat_owned or not self.combat_stop.contains(candidate.get('target'))):
             return None
@@ -170,7 +170,7 @@ class CombatControl(object):
                 'fire' not in self.features or self._mission_brakes() or
                 not self.weapon.owned() or self.state is None or
                 self._siege_pending is not None or
-                int(getattr(entity, 'siegeState', 0)) != siege_mechanics.ENABLED or
+                observation(self).native_siege_state() != siege_mechanics.ENABLED or
                 not self.combat_stop.combat_owned):
             return None
         candidate = self.current_attack_candidate(self.state, self.weapon.target, for_aim=True)
@@ -206,7 +206,7 @@ class CombatControl(object):
         # enabled descriptor may move its native hydraulic actuator.
         self._siege_aim_candidate = None
         if (self._siege_pending is not None or
-                int(getattr(self.entity, 'siegeState', 0)) != siege_mechanics.ENABLED):
+                observation(self).native_siege_state() != siege_mechanics.ENABLED):
             self.siege_aim.reset()
             return
         if (self._mission_brakes() or

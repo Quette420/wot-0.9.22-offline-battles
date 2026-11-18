@@ -99,9 +99,10 @@ def hydraulic_reach(descriptor, direction, flat_body, config):
 def active_hydraulic_pose(runtime, frame):
     """Read the currently enabled actuator and its actual flat/body pair."""
     owner = runtime.owner
-    entity = observation(runtime).source_entity()
+    physical = observation(runtime)
+    entity = physical.source_entity()
     if (entity.typeDescriptor is not frame['descriptor'] or
-            getattr(entity, 'siegeState', hull_aiming.DISABLED) != hull_aiming.ENABLED):
+            physical.native_siege_state() != hull_aiming.ENABLED or physical.mode_pending()):
         return None
     config = hull_aiming.pitch_params(frame['descriptor'])
     if config is None or not config['isAvailable'] or not config['isEnabled']:

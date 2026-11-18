@@ -340,6 +340,12 @@ class BotControlBinding(MissionControl, CombatControl):
     def support_plane(self):
         return (self.state or {}).get('_suspension_ground_plane')
 
+    def chassis_support_at(self, position, yaw, descriptor, maximum_y, trace):
+        # Read the same five native columns as the foreground certificate.
+        # This is a detached support observation, never a chassis update.
+        return self.owner._sample_chassis_support(
+            position, yaw, descriptor, maximum_y, trace)[-1]
+
     def support_rise_blocked(self):
         return bool(self._support_blocked)
 
@@ -360,6 +366,11 @@ class BotControlBinding(MissionControl, CombatControl):
         if native is None:
             raise ValueError('worker native gun is unavailable')
         return _effective_shot_dispersion(native, self.state, self.source_descriptor())
+
+    def source_shot(self, shell_index):
+        from .. import bot_fittings
+        return bot_fittings.project_shot(self.source_descriptor(),
+            self.gun.shots[shell_index], self.state.get('critical'))
 
     def native_siege_state(self):
         # Native worker integration owns this mode. Its rendered Vehicle
@@ -661,7 +672,6 @@ class BotControlBinding(MissionControl, CombatControl):
         if self.trigger_active():
             return dict(status='rejected', reason='auto_tail_not_admissible')
         try:
-            from .. import bot_fittings
             context = self.prepare_trigger_context(
                 state, target, ballistic_solution, launch_receipt)
             if context is None:
@@ -676,8 +686,7 @@ class BotControlBinding(MissionControl, CombatControl):
                     launch_receipt.get('fire_seq') != sequence or
                     launch_receipt.get('shell_index') != gun.shot_index):
                 return dict(status='pending', reason='auto_artillery_launch_changed')
-            source_shot = bot_fittings.project_shot(
-                self.source_descriptor(), gun.shots[gun.shot_index], state.get('critical'))
+            source_shot = self.source_shot(gun.shot_index)
             raw_ray = self.mutable_shot_ray()
             verdict = self._admission().prepare(
                 context, entity, gun, raw_ray, self.native_dispersion_angle(),
@@ -706,7 +715,12 @@ class BotControlBinding(MissionControl, CombatControl):
             self._trigger_proposal = proposal
             return proposal
         except (AttributeError, TypeError, ValueError, KeyError, IndexError,
-                RuntimeError, OverflowError, ZeroDivisionError):
+                RuntimeError, OverflowError, ZeroDivisionError) as error:
+            if combat_detail_enabled():
+                combat_detail(self, 'bot_trigger_geometry_unavailable', self.actor_id, self.now,
+                    type(error).__name__, lambda: dict(target=(target or {}).get('network_id'),
+                        candidate=(self.attack_policy.decision.get('candidate') or {}).get('key'),
+                        error_type=type(error).__name__, error=str(error)[:200]))
             return dict(status='pending', reason='auto_geometry_unavailable')
 
     def validate_trigger(self, proposal, now):

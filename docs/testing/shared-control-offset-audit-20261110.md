@@ -1,5 +1,87 @@
 # PR119 control-offset correction — November 10, 2026
 
+## November 19 — Complete player-mechanism migration audit
+
+The user clarified the scope: migrate the complete existing player mechanisms
+to Bots, including their handoffs. Do not narrow migration to target selection
+or combat entry. When correcting bugs, preserve the original pathfinding
+mechanism as far as possible and correct combat/ownership handoffs instead.
+
+One intentional physical difference must remain: the user identifies the
+Bot five-point/full-support switch as the 1.1 bridge-edge fix and performance
+optimization. Ordinary Bots normally use basic support, temporarily admit
+detailed support on loss of a footprint witness, and return after support is
+restored. Ordinary players continuously use detailed support. This difference
+is not an incomplete migration. Hydraulic chassis retain their existing
+special support path on both actors. Neither the support-mode selection nor
+the existing route/search/driver implementation is changed by this follow-up.
+
+The earlier claim that migration was complete was unsupported. Sharing a
+policy constructor and passing selected regressions did not establish that
+every physical interface or continuation reached that policy. The audit now
+traces the full player control surface into each Bot consumer:
+
+| Mechanism | Player and Bot owner / boundary | Evidence and remaining acceptance |
+| --- | --- | --- |
+| Actor identity, native source, mounted weapon and mode | `PlayerObservation` / `BotControlBinding` | Full public observation contract checked, including every property and method; source independence tests forbid reading the observer's tank. |
+| Visibility, radio rights and public roster | `SharedOrderPlanning`, common geometry and actor-scoped native observations | Shared order/spotting/roster regressions; same-round identity does not grant hidden spatial observations. |
+| Strategic tasks, priority, explicit orders, arrival, hold and retry | `BotPlanner`, `MissionControl`, `HaltObservation` | Both actor classes inherit every common task method without replacement; mission and order tests compare both actors. |
+| Original route, local movement, traffic and recovery inputs | Common `BotRuntime` / driver; native actor adapters | Original search/driver sources unchanged. Navigation and movement receipt comparisons retained. |
+| Combat acquisition, continuity, two-second entry, no-HE cooldown | `CombatStop`, `CombatControl` | Common ownership and actor-entry tests, including immediate same-engagement handoff and five-second no-HE exit. |
+| Point and vehicle order, blocked-point skip/reopen, bounded moving-source work | `AttackPolicy`, `NativeAttackEvaluator`, `OrderedAttack` | Finite frontier and target-handoff tests. Native all-blocked and newly clear outcomes remain independently checked. |
+| Penetration/damage ordering, primary premium HE, current-car HE and blast ranking | Common ammunition validation and ordered policy | Gun/shell whitelist, actual inventory identities and full current-car point tests; primary HESH is not ordinary fallback. |
+| NEXT/CURRENT inputs, magazines, trigger groups, actual-shot return counters | `CombatControl` over native gun/ammo observations | Readiness, exact stock, queued-vs-loaded and committed-shot/clip tests; no simulated debit. |
+| Aim continuity, actual barrel readiness and capture gun handoff | `SharedEngineControl`, native aim adapters, common combat owner | Moving native feedback and exact unchanged parking-control regressions; circle handoff still needs native coverage in the replacement round. |
+| Siege transition, hydraulic pose and stationary turn certificates | Common siege helpers and `StationaryPlanner` over actor observations | Missing Bot support input and direct rendered-mode reads found and corrected; uneven five-column Bot projection regression fails before the correction and passes after. |
+| First-edge proof, frozen dispersion/penetration draw and trigger tail | `TriggerAdmission`, common preparation; native physical weapon owns commits | Shared material/obstruction/scatter/pose tests and worker commit/publish tests. A Bot-specific scatter-reopen omission was found and corrected. |
+| Projectile send/retry, hit and terminal receipt, artillery shell cycle | Native actor transports, common projectile protocol and `ShotPolicy` | Frozen publication/retry and artillery receipt tests; server terminal records are required in native acceptance. |
+| Repair, crew/device effects, consumables, governor and passive equipment | Common `EquipmentState`, `_poll_bot_equipments`, critical/fitting laws | Player facade observes native equipment and submits native inputs; Bot uses its own canonical ledger through the same policy. Equipment and critical-mechanic regression files are included in the full run. |
+| Death, reload, replacement actor/gun, release and lifecycle | Common mission/combat owners with native actor bindings | Ownership/lifecycle/tail tests; a retired controller does not cancel an already committed native trigger tail. |
+| Diagnostic entrance and unavailable/null physical observations | Detailed-diagnostics guard and actor-scoped records | New missing-shot and scatter-recheck exception records are opt-in; disabled logging is tested to collect neither payload. |
+
+The `291b51b6` native Conway round was not complete migration acceptance.
+Report `000117-3c894d2c2ed1` includes every expected launcher/server/client role.
+The mounted gun was BL 5.5 inch, with actual 10/10/10 ammunition and explicitly
+loaded HESH before automation. Five actual HESH commits reduced stock to five;
+the fifth shot at 00:00:10 selected Object 261 #14, with a matching server
+launch and impact. The target died before the player reached the circle.
+This demonstrates the earlier ignored-261 path firing, not a circle test.
+
+The user also correctly observed that enemy UDES #9 and #10 did not fire.
+Neither has a server projectile terminal. #9 retained clear human-target
+points but repeatedly stalled on stationary projection and released twice
+with `siege_stationary_review_stalled`. Its old generic five-point plane fit
+rejected a 0.052828 m residual. The Bot binding omitted `chassis_support_at`,
+so the shared hydraulic certificate could not call the existing chassis
+support solver. The new binding reads the same five native chassis columns;
+it does not change the daily basic/detailed support switch or the solver.
+
+The complete shared-mode audit also found direct reads of the rendered
+`Vehicle.siegeState` in combat ownership, mode-entry/review, hydraulic pose
+and hydraulic-input leases. A worker's integrated mode may already be enabled
+while that presentation still shows transition. These consumers now use the
+actor's existing native-mode observation. Disabled and transitioning modes
+still defer aiming; paired descriptor, pose and pending-input checks remain.
+
+An additional continuation omission made scatter-obstructed Bot points
+permanent: the policy looked only on a player's controller for its admission
+owner, and the recheck read the foreground player's effective shell. Bots now
+use their own existing admission owner and an explicit actor source-shot
+observation. First-edge preparation and read-only rechecks use that same Bot
+projection. The new regression proves refusal with a world obstruction,
+restoration after removing it, retention of the same native draw, no debit,
+and no foreground-shell read. Final proof predicates and thresholds are
+unchanged. Missing native-shot/recheck inputs receive detailed records only
+when the diagnostic option is selected.
+
+All common combat and mission methods are now covered by the no-shadow-owner
+contract, rather than a five-method sample. The complete client reference
+suite passed 533 isolated files / 10,829 cases. Four affected files were
+rerun after the final interface/diagnostic assertions and passed. CPython
+2.7.18 compiled all 264 client modules. These are engine-free reference
+checks, not native acceptance. The replacement native 15 vs 15 results and
+package must be appended before this follow-up is delivered.
+
 ## November 18 follow-up — Actor parity, finite blocked review and hydraulic pose
 
 The `201622-fb0bb6f40e74` report establishes two separate ELC defects.

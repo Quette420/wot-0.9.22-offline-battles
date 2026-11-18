@@ -17,6 +17,7 @@ from .attack_policy import (PENETRATION_FACTOR_65, _distance_sq, _mechanical,
                             native_geometry_complete, native_lane_geometry_complete,
                             native_chord_candidates, native_hostile_roster)
 from .actor_observation import observation
+from ..native_input_diagnostics import combat_detail, combat_detail_enabled
 
 
 WORLD_CHORDS_PER_ATTEMPT = 24
@@ -403,8 +404,7 @@ class TriggerAdmission(object):
             if gun.shot_index != row['shell_index'] or self.physical.trigger_active():
                 return None
             solution = row['solution']
-            effective = self.owner._accepted_local_effective_params()
-            shot = effective['gun']['shots'][gun.shot_index]['source_shot']
+            shot = self.physical.source_shot(gun.shot_index)
             target = self._target(dict(target=row['target']))
             dispersion = self.physical.native_dispersion_angle()
             if target is None or dispersion is None:
@@ -433,8 +433,12 @@ class TriggerAdmission(object):
             if token is self.pending and self._scene() == scene:
                 return proof['done'] and proof['refusal'] is None
         except (AttributeError, TypeError, ValueError, KeyError, IndexError,
-                RuntimeError, OverflowError, ZeroDivisionError):
-            pass
+                RuntimeError, OverflowError, ZeroDivisionError) as error:
+            if combat_detail_enabled():
+                runtime = self.control.runtime
+                combat_detail(runtime, 'scatter_recheck_unavailable', runtime.actor_id, now,
+                    type(error).__name__, lambda: dict(candidate=row.get('key'),
+                        error_type=type(error).__name__, error=str(error)[:200]))
         return None
 
     def _feedback(self, context, reason, blocker=None):

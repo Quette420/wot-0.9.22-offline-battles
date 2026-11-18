@@ -68,15 +68,16 @@ class SharedSourceOwnershipTests(unittest.TestCase):
 
     def test_foreground_and_worker_have_the_exact_same_combat_owner(self):
         combat = importlib.import_module(SHARED + '.combat_control').CombatControl
+        mission = importlib.import_module(SHARED + '.mission_control').MissionControl
         player = importlib.import_module(SHARED + '.full_runtime').FullPlayerRuntime
         worker = importlib.import_module(SHARED + '.bot_binding').BotControlBinding
         for actor in (player, worker):
             self.assertTrue(issubclass(actor, combat))
-            for name in ('_accept_combat_order', 'current_attack_candidate',
-                         '_refresh_siege_aim', '_apply_next_shell',
-                         '_ordinary_firing_order'):
-                self.assertNotIn(name, actor.__dict__, name)
-                self.assertIs(getattr(actor, name), getattr(combat, name))
+            for owner in (combat, mission):
+                for name, implementation in vars(owner).items():
+                    if callable(implementation) or isinstance(implementation, property):
+                        self.assertNotIn(name, actor.__dict__, name)
+                        self.assertIs(getattr(actor, name), getattr(owner, name))
 
     def test_no_retired_hull_angle_or_target_priority_dispatch_remains(self):
         for directory in (CLIENT, ROOT / 'server'):

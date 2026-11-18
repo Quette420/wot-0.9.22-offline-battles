@@ -344,7 +344,7 @@ class CombatStop(object):
                 current.get('mechanical') == 'mechanical_limited' and
                 current.get('shell_index') == runtime.gun.shot_index and
                 hydraulic is not None and runtime.siege_capable() and
-                int(getattr(runtime.entity, 'siegeState', 0)) == siege_mechanics.ENABLED and
+                observation(runtime).native_siege_state() == siege_mechanics.ENABLED and
                 not self.mode_pending()):
             motion = hydraulic.candidate(policy.frame, runtime.now, current)
             if (isinstance(motion, dict) and motion.get('key') == current.get('key') and
@@ -411,7 +411,7 @@ class CombatStop(object):
         """Admit the native mode protocol, not an unchecked recovery move."""
         runtime = self.runtime
         if ('drive' not in runtime.features or not runtime.siege_capable() or
-                int(getattr(runtime.entity, 'siegeState', 0)) == siege_mechanics.ENABLED):
+                observation(runtime).native_siege_state() == siege_mechanics.ENABLED):
             return None
         mission = getattr(runtime, '_mission', None) or {}
         explicit = bool(not self.explicit_travel and (
@@ -1057,11 +1057,10 @@ class CombatStop(object):
 
     def mode_pending(self):
         runtime = self.runtime
-        states = ((runtime.state or {}).get('siege_state'),
-                  getattr(getattr(runtime, 'entity', None), 'siegeState', None))
-        return bool(any(state in (siege_mechanics.SWITCHING_ON, siege_mechanics.SWITCHING_OFF)
-                        for state in states) or getattr(runtime, '_siege_pending', None) is not None or
-                    observation(runtime).mode_pending())
+        physical = observation(runtime)
+        return bool(physical.native_siege_state() in
+                    (siege_mechanics.SWITCHING_ON, siege_mechanics.SWITCHING_OFF) or
+                    getattr(runtime, '_siege_pending', None) is not None or physical.mode_pending())
 
     def siege_aim_deferred(self):
         """The travel and transitioning gun can provide a line, then lay after the echo."""
@@ -1069,7 +1068,7 @@ class CombatStop(object):
         return bool(runtime.siege_capable() and
                     (self.mode_pending() or
                      int(runtime.state.get('siege_state', 0)) != siege_mechanics.ENABLED or
-                     int(getattr(runtime.entity, 'siegeState', 0)) != siege_mechanics.ENABLED))
+                     observation(runtime).native_siege_state() != siege_mechanics.ENABLED))
 
     def waiting_for_siege(self):
         return self.combat_owned and self.siege_aim_deferred()

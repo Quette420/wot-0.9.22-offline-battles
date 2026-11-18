@@ -207,6 +207,7 @@ class HydraulicPoseParityTests(unittest.TestCase):
         entity = SimpleNamespace(typeDescriptor=installed, siegeState=2)
         binding = BotControlBinding.__new__(BotControlBinding)
         binding.actor_id, binding.physical = 24, binding
+        binding._siege_pending = None
         binding.engine = SimpleNamespace(states={24: state}, _terrain_pitch=lambda value: value['terrain_pitch'])
         binding.owner = SimpleNamespace(_runtime=SimpleNamespace(math=SimpleNamespace(Matrix=SpatialPose)),
                                        _vector=f._Vector)

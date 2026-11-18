@@ -6,7 +6,9 @@ from being used as a controlled BOT's physical source.
 """
 import contextlib
 import io
+import json
 import math
+import os
 import struct
 from types import SimpleNamespace
 import unittest
@@ -83,6 +85,45 @@ class ActorBindingTests(unittest.TestCase):
         self.assertEqual((.3, -.03), pose[3])
         self.assertNotEqual(pose, self.other.source_pose())
         self.assertEqual([], self.observer_reads)
+
+    def test_worker_implements_the_complete_shared_physical_observation_contract(self):
+        from gui.mods.offline_lan_0922.vehicle_control.actor_observation import PlayerObservation
+        from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
+        for name, entry in vars(PlayerObservation).items():
+            if not name.startswith('_') and (callable(entry) or isinstance(entry, property)):
+                with self.subTest(observation=name):
+                    self.assertTrue(hasattr(BotControlBinding, name), name)
+
+    def test_worker_hydraulic_observation_uses_integrated_mode_before_render_echo(self):
+        from test_player_fire_admission_complete import SpatialPose
+        from gui.mods.offline_lan_0922 import siege_mechanics
+        from gui.mods.offline_lan_0922.vehicle_control.native_aim import active_hydraulic_pose
+        self.battle._runtime.math.Matrix = SpatialPose
+        self.descriptor.hasSiegeMode = True
+        self.descriptor.type.hullAimingParams = dict(pitch=dict(
+            isAvailable=True, isEnabled=True,
+            wheelsCorrectionAngles=dict(pitchMin=-.25, pitchMax=.25),
+            wheelsCorrectionSpeed=.2, wheelCorrectionCenterZ=1.5))
+        state = self.binding.state
+        state.update(siege_state=siege_mechanics.ENABLED, suspension_pitch=.08)
+        entity = self.binding.source_entity()
+        entity.siegeState = siege_mechanics.SWITCHING_ON
+        pose = self.binding.source_pose()
+        frame = dict(descriptor=self.descriptor, pose=pose, body=pose[1])
+        hydraulic = active_hydraulic_pose(self.binding, frame)
+        self.assertIsNotNone(hydraulic)
+        self.assertAlmostEqual(.08, hydraulic['correction'])
+        self.assertFalse(self.binding.combat_stop.mode_pending())
+        self.assertFalse(self.binding.combat_stop.siege_aim_deferred())
+        self.assertTrue(self.binding._siege_fire_ready())
+        entity.siegeState = siege_mechanics.ENABLED
+        for mode in (siege_mechanics.DISABLED, siege_mechanics.SWITCHING_ON,
+                     siege_mechanics.SWITCHING_OFF):
+            with self.subTest(integrated_mode=mode):
+                state['siege_state'] = mode
+                self.assertIsNone(active_hydraulic_pose(self.binding, frame))
+                self.assertTrue(self.binding.combat_stop.siege_aim_deferred())
+                self.assertFalse(self.binding._siege_fire_ready())
 
     def test_missing_worker_entity_fails_closed_without_local_fallback(self):
         from gui.mods.offline_lan_0922.vehicle_control.actor_observation import observation
@@ -815,6 +856,62 @@ class WorkerFirstEdgeAdmissionTests(unittest.TestCase):
         self.assertEqual('auto_friendly_lane', proposal['reason'])
         self.assertEqual([20, 10], self.binding.gun.ammo)
         self.assertEqual([], self.observer_reads)
+
+    def test_worker_scatter_obstruction_reopens_using_its_own_physical_shot(self):
+        policy = self.binding.attack_policy
+        row = dict(self.candidate, line='clear')
+        key = row['key'][:3]
+        policy._scatter_blocks[key] = dict(
+            retry_at=self.scene.now,
+            blocker=dict(kind='world', ray_stage='scatter', point=(0., 2., 10.)))
+        admission = self.binding._admission()
+        self.assertIsNone(self.binding.controller)
+        origin, direction = row['solution']['origin'], row['solution']['direction']
+        point = tuple(origin[i] + direction[i] * 10. for i in range(3))
+        self.scene.world = [(tuple(value - .1 for value in point),
+                             tuple(value + .1 for value in point))]
+        before = list(self.binding.gun.ammo)
+        forbidden = mock.patch.object(self.battle, '_accepted_local_effective_params',
+            side_effect=AssertionError('BOT obstruction review read the foreground shell'))
+        with forbidden, mock.patch.object(admission, 'recheck_world_scatter',
+                                          wraps=admission.recheck_world_scatter) as recheck:
+            blocked = policy._review_scatter_block(row, self.scene.now)
+            self.assertTrue(blocked.get('scatter_blocked'))
+            self.assertEqual(1, recheck.call_count)
+            token = admission.pending
+            self.scene.world[:] = []
+            self.scene.fixture.now += .3
+            clear = policy._review_scatter_block(row, self.scene.now)
+            self.assertFalse(clear.get('scatter_blocked'), clear)
+            self.assertNotIn(key, policy._scatter_blocks)
+            self.assertIs(token, admission.pending)
+        self.assertEqual(before, self.binding.gun.ammo)
+        self.assertEqual([], self.observer_reads)
+
+    def test_worker_missing_shot_diagnostics_require_detailed_log_opt_in(self):
+        before = list(self.binding.gun.ammo)
+        for enabled in ('0', '1'):
+            with self.subTest(detailed=enabled):
+                output = io.StringIO()
+                with mock.patch.dict(os.environ, {'WOT_OFFLINE_DIAGNOSTICS': '1',
+                        'WOT_OFFLINE_COMBAT_DIAGNOSTICS': enabled}), \
+                        mock.patch.object(self.binding, 'source_shot',
+                                          side_effect=ValueError('missing actor shell fields')), \
+                        contextlib.redirect_stdout(output):
+                    result = self.prepare()
+                    recheck = self.binding._admission().recheck_world_scatter(
+                        self.candidate, self.scene.now)
+                self.assertEqual('auto_geometry_unavailable', result['reason'])
+                self.assertIsNone(recheck)
+                records = [json.loads(line.split('BATTLE REVIEW ', 1)[1])
+                           for line in output.getvalue().splitlines()
+                           if 'BATTLE REVIEW ' in line]
+                relevant = [row for row in records if row.get('stage') in (
+                    'bot_trigger_geometry_unavailable', 'scatter_recheck_unavailable')]
+                self.assertEqual(2 if enabled == '1' else 0, len(relevant))
+                self.assertTrue(all(row['actor'] == 11 and row['error_type'] == 'ValueError'
+                                    for row in relevant))
+        self.assertEqual(before, self.binding.gun.ammo)
 
     def high_arc_sample(self):
         from gui.mods.offline_lan_0922 import ballistics

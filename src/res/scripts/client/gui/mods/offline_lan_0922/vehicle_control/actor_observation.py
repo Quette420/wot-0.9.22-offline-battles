@@ -116,6 +116,10 @@ class PlayerObservation(object):
     def native_dispersion_angle(self):
         return float(self.owner._native_dispersion_angle())
 
+    def source_shot(self, shell_index):
+        effective = self.owner._accepted_local_effective_params()
+        return effective['gun']['shots'][shell_index]['source_shot']
+
     def native_siege_state(self):
         # The foreground's mode is the native Vehicle echo, not an input
         # request which may still be braking or awaiting acknowledgement.

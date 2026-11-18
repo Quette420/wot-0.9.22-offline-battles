@@ -293,7 +293,8 @@ class ActualSiegeAim(object):
                 return None
             entity = observation(runtime).source_entity()
             if (entity.typeDescriptor is not lease['descriptor'] or
-                    getattr(entity, 'siegeState', hull_aiming.DISABLED) != hull_aiming.ENABLED or
+                    observation(runtime).native_siege_state() != hull_aiming.ENABLED or
+                    observation(runtime).mode_pending() or
                     lease['identity'] != tuple(observation(runtime).weapon_identity()) +
                                           (id(_field(entity.typeDescriptor, 'gun')),) or
                     int(runtime.gun.shot_index) != key[0] or runtime.gun.ammo[key[0]] <= 0 or

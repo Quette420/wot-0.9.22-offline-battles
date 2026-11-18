@@ -363,6 +363,60 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
         self.assertEqual('stationary_native_support_pending', plan['reason'])
         self.assertFalse(scene.catalog_calls)
 
+    def test_worker_binding_proves_the_same_uneven_five_point_hydraulic_turn(self):
+        from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
+        from gui.mods.offline_lan_0922.vehicle_control.stationary_plan import StationaryPlanner
+        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
+        descriptor = scene.entity.typeDescriptor
+        width, length = tank_collision.chassis_shape(descriptor)[:2]
+        scene.ground_function = lambda x, z: .02 * x + .07 * (z / length) ** 2
+        battle = scene.battle
+        battle._terrain_support(scene.position, 0., descriptor)
+        plane = battle._local_legacy_support_sample[3]
+        scene.position = (0., plane['center_y'], 0.)
+        battle.local_pose = lambda: (scene.position, scene.flat_body.yaw)
+        for body in (scene.flat_body, scene.body):
+            body.setRotateYPR((0., plane['pitch'], plane['roll']))
+            body.translation = scene.position
+        battle._local_ground_plane = plane
+        scene.update_barrel_observation()
+        scene.pose(scene.target, (math.sin(-.7) * 100., 8., math.cos(-.7) * 100.))
+        scene.observe()
+        engine, actor = scene.runtime.engine, scene.runtime.actor_id
+        record = dict(battle._records['player:1'], kind='bot', network_id=actor,
+                      local=False, state=engine.states[actor])
+        battle._records['bot:%s' % actor] = record
+        self.addCleanup(battle._records.pop, 'bot:%s' % actor, None)
+        binding = BotControlBinding(battle, engine, actor)
+        self.addCleanup(binding.close)
+        target = dict(scene.runtime.visible_targets()[0])
+        self.assertTrue(binding.observe(scene.now, [target]))
+        binding.combat_stop.active = binding.combat_stop.combat_owned = True
+        binding.combat_stop.targets = (target,)
+        planner = StationaryPlanner(binding)
+        planner.clock = lambda: 0.
+        state_before = dict(binding.state)
+        scene.ground_calls.clear()
+        for unused in range(30):
+            evaluator = binding.attack_policy.evaluator
+            frame = evaluator.snapshot(scene.now)
+            observed = next(row for row in frame['targets'] if row['entity'] is scene.target)
+            raw = evaluator._prediction(frame, frame['shells'][0], observed, 0)
+            plan = planner.project(frame, frame['shells'][0], observed, raw, scene.now, 'foreground')
+            if plan['status'] == 'proved' or not plan.get('progressing'):
+                break
+            scene.fixture.now += .11
+        self.assertEqual('proved', plan['status'], plan)
+        self.assertGreater(plan['proof']['source_support']['contact_residual'], .05)
+        self.assertEqual({(0., length), (0., 0.), (0., -length), (width, 0.), (-width, 0.)},
+                         {tuple(row[:2]) for row in scene.ground_calls[:5]})
+        self.assertLess(plan['flat_body'][0], -.5)
+        self.assertTrue(plan['proof']['arc'])
+        self.assertTrue(all(row['hydraulic']['native_clear'] for row in plan['proof']['arc']))
+        self.assertFalse(plan['proof']['fire_permission'])
+        self.assertTrue(planner.current(frame, plan['proof']))
+        self.assertEqual(state_before, dict(binding.state))
+
     def test_chassis_collision_surfaces_require_detailed_diagnostics(self):
         for enabled in ('0', '1'):
             with self.subTest(detailed=enabled):

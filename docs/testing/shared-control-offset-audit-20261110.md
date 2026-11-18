@@ -104,6 +104,40 @@ by the test entrance. It replaces the human's large-TD slot only; the other
 29 Bots retain the original lineup. Native follow-up and final package details
 will be appended after execution. PR #119 remains open and unmerged.
 
+### Native Conway round and remaining hydraulic consumers
+
+The native garage explicitly showed BL 5.5 inch installed and 120 mm AT L1A1
+uninstalled. The `046f959c` round acknowledged HESH compact descriptor 32602,
+slot 1, one ready round and the complete 10/10/10 rack before control resumed.
+The setup selection was an explicit test-channel input, not an automatic
+policy switch. Server launch and terminal records match all three commits:
+HESH at 23:11:03 (miss), HESH at 23:11:14 (impact), and basic HE fallback at
+23:11:37 (miss). AP was loaded and reviewed between the second and third
+shots, but no AP cartridge was fired. The postbattle result recorded 915
+damage and one kill. All four UDES Bots have actual projectile terminal records.
+Bot 183 initialized on HESH slot 1 while retaining the complete equal-ratio
+inventory. Report `232357-1c3e3418bf1f` contains every expected role.
+
+Exact-head CI for `046f959c` passed behavior, navigation, native geometry,
+Windows server and Windows editor jobs, plus all 49 launcher test files.
+The full client run passed 531/533 files. The remaining two files identified
+one real hydraulic omission and outdated load-receipt expectations.
+
+The side-slope physical-launch test still used the uncomposed chassis angles
+in the existing hull-laying input. It now receives the same composed gun-body
+pose as barrel laying. The circle gun-handoff comparison uses that pose too,
+so its preserved-control check agrees with the input it compares. A separate
+native callback assertion also caught a 0.528 m launch-source discrepancy in
+the same fixture: the final launch builder still copied the old Euler pose.
+Exact-origin review and launch now share one canonical source-state builder.
+No movement law, support certificate or trigger predicate was relaxed.
+
+The binding regressions now distinguish the consumed cartridge from committed
+NEXT during a full reload, and assert actual promotion only at native readiness.
+They retain exact stock counts, elapsed-clock checks and explicit CURRENT-input
+coverage. Unreviewed HE cannot displace the already stocked fallback using a
+bare policy reason. The native follow-up below uses the resulting payload.
+
 ## November 12 follow-up — Finish obstructed HE engagements
 
 The `214138-c65b14d3ce9e` report showed UDES 03 holding Type 4 Heavy #12

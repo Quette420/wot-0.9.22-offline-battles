@@ -12810,6 +12810,14 @@ class BotRuntime(SharedEngineControl):
         except (KeyError, TypeError, ValueError, OverflowError):
             return None
 
+    @staticmethod
+    def _gun_source_state(state, descriptor):
+        source = _copy_runtime_state(state)
+        mounted, body = hull_aiming.body_pose(state, descriptor)
+        source.update(zip(('x', 'y', 'z'), mounted))
+        source.update(zip(('yaw', 'pitch', 'roll'), body))
+        return source
+
     def _exact_shot_origin(self, state, descriptor, shell_index=0):
         """Read the worker's physical gun-pivot origin for this shot."""
         direction = self._exact_shot_direction(state, descriptor)
@@ -12821,10 +12829,7 @@ class BotRuntime(SharedEngineControl):
         shot_pitch = -math.atan2(
             direction[1], max(1.0e-12, horizontal))
         try:
-            source = _copy_runtime_state(state)
-            mounted, body = hull_aiming.body_pose(state, descriptor)
-            source.update(zip(('x', 'y', 'z'), mounted))
-            source.update(zip(('yaw', 'pitch', 'roll'), body))
+            source = self._gun_source_state(state, descriptor)
             raw = self.direct_launch_origin_probe(
                 source, descriptor, int(shell_index),
                 int(state.get('fire_seq', 0)) + 1,
@@ -12858,9 +12863,11 @@ class BotRuntime(SharedEngineControl):
         return BotRuntime._exact_shot_direction(state, descriptor)
 
     @staticmethod
-    def _local_gun_angles_for_world(state, world_yaw, world_pitch, body=None):
+    def _local_gun_angles_for_world(state, world_yaw, world_pitch, body=None,
+                                    descriptor=None):
         if body is None:
-            body = (state.get('yaw', 0.0), state.get('pitch', 0.0), state.get('roll', 0.0))
+            body = (hull_aiming.body_pose(state, descriptor)[1] if descriptor is not None else
+                    (state.get('yaw', 0.0), state.get('pitch', 0.0), state.get('roll', 0.0)))
         try:
             return shot_geometry.world_direction_to_local_gun_angles(
                 ai_driver.barrel_direction(world_yaw, world_pitch), *body)
@@ -13041,7 +13048,7 @@ class BotRuntime(SharedEngineControl):
                 state, descriptor, world_yaw, world_pitch, config)
             return reachable
         local = cls._local_gun_angles_for_world(
-            state, world_yaw, world_pitch)
+            state, world_yaw, world_pitch, descriptor=descriptor)
         if local is None:
             return False
         limits = cls._effective_gun_pitch_limits(
@@ -14824,16 +14831,17 @@ class BotRuntime(SharedEngineControl):
             burst_index, burst_group_seq,
             base_direction=base_direction)
         try:
+            source = self._gun_source_state(state, descriptor)
             if not self._probe_timing_enabled():
                 raw_origin = self.direct_launch_origin_probe(
-                    _copy_runtime_state(state), descriptor, int(shell_index),
+                    source, descriptor, int(shell_index),
                     fire_seq,
                     shot_yaw, shot_pitch, flight_time)
             else:
                 probe_started = self._probe_started()
                 try:
                     raw_origin = self.direct_launch_origin_probe(
-                        _copy_runtime_state(state), descriptor,
+                        source, descriptor,
                         int(shell_index), fire_seq,
                         shot_yaw, shot_pitch, flight_time)
                 finally:
@@ -17275,7 +17283,7 @@ class BotRuntime(SharedEngineControl):
                     desired_aim_yaw = aim_solution['yaw']
                     aim_pitch = aim_solution['pitch']
                 local_aim = self._local_gun_angles_for_world(
-                    state, desired_aim_yaw, aim_pitch)
+                    state, desired_aim_yaw, aim_pitch, descriptor=descriptor)
                 hull_aim_yaw = (state['yaw'] + local_aim[0]
                                 if local_aim is not None else desired_aim_yaw)
             aim_target_key = ((target.get('kind'),

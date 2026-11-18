@@ -249,7 +249,7 @@ class ActorBindingTests(unittest.TestCase):
         self.assertEqual(before, ammo.remaining)
         self.assertEqual(0, self.other.gun.shot_index)
 
-    def test_completed_load_can_fire_and_switch_in_next_reload_same_slice(self):
+    def test_completed_load_keeps_stocked_fallback_until_a_new_current_input(self):
         self.descriptor.gun.clip = (1, .2)
         native_gun = self.module._BotGunState(self.descriptor,
             crew_level=self.engine.bot_crew_level(11))
@@ -280,8 +280,15 @@ class ActorBindingTests(unittest.TestCase):
         self.binding.attack_policy.decision = dict(action='switch_shell',
             reason='current_ammunition_exhausted', candidate=None, shell_index=2)
         self.binding._apply_shell_intent()
+        # The native final debit already planned stocked AP. A bare policy
+        # label cannot replace that plan with unreviewed HE during its load.
+        self.assertEqual(0, gun.shot_index)
+        self.assertIsNone(self.binding._loading_switch)
+        elapsed = native_gun.elapsed
+        # An explicit CURRENT input can redirect that same native load.
+        self.assertTrue(self.binding._shell_setting('CURRENT_SHELLS', 2))
         self.assertEqual(2, gun.shot_index)
-        self.assertIs(gun, self.binding._loading_switch)
+        self.assertEqual(elapsed, native_gun.elapsed)
         self.assertEqual([10, 0, 6], ammo.remaining)
 
     def test_native_ready_observation_clears_switch_without_advancing_weapon(self):
@@ -308,9 +315,17 @@ class ActorBindingTests(unittest.TestCase):
         gun.native.elapsed = .1
         self.binding.shot_committed(dict(fire_seq=1, burst_index=0, burst_count=1))
         self.assertEqual([9, 8, 6], ammo.remaining)
-        self.assertEqual(1, ammo.loaded)
+        # The consumed shell remains the physical receipt until native
+        # prepare completes the full reload; its committed NEXT is visible.
+        self.assertEqual((0, 1, 1), (ammo.loaded, ammo.next, gun.shot_index))
         self.assertIsNone(gun.pending_index)
         self.assertEqual(.1, gun.native.elapsed)
+        factor = self.binding.reload_factor()
+        gun.native.tick(gun.native.duration(factor))
+        self.assertEqual('full', gun.native.complete_reload(factor, ammo.planned_rounds()))
+        ammo.stage(ammo.next, True, True)
+        self.assertEqual(1, ammo.loaded)
+        self.assertEqual([9, 8, 6], ammo.remaining)
 
     def test_final_native_load_edge_promotes_exhausted_stock_fallback(self):
         gun, ammo = self.binding.gun, self.binding._native_ammo()
@@ -321,9 +336,15 @@ class ActorBindingTests(unittest.TestCase):
         gun.native.require_full_reload()
         gun.native.elapsed = .1
         self.binding.shot_committed(dict(fire_seq=1, burst_index=0, burst_count=1))
-        self.assertEqual(fallback, ammo.loaded)
+        self.assertEqual((0, fallback, fallback), (ammo.loaded, ammo.next, gun.shot_index))
         self.assertEqual([0, 8, 6], ammo.remaining)
         self.assertEqual(.1, gun.native.elapsed)
+        factor = self.binding.reload_factor()
+        gun.native.tick(gun.native.duration(factor))
+        self.assertEqual('full', gun.native.complete_reload(factor, ammo.planned_rounds()))
+        ammo.stage(ammo.next, True, True)
+        self.assertEqual(fallback, ammo.loaded)
+        self.assertEqual([0, 8, 6], ammo.remaining)
 
     def test_shared_proof_uses_actor_visibility_and_team_not_observer_team(self):
         target = dict(kind='bot', network_id=12, team=1, engine_id=212,

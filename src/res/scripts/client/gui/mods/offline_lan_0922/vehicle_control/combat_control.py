@@ -335,7 +335,8 @@ class CombatControl(object):
             cached = self.engine._ballistic_solution_cache.get(self.actor_id)
             if cached is not None and cached[0] == signature:
                 yaw, pitch = cached[2]['yaw'], cached[2]['pitch']
-            local = self.engine._local_gun_angles_for_world(state, yaw, pitch)
+            local = self.engine._local_gun_angles_for_world(
+                state, yaw, pitch, descriptor=descriptor)
             if local is None:
                 return False
             yaw = state['yaw'] + local[0]

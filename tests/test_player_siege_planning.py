@@ -431,6 +431,20 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
         self.assertTrue(planner.current(frame, plan['proof']))
         self.assertEqual(state_before, dict(binding.state))
 
+    def test_worker_complete_support_survives_mode_cache_invalidation(self):
+        from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
+        scene = self.scene()
+        engine, actor = scene.runtime.engine, scene.runtime.actor_id
+        descriptor = scene.entity.typeDescriptor
+        engine._descriptor_pairs[actor] = (descriptor, descriptor)
+        descriptor.isPitchHullAimingAvailable = False
+        binding = BotControlBinding(scene.battle, engine, actor)
+        self.addCleanup(binding.close)
+        for mode in (0, 1, 2, 3):
+            engine.states[actor]['siege_state'] = mode
+            engine._suspension_params.pop(actor, None)
+            self.assertTrue(binding.complete_support())
+
     def test_chassis_collision_surfaces_require_detailed_diagnostics(self):
         for enabled in ('0', '1'):
             with self.subTest(detailed=enabled):

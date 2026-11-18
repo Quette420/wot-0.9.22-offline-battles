@@ -101,6 +101,23 @@ class TriggerAdmission(object):
                             if key not in ('token', 'target', 'path', 'raw_ray'))
         return result
 
+    def _record_actual_refusal(self, proof, now):
+        if not combat_detail_enabled():
+            return
+        reason = proof.get('refusal')
+        if reason not in ('auto_actual_barrel_armour', 'auto_actual_barrel_miss'):
+            return
+        runtime = self.control.runtime
+        candidate, solution = proof.get('candidate') or {}, proof['solution']
+        combat_detail(runtime, 'actual_barrel_refusal', runtime.actor_id, now,
+            (reason, candidate.get('key')), lambda: dict(refusal=reason,
+                candidate=candidate.get('key'), mode=candidate.get('mode'),
+                aim_point=solution['point'], source_pose=solution.get('source_pose'),
+                barrel_origin=proof['raw_ray'][0], barrel_direction=proof['raw_ray'][1],
+                centre_endpoint=proof['raw_path'][-1],
+                target_engine=proof['target'].id,
+                contact=proof.get('centre_observation'), cursor=proof['cursor']))
+
     def _target(self, context):
         value = context.get('target')
         runtime = self.control.runtime
@@ -300,6 +317,12 @@ class TriggerAdmission(object):
                 if centre:
                     proof['centre_path'] = tuple(path[:index + 1]) + (target['point'],)
                     proof['refusal'] = self._centre_verdict(proof, target)
+                    if combat_detail_enabled():
+                        armor = target.get('contact') or {}
+                        proof['centre_observation'] = dict(actor=target['row']['actor_key'],
+                            point=target['point'], armor=dict((key, armor.get(key)) for key in (
+                                'result', 'layer', 'distance', 'effective_armor',
+                                'piercing', 'angle_cos', 'component')))
                     if proof['refusal'] == 'auto_front_vehicle':
                         row = target['row']
                         # Native entity ids and tactical actor ids are not
@@ -519,6 +542,7 @@ class TriggerAdmission(object):
                     candidate['proof'] = None
                     return self._result('pending', 'auto_world_changed', world_chords=used)
                 if proof.get('refusal') is not None:
+                    self._record_actual_refusal(proof, now)
                     self._feedback(context, proof['refusal'], proof.get('blocker'))
                     return self._result('pending', proof['refusal'], candidate, world_chords=used,
                                         blocker=proof.get('blocker'))

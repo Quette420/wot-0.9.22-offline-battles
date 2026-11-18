@@ -6102,6 +6102,7 @@ class BotRuntimeTests(unittest.TestCase):
             for mode in (0, 1, 2, 3):
                 state['siege_state'] = mode
                 runtime._descriptors[11] = enabled if mode == 2 else travel
+                runtime._suspension_params.pop(11, None)
                 self.assertIsNotNone(runtime._suspension_params_for(11))
                 self.assertFalse(runtime._update_vertical_motion(state, .1))
                 self.assertFalse(runtime._release_detailed_support(state))

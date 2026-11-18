@@ -763,6 +763,26 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
         self.assertEqual('auto_actual_barrel_armour', self.admission.receipt['reason'])
         self.assert_unspent()
 
+    def test_actual_barrel_refusal_details_require_the_diagnostic_checkbox(self):
+        for name in ('chassis', 'hull', 'turret', 'gun'):
+            getattr(self.target.typeDescriptor, name).materials[0].armor = 10000.
+        for enabled in (False, True):
+            with self.subTest(detailed=enabled):
+                self.admission.reset()
+                with mock.patch(ADMISSION+'.combat_detail_enabled', return_value=enabled), \
+                        mock.patch(ADMISSION+'.combat_detail') as detail:
+                    self.assertFalse(self.fire())
+                self.assertEqual('auto_actual_barrel_armour', self.admission.receipt['reason'])
+                self.assert_unspent()
+                self.assertEqual(enabled,detail.called)
+                if enabled:
+                    self.assertEqual('actual_barrel_refusal',detail.call_args.args[1])
+                    payload=detail.call_args.args[-1]()
+                    self.assertEqual(self.target.id,payload['target_engine'])
+                    self.assertEqual('auto_actual_barrel_armour',payload['refusal'])
+                    self.assertNotEqual(2,payload['contact']['armor']['result'])
+                    self.assertEqual(3,len(payload['barrel_direction']))
+
     def test_real_target_pose_change_invalidates_old_first_trigger_evidence(self):
         self.pose(self.target, (10., 0., 100.))
         self.assertFalse(self.fire())

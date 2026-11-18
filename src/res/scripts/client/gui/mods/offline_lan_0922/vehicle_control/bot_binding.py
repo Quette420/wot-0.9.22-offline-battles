@@ -351,7 +351,11 @@ class BotControlBinding(MissionControl, CombatControl):
         return bool(self._support_blocked)
 
     def complete_support(self):
-        return self.engine._suspension_params.get(self.actor_id) is not None
+        # A native mode edge invalidates cached parameters before the next
+        # physics slice rebuilds them. That cannot select a five-point plan.
+        continuous = getattr(self.engine, '_full_support_required', lambda state: False)
+        return bool(continuous(self.state) or
+                    self.engine._suspension_params.get(self.actor_id) is not None)
 
     def record_support(self, blocked):
         self._support_blocked = bool(blocked)

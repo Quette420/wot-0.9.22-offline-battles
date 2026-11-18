@@ -142,6 +142,7 @@ class ArtillerySelection(object):
 
     def _apply(self, order, target, frame, permit):
         result = dict(order)
+        result.pop('artillery_review_pending', None)
         if target is None:
             result.update(target_kind=None, target_id=None, aim_position=None,
                           fire_allowed=False)
@@ -149,6 +150,12 @@ class ArtillerySelection(object):
             result.update(target_kind=target.get('kind'), target_id=_key(target)[1],
                           aim_position=target.get('position'))
             row = self.rows.get(_key(target)) or {}
+            if (self.current == _key(target) and row.get('status') == 'pending'
+                    and order.get('fire_allowed')):
+                # Pending review withdraws fire authority, not an already
+                # frozen exact-path job for this same loaded round/target.
+                result['artillery_review_pending'] = _key(target) + (
+                    frame['shell']['index'],)
             maximum = (row.get('solution') or {}).get('max_distance')
             if (permit and row.get('status') == 'ready' and
                     isinstance(maximum, (int, float)) and maximum > 0. and

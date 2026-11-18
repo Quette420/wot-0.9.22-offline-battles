@@ -11,6 +11,7 @@ from gui.mods.offline_lan_0922 import tank_contact_ledger, physics_audit
 import math
 
 from .vehicle_control.engine_control import SharedEngineControl
+from .vehicle_control.native_aim import NATIVE_ANGLE_TOLERANCE
 import json
 import random
 import sys
@@ -59,10 +60,10 @@ except NameError:
     _STRING_TYPES = (str,)
 
 
-# Test8L is an explicit low-compute physics ablation, not an equivalent solver.
-# Every Bot body, including a wreck, uses the existing basic terrain/ballistic
-# path. The player's own suspension is outside BotRuntime and is unchanged.
-# This is a build-time switch; it is not persisted in user saves/configuration.
+# Ordinary Bots retain their basic/edge support policy. Hydraulic Bots also
+# admit full support on terrain tilt and return after stable five-point support.
+# Player suspension is independently and continuously complete. This global
+# trial switch remains off; the owner selector below handles individual Bots.
 BOT_FULL_SUPPORT_ENABLED = False
 
 
@@ -2077,7 +2078,8 @@ class BotRuntime(SharedEngineControl):
                  wreck_ground_probe=None, rotation_resolver=None, visibility_async_probe=None,
                  impact_contacts_resolver=None, navigation_surface_probe=None,
                  navigation_height_columns=None, local_sweep_probe=None,
-                 bot_descriptor_resolver=None, artillery_aim_samples_probe=None, control_factory=None):
+                 bot_descriptor_resolver=None, artillery_aim_samples_probe=None, control_factory=None,
+                 spg_reservation_request=None, spg_reservation_exclusions=None):
         self._control_factory = control_factory
         self._actor_controls = {}
         self._control_launch_proofs = {}
@@ -2151,6 +2153,8 @@ class BotRuntime(SharedEngineControl):
             (lambda unused_source, unused_target, unused_descriptor,
              unused_shell, unused_receipt: True))
         self.artillery_launch_cancel = artillery_launch_cancel
+        self.spg_reservation_request = spg_reservation_request
+        self.spg_reservation_exclusions = spg_reservation_exclusions
         self.spawn_resolver = spawn_resolver
         # Contact time is accumulated per physical slice and drained at the
         # end of the render callback. A callback can contain no slice at high
@@ -2943,14 +2947,27 @@ class BotRuntime(SharedEngineControl):
         return True
 
     def _full_support_required(self, state):
+        return bool(BOT_FULL_SUPPORT_ENABLED)
+
+    def _hydraulic_support_vehicle(self, state):
         # Native active child descriptors need not retain the composite's
         # hydraulic flag. Physical ownership follows the installed pair,
         # including travel and both transition edges.
         pair = self._descriptor_pairs.get(int(state['id']))
-        return bool(BOT_FULL_SUPPORT_ENABLED or
-                    pair is not None and pair[1] is not None or
+        return bool(pair is not None and pair[1] is not None or
                     vehicle_physics.has_hydraulic_suspension(
                         self._descriptors.get(int(state['id']))))
+
+    def _hydraulic_support_excursion(self, state):
+        # Selection uses terrain attitude, never the hydraulic aiming angle.
+        # The entry threshold is the existing basic witness's 0.6 m upper
+        # reach; half that reach supplies hysteresis (custom owner policy).
+        pitch, roll = self._terrain_pitch(state), _number(state.get('roll'))
+        offsets = vehicle_physics.suspension_point_offsets([
+            dict(x=0., y=0., z=max(1.5, _number(state.get('half_length'), 3.5))),
+            dict(x=max(1., _number(state.get('half_width'), 1.7)), y=0., z=0.)],
+            pitch, roll)
+        return max(abs(point[1]) for point in offsets)
 
     def _suspension_params_for(self, bot_id):
         """Keep basic driving; a shoved ledge hull uses detailed contacts."""
@@ -2963,7 +2980,7 @@ class BotRuntime(SharedEngineControl):
             # Keep this before activation/cache: contact on continuous ground
             # alone does not enable the more expensive spring integration.
             self._report_suspension_trial(
-                'disabled: Test8L basic ground for live Bots and wrecks')
+                'basic support selected')
             return None
         bot_id = int(bot_id)
         if (self._suspension_ground_probe is None and
@@ -3135,13 +3152,20 @@ class BotRuntime(SharedEngineControl):
         state.setdefault('_support_mode_receipt',{}).update(
             selection_stage=selection_stage, pose_refreshed=bool(refreshed))
         missing = any(not row['valid'] for row in rows)
-        if missing:
+        tilted = (self._hydraulic_support_vehicle(state) and
+                  self._hydraulic_support_excursion(state) >= .6)
+        if missing or tilted:
             self._clear_basic_support_datum(state, 'point_support_lost')
             state['_edge_support_active'] = True
-        self._report_support_mode(state, rows, 'enable' if missing else 'sample')
-        return missing
+            state['_support_admission_reason'] = (
+                'point_support_lost' if missing else 'terrain_tilt')
+            state.pop('_support_flat_since', None)
+        self._report_support_mode(state, rows, 'enable' if missing or tilted else 'sample')
+        return missing or tilted
 
     def _report_support_mode(self, state, rows, phase):
+        if not combat_detail_enabled():
+            return
         now = _number(getattr(self, '_contact_now', None))
         if phase == 'sample' and now < state.get('_support_mode_log_at', -1.e30):
             return
@@ -3193,7 +3217,7 @@ class BotRuntime(SharedEngineControl):
             motion=state.get('_support_motion_receipt'),
             solver=state.get('_support_mode_solver_receipt') if phase == 'disable' else None,
             transition_age_ms=(max(0.,now-previous[1])*1000. if previous else None),
-            reason=('point_support_lost' if phase == 'enable' else
+            reason=(state.get('_support_admission_reason', 'point_support_lost') if phase == 'enable' else
                     'all_points_restored' if phase == 'disable' else 'support_observation')))
 
     def _release_detailed_support(self, state):
@@ -3204,8 +3228,19 @@ class BotRuntime(SharedEngineControl):
             return False
         rows = self._basic_support_status(state)
         if state.get('airborne') or not all(row['valid'] for row in rows):
+            state.pop('_support_flat_since', None)
             self._report_support_mode(state, rows, 'sample')
             return False
+        if self._hydraulic_support_vehicle(state):
+            now = getattr(self, '_contact_now', None)
+            if (self._hydraulic_support_excursion(state) > .3 or
+                    int(state.get('siege_state', 0)) in (1, 3) or now is None):
+                state.pop('_support_flat_since', None)
+                return False
+            since = state.setdefault('_support_flat_since', now)
+            if now - since < 1.:
+                return False
+        state.pop('_support_flat_since', None)
         # Preserve this ownership boundary's pose. The next positive-time
         # basic step must revalidate the datum against its current footprint;
         # a transient landing gap is not a permanent raised ground surface.
@@ -7635,6 +7670,7 @@ class BotRuntime(SharedEngineControl):
             movement_intent=command.get('movement_intent'),
             zone=initial.get('zone'), parking_point=initial.get('point'),
             radius=initial.get('radius'), occupied=state.get('_spg_parking_occupied'),
+            reservation_status=state.get('_spg_reservation_status'),
             position_event=state.get('_spg_position_event'), query_policy='existing_state_only'))
 
     def _review_stalled_control(self, state, command, throttle, turn,
@@ -9380,7 +9416,7 @@ class BotRuntime(SharedEngineControl):
         moment = float(getattr(self, '_contact_now', None) or 0.0)
         abnormal = vehicle_physics.suspension_abnormal_step(physics_state, solved)
         if ((state.get('_edge_support_active') or
-                self._full_support_required(state) and combat_detail_enabled()) and
+                self._full_support_required(state)) and combat_detail_enabled() and
                 (moment >= state.get('_next_edge_support_log', -1.e30) or
                  (abnormal and moment >= state.get('_next_abnormal_support_log', -1.e30)))):
             state['_next_edge_support_log'] = moment + 2.0
@@ -10476,6 +10512,20 @@ class BotRuntime(SharedEngineControl):
             bot_state['_route_lane_offset'] = desired
             bot_state['_route_lane_row'] = desired_row if joining else 0.0
             bot_state.pop('_route_lane_goal', None)
+            bot_state.pop('_route_lane_arrival_handoff', None)
+        previous_goal = bot_state.get('_route_lane_goal')
+        if (bot_state.get('_route_lane_arrival_handoff') or
+                previous_goal is not None and
+                math.hypot(position[0] - previous_goal[0],
+                           position[2] - previous_goal[2]) <=
+                ai_driver.WAYPOINT_ARRIVAL_RADIUS):
+            # A fan endpoint may lie outside the authored route's arrival
+            # disk. Hand it back to the existing navigator, not to another
+            # offset endpoint; the original route owner still accepts its
+            # normal disk and never requires reaching its centre.
+            bot_state['_route_lane_arrival_handoff'] = True
+            bot_state['_route_lane_goal'] = tuple(goal)
+            return (tuple(goal), (0, 0))
         forward = self._route_lane_leg_forward(
             bot_state, position, goal, strategic, joining)
         if forward is None:
@@ -13293,6 +13343,22 @@ class BotRuntime(SharedEngineControl):
         for bot_id in list(bot_ids):
             self._cancel_artillery_intent(bot_id, reason='round_cleanup')
 
+    def _reconcile_artillery_order(self, state, command, target, descriptor,
+                                   shell_index, now):
+        identity = self._artillery_target_identity(target)
+        pending = command.get('artillery_review_pending')
+        keep = (identity is not None and isinstance(pending, (list, tuple)) and
+                tuple(pending) == tuple(identity) + (int(shell_index),))
+        if not command.get('fire_allowed') and not keep:
+            self._cancel_artillery_intent(state['id'], reason='order_fire_withdrawn',
+                now=now, evidence=dict(target=identity, mode=command.get('combat_mode')))
+            return None, None
+        # These existing checks still retire death, changed weapon/pose and
+        # expired work. A pending review alone never authorizes a new shot.
+        intent = self._active_artillery_intent(state, target, descriptor, shell_index, now)
+        reproof = self._active_artillery_reproof(state, target, descriptor, shell_index, now)
+        return intent, reproof
+
     def _active_artillery_reproof(
             self, state, target, descriptor, shell_index, now):
         try:
@@ -13362,6 +13428,18 @@ class BotRuntime(SharedEngineControl):
             return None
         return intent
 
+    def _artillery_prepare_refused(self, state, target, shell_index, now, reason):
+        state['_spg_prepare_refusal'] = reason
+        if combat_detail_enabled():
+            identity = self._artillery_target_identity(target)
+            combat_detail(self, 'artillery_prepare_refused', state['id'], now,
+                (reason, identity, int(shell_index)),
+                lambda: dict(reason=reason, target=identity, shell=int(shell_index),
+                    source_pose=self._artillery_source_pose(state),
+                    speed=state.get('speed'), aligned=state.get('gun_aligned'),
+                    intent_present=state['id'] in self._artillery_intents))
+        return None
+
     def _create_artillery_intent(
             self, state, target, descriptor, shell_index, gun_state,
             ballistic_solution, now):
@@ -13370,12 +13448,14 @@ class BotRuntime(SharedEngineControl):
         target_dead = (
             not bool(target.get('alive', True)) or
             ('health' in target and _number(target.get('health')) <= 0.0))
-        if (physical is None or target_identity is None or
-                target_dead or
-                abs(_number(state.get('speed'))) > 0.05 or
-                not self._spg_exact_aligned(
-                    state, descriptor, ballistic_solution)):
-            return None
+        reason = ('physical_round_unavailable' if physical is None else
+                  'target_identity_unavailable' if target_identity is None else
+                  'target_dead' if target_dead else
+                  'source_moving' if abs(_number(state.get('speed'))) > .05 else
+                  'native_barrel_not_aligned' if not self._spg_exact_aligned(
+                      state, descriptor, ballistic_solution) else None)
+        if reason is not None:
+            return self._artillery_prepare_refused(state, target, shell_index, now, reason)
         bot_id = int(state['id'])
         fire_seq = int(state.get('fire_seq', 0)) + 1
         reproof = self._active_artillery_reproof(
@@ -13403,11 +13483,21 @@ class BotRuntime(SharedEngineControl):
                 _number(reproof.get(
                     'absolute_deadline', reproof['deadline'])),
                 _number(now) + ARTILLERY_REPROOF_SECONDS)
-        base_direction = self._dispersal_base_direction(state, descriptor)
-        if (base_direction is None and
-                (abs(_number(state.get('pitch'))) > 1.0e-12 or
-                 abs(_number(state.get('roll'))) > 1.0e-12)):
-            return None
+        # Freeze dispersion around the actual barrel even on a level hull.
+        # Native player traverse/elevation need not equal the analytic aim
+        # to 1e-7 rad; the resulting real parabola receives the exact proof.
+        base_direction = self._exact_shot_direction(state, descriptor)
+        if base_direction is None:
+            return self._artillery_prepare_refused(state, target, shell_index, now,
+                                                   'actual_barrel_unavailable')
+        if (abs(state.get('pitch', 0.0)) <= 1.0e-12 and
+                abs(state.get('roll', 0.0)) <= 1.0e-12 and
+                all(abs(actual - legacy) <= 1.0e-12 for actual, legacy in zip(
+                    base_direction, ai_driver.barrel_direction(state['aim_yaw'], state['gun_pitch'])))):
+            # Preserve the original deterministic flat-barrel scatter. This
+            # branch describes the same observed ray, without a round trip
+            # through trigonometry changing its last floating-point bit.
+            base_direction = None
         scatter = (self._native_simulation.weapons.scattered_angles
                    if self._native_simulation is not None else
                    _dispersed_barrel_angles)
@@ -14560,12 +14650,13 @@ class BotRuntime(SharedEngineControl):
         world_angles = cls._world_barrel_angles(state, descriptor)
         if world_angles is None:
             return False
-        return (
-            abs(_angle_delta(
-                _number(ballistic_solution.get('yaw')),
-                world_angles[0])) <= 1e-7 and
-            abs(_number(ballistic_solution.get('pitch')) -
-                world_angles[1]) <= 1e-7)
+        # Use the existing native inversion precision, not bit equality to
+        # the ideal double-precision solution. This admits preparation only;
+        # the exact proof still follows the observed, dispersed barrel ray.
+        return (abs(_angle_delta(_number(ballistic_solution.get('yaw')),
+                                world_angles[0])) <= NATIVE_ANGLE_TOLERANCE and
+                abs(_number(ballistic_solution.get('pitch')) -
+                    world_angles[1]) <= NATIVE_ANGLE_TOLERANCE)
 
     def _validated_artillery_receipt(
             self, value, descriptor, shell_index, fire_seq,
@@ -14721,18 +14812,21 @@ class BotRuntime(SharedEngineControl):
     def _artillery_launch_receipt(
             self, state, target, descriptor, shell_index, gun_state,
             ballistic_solution, now):
+        state.pop('_spg_prepare_refusal', None)
         if not callable(self.artillery_launch_probe):
-            return None
+            return self._artillery_prepare_refused(state, target, shell_index, now,
+                                                   'launch_probe_unavailable')
         intent = self._active_artillery_intent(
             state, target, descriptor, shell_index, now)
         if intent is None:
             intent = self._create_artillery_intent(
                 state, target, descriptor, shell_index, gun_state,
                 ballistic_solution, now)
-        if (intent is None or
-                not self._spg_exact_aligned(
-                    state, descriptor, intent['solution'])):
+        if intent is None:
             return None
+        if not self._spg_exact_aligned(state, descriptor, intent['solution']):
+            return self._artillery_prepare_refused(state, target, shell_index, now,
+                                                   'frozen_barrel_recheck_pending')
         fire_seq = intent['fire_seq']
         shot_yaw = intent['shot_yaw']
         shot_pitch = intent['shot_pitch']
@@ -15147,6 +15241,46 @@ class BotRuntime(SharedEngineControl):
         self._cancel_artillery_intent(state['id'], reason='fire_position_relocated', now=now)
         return replacement
 
+    def _shared_spg_parking_ready(self, state, initial, now):
+        request = self.spg_reservation_request
+        if not callable(request):
+            return True
+        status = request(state, initial)
+        state['_spg_reservation_status'] = status
+        if status in ('granted', 'foreign'):
+            return True
+        if status == 'refused':
+            # The region is owned elsewhere; use the same sourced candidate
+            # selector with the authoritative exclusions before any movement.
+            kwargs = dict(actor_ids=(state['id'],),
+                occupied=self._physical_parking_occupancy(state),
+                excluded_zones=spg_modes.parking_exclusions(self, state))
+            states = list(self._ordered_states())
+            try:
+                if initial['source'] == 'launcher_manual_v1':
+                    plans, unused = bot_tactics_runtime.assign_manual_positions(
+                        self._bot_tactics, initial['map'], self.baked_graph, states,
+                        preferred_zone=initial['zone'], **kwargs)
+                else:
+                    plans, unused = spg_positions.assign_initial_positions(
+                        initial['map'], self.baked_graph, states,
+                        deleted_positions=bot_tactics.map_settings(self._bot_tactics,
+                            initial['map']).get('deleted_positions', ()), **kwargs)
+            except (KeyError, IndexError, TypeError, ValueError, OverflowError):
+                plans = {}
+            replacement = plans.get(state['id'])
+            if replacement is None:
+                spg_modes.release_parking(self, state)
+                state['_spg_position_event'] = 'shared_parking_capacity_unavailable'
+            else:
+                state['_spg_initial'] = replacement
+                state.pop('_spg_arrived_identity', None)
+                state.pop('_spg_deployment_progress', None)
+                state['_spg_position_event'] = 'shared_parking_region_reassigned'
+                request(state, replacement)
+            self._decision_cache.pop(state['id'], None)
+        return False
+
     @timed('parking.position_order')
     def _artillery_position_order(self, state, order, targets, now):
         """Leave a confirmed muzzle-side obstruction via the existing driver.
@@ -15164,6 +15298,9 @@ class BotRuntime(SharedEngineControl):
             state.pop('_spg_deployment_progress', None)
         initial = state.get('_spg_initial')
         if initial is not None and mode in ('artillery_hold', 'artillery_deploy'):
+            if not self._shared_spg_parking_ready(state, initial, now):
+                return dict(order, move_position=_position(state), route_anchor=_position(state),
+                    route_join=False, throttle_override=0., combat_mode='artillery_hold')
             # The server retains its original anchor after worker-owned
             # relocation and may still call this deployment. The fresh local
             # arrival/failure episode, not that stale mode, owns another retry.
@@ -15227,6 +15364,9 @@ class BotRuntime(SharedEngineControl):
                 destination = tuple(initial['point'][axis] for axis in ('x', 'y', 'z'))
                 arrived = _distance(_position(state), destination) <= initial['radius']
             result = dict(order)
+            if not self._shared_spg_parking_ready(state, initial, now):
+                return dict(order, move_position=_position(state), route_anchor=_position(state),
+                    route_join=False, throttle_override=0., combat_mode='artillery_hold')
             result.update(move_position=destination, route_anchor=destination,
                           route_join=False, throttle_override=0.0 if arrived else None,
                           combat_mode='artillery_hold' if arrived else 'artillery_deploy')
@@ -15367,6 +15507,7 @@ class BotRuntime(SharedEngineControl):
             return
         state['_spg_gate_signature'], state['_spg_gate_detail_at'] = signature, now
         write_json_record('SPG FIRE GATE', {
+            'prepare_refusal': state.get('_spg_prepare_refusal'),
             'position_retry_receipt':state.get('_spg_position_retry_receipt'),
             'zone_failures':state.get('_spg_zone_failures',{}),
             'id': state['id'], 'vehicle': state.get('vehicle'), 'reason': reason,
@@ -17210,15 +17351,8 @@ class BotRuntime(SharedEngineControl):
                 # Artillery proofs are keyed to the physically loaded round,
                 # never the server's desired future selection.
                 intent_shell = int(state['shell_index'])
-                if not command.get('fire_allowed'):
-                    self._cancel_artillery_intent(state['id'], reason='order_fire_withdrawn', now=now,
-                        evidence=dict(target=self._artillery_target_identity(target),
-                            mode=command.get('combat_mode')))
-                else:
-                    pending_intent = self._active_artillery_intent(
-                        state, target, descriptor, intent_shell, now)
-                    pending_reproof = self._active_artillery_reproof(
-                        state, target, descriptor, intent_shell, now)
+                pending_intent, pending_reproof = self._reconcile_artillery_order(
+                    state, command, target, descriptor, intent_shell, now)
                 if pending_intent is not None:
                     frozen = pending_intent['solution']
                     command['aim_position'] = frozen['aim_position']
@@ -18273,6 +18407,8 @@ class BotRuntime(SharedEngineControl):
                     launch_receipt = self._artillery_launch_receipt(
                         state, target, descriptor, state['shell_index'],
                         gun_state, ballistic_solution, now)
+                    if launch_receipt is None and state.get('_spg_prepare_refusal'):
+                        artillery_launch_stage = 'launch_preparation_' + state['_spg_prepare_refusal']
                     if launch_receipt is not None:
                         if not self._probe_timing_enabled():
                             lane_value = self.artillery_friendly_lane_probe(

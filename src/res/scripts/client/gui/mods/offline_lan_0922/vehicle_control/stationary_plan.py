@@ -183,7 +183,7 @@ class StationaryPlanner(object):
         motion = _native_motion(runtime)
         state = runtime.state
         if (motion[1] or any(abs(value) > 1.e-6 for value in motion[2:5]) or
-                not state.get('grounded_once') or state.get('_edge_support_active') or
+                not state.get('grounded_once') or
                 state.get('_foreground_support_blocked') or
                 observation(runtime).support_rise_blocked()):
             raise _Deferred('stationary_native_support_unsettled')
@@ -228,7 +228,8 @@ class StationaryPlanner(object):
             raise _Deferred('stationary_native_scene_revision_unavailable')
         native_scene = (id(owner._avatar), owner._avatar.spaceID, revision())
         accepted_plane = observation(runtime).support_plane()
-        native_support = (tuple((name, repr(accepted_plane.get(name))) for name in
+        native_support = (bool(getattr(observation(runtime), 'complete_support', lambda: False)()),
+            tuple((name, repr(accepted_plane.get(name))) for name in
             ('center_y', 'normal', 'pitch', 'roll', 'gradient_x', 'gradient_z', 'residual'))
             if isinstance(accepted_plane, dict) else None)
         bounds = tuple(_finite(value) for value in runtime.geometry._arena_bounds)

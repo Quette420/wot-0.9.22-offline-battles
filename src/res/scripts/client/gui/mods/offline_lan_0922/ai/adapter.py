@@ -695,6 +695,7 @@ class BotAdapter(object):
             'move_position': target,
             'combat_mode': strategic.get('combat_mode', 'route'),
             'fire_allowed': bool(strategic.get('fire_allowed', False)),
+            'artillery_review_pending': strategic.get('artillery_review_pending'),
             'shell_index': int(strategic.get('shell_index', 0)),
             'throttle': float(local['throttle']),
             'brake': bool(local.get('brake', False)),

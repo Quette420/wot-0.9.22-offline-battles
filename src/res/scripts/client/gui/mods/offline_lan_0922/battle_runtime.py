@@ -3768,6 +3768,12 @@ class BattleRuntime(SharedBattleGeometry):
             artillery_friendly_lane_probe=(
                 self._bot_artillery_friendly_lane),
             artillery_launch_cancel=self._bot_artillery_cancel,
+            spg_reservation_request=(lambda state, plan:
+                self.client.spg_parking_request('bot', state['id'], state['team'], plan))
+                if callable(getattr(self.client, 'spg_parking_request', None)) else None,
+            spg_reservation_exclusions=(lambda state:
+                self.client.spg_parking_exclusions('bot', state['id'], state['team']))
+                if callable(getattr(self.client, 'spg_parking_exclusions', None)) else None,
             artillery_status_probe=self._bot_artillery_status,
             spawn_resolver=self._formation_pose,
             impact_contacts_resolver=self._bot_impact_module_contacts,

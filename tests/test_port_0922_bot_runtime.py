@@ -6087,8 +6087,9 @@ class BotRuntimeTests(unittest.TestCase):
         self.assertEqual(
             1, runtime.diagnostic_totals()['suspension_param_failures'])
 
-    def test_hydraulic_bot_uses_full_support_without_basic_mode_switching(self):
+    def test_hydraulic_bot_switches_support_without_losing_native_mode_identity(self):
         runtime, state, calls = self._suspension_case(lambda x, z: 0.)
+        runtime.states[11] = state
         # Production supplies its existing native column reader through the
         # wreck/edge seam; a dedicated trial callback exists only in fixtures.
         runtime._wreck_ground_probe = runtime._suspension_ground_probe
@@ -6103,23 +6104,31 @@ class BotRuntimeTests(unittest.TestCase):
                 state['siege_state'] = mode
                 runtime._descriptors[11] = enabled if mode == 2 else travel
                 runtime._suspension_params.pop(11, None)
+                state.pop('_edge_support_active', None)
+                state.update(terrain_pitch=0., pitch=0., roll=0., suspension_pitch=.3)
+                self.assertIsNone(runtime._suspension_params_for(11))
+                # A missing witness (bridge/edge) still admits full support
+                # in every native mode, including both transition edges.
+                state['y'] = 2.
                 self.assertIsNotNone(runtime._suspension_params_for(11))
-                self.assertFalse(runtime._update_vertical_motion(state, .1))
+                self.assertTrue(state.get('_edge_support_active'))
+                state['y'] = 0.
+                runtime._contact_now = 1.
+                state.pop('_support_mode_sample', None)
                 self.assertFalse(runtime._release_detailed_support(state))
-                self.assertFalse(state.get('_edge_support_active', False))
-                self.assertIsNotNone(runtime._suspension_params[11])
-        self.assertGreaterEqual(len(calls), 4 * 22)
-        with mock.patch.object(runtime, '_ground_probe_at') as basic:
-            self.assertFalse(runtime._update_slope_pose(state))
-        basic.assert_not_called()
-        self.assertEqual('detailed_solver_owns_pose', state['_slope_pose_refresh']['reason'])
+                runtime._contact_now = 2.1
+                state.pop('_support_mode_sample', None)
+                self.assertEqual(mode not in (1, 3), runtime._release_detailed_support(state))
 
-    def test_continuous_hydraulic_support_records_contacts_only_when_requested(self):
+    def test_adaptive_hydraulic_full_support_records_contacts_only_when_requested(self):
         from gui.mods.offline_lan_0922 import native_input_diagnostics
         for enabled in (False, True):
             with self.subTest(detailed=enabled):
                 runtime, state, columns = self._suspension_case(lambda x, z: 0.)
+                runtime.states[11] = state
                 runtime._descriptors[11].isPitchHullAimingAvailable = True
+                state['_edge_support_active'] = True
+                runtime._contact_now = 1.
                 with mock.patch.object(self.module, 'BOT_FULL_SUPPORT_ENABLED', False), \
                         mock.patch.object(self.module, 'combat_detail_enabled', return_value=enabled), \
                         mock.patch.object(native_input_diagnostics, 'write_json_record') as recorded:
@@ -6132,7 +6141,7 @@ class BotRuntimeTests(unittest.TestCase):
                     self.assertEqual(10,len(contacts[0][0][1]['springs']))
                     self.assertEqual(12,len(contacts[0][0][1]['pseudo_ground']))
 
-    def test_hydraulic_full_support_does_not_enable_ordinary_bots(self):
+    def test_hydraulic_tilt_policy_does_not_enable_ordinary_bots(self):
         runtime, state, unused = self._suspension_case(lambda x, z: 0.)
         runtime._descriptors[11].isPitchHullAimingAvailable = True
         runtime._descriptors[12] = _suspension_descriptor()
@@ -6140,7 +6149,7 @@ class BotRuntimeTests(unittest.TestCase):
         runtime.states[12] = dict(state, id=12)
         with mock.patch.object(self.module, 'BOT_FULL_SUPPORT_ENABLED', False), \
                 mock.patch.object(runtime, '_contact_edge_support_needed', return_value=False):
-            self.assertIsNotNone(runtime._suspension_params_for(11))
+            self.assertIsNone(runtime._suspension_params_for(11))
             self.assertIsNone(runtime._suspension_params_for(12))
 
     def test_suspension_pose_guard_discards_rejected_contact_history(self):
@@ -10793,7 +10802,7 @@ class BotRuntimeTests(unittest.TestCase):
         self.assertEqual(proofs[0]['velocity'], launch['shot_velocity'])
         self.assertEqual(20000, launch['shot_max_time_ms'])
 
-    def test_spg_final_proof_waits_for_exact_nominal_alignment(self):
+    def test_spg_final_proof_waits_for_native_barrel_alignment(self):
         descriptor = _combat_descriptor(dispersion=0.03)
         calls = []
         runtime = self.module.BotRuntime(
@@ -10801,7 +10810,7 @@ class BotRuntimeTests(unittest.TestCase):
         runtime.round_id = 7
         gun_state = self.module._BotGunState(descriptor)
         state = {
-            'id': 11, 'fire_seq': 0, 'aim_yaw': 0.000001,
+            'id': 11, 'fire_seq': 0, 'aim_yaw': 0.0001,
             'gun_pitch': -0.1, 'gun_aligned': True,
             'critical': {},
         }
@@ -10819,7 +10828,7 @@ class BotRuntimeTests(unittest.TestCase):
         self.assertEqual([], calls)
 
         state['aim_yaw'] = 0.0
-        state['gun_pitch'] = -0.100001
+        state['gun_pitch'] = -0.1001
         self.assertIsNone(runtime._artillery_launch_receipt(
             state, target, descriptor, 0, gun_state, solution, 1.0))
         self.assertEqual([], calls)

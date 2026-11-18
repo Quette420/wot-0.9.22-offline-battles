@@ -1087,6 +1087,18 @@ class FullPlayerRuntime(MissionControl, CombatControl):
                 getattr(battle.client, 'player_id', None), entity_id, id(entity), id(self.gun),
                 id(battle._avatar.gunRotator))
 
+    def _spg_reservation_request(self, state, plan):
+        if state['id'] != self.actor_id:
+            return 'foreign'
+        return self.owner.client.spg_parking_request(
+            'human', self.owner.client.player_id, state['team'], plan)
+
+    def _spg_reservation_exclusions(self, state):
+        if state['id'] != self.actor_id:
+            return ()
+        return self.owner.client.spg_parking_exclusions(
+            'human', self.owner.client.player_id, state['team'])
+
     def attach(self):
         if self.engine is not None:
             return self._identity == self._binding()
@@ -1135,6 +1147,10 @@ class FullPlayerRuntime(MissionControl, CombatControl):
             artillery_launch_probe=geometry._bot_artillery_launch,
             artillery_friendly_lane_probe=geometry._bot_artillery_friendly_lane,
             artillery_launch_cancel=geometry._bot_artillery_cancel,
+            spg_reservation_request=self._spg_reservation_request
+                if callable(getattr(battle.client, 'spg_parking_request', None)) else None,
+            spg_reservation_exclusions=self._spg_reservation_exclusions
+                if callable(getattr(battle.client, 'spg_parking_exclusions', None)) else None,
             artillery_status_probe=geometry._bot_artillery_status,
             spawn_resolver=lambda unused_team, unused_slot: (tuple(position), yaw),
             ground_probe=geometry._navigation_ground,

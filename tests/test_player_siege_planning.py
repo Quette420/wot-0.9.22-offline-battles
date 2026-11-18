@@ -396,6 +396,7 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
         scene.pose(scene.target, (math.sin(-.7) * 100., 8., math.cos(-.7) * 100.))
         scene.observe()
         engine, actor = scene.runtime.engine, scene.runtime.actor_id
+        engine.states[actor]['_edge_support_active'] = True
         record = dict(battle._records['player:1'], kind='bot', network_id=actor,
                       local=False, state=engine.states[actor])
         battle._records['bot:%s' % actor] = record
@@ -437,6 +438,7 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
         engine, actor = scene.runtime.engine, scene.runtime.actor_id
         descriptor = scene.entity.typeDescriptor
         engine._descriptor_pairs[actor] = (descriptor, descriptor)
+        engine.states[actor]['_edge_support_active'] = True
         descriptor.isPitchHullAimingAvailable = False
         binding = BotControlBinding(scene.battle, engine, actor)
         self.addCleanup(binding.close)

@@ -1,6 +1,7 @@
 from __future__ import print_function
 from .protocol_primitives import WORKER_AUTHORITY_ID, SNAPSHOT_STALL_SECONDS, _exact_int
 from gui.mods.offline_lan_0922 import bot_tactics
+from gui.mods.offline_lan_0922 import spg_reservations
 
 import base64
 import json
@@ -1691,6 +1692,7 @@ class LANClient(object):
         self.map_pool = []
         self.spawn = None
         self.round_id = None
+        self._spg_reservations = spg_reservations.Client(self._send, _monotonic_time)
         self.state_revision = None
         self._battle_start_round_id = None
         self._battle_live_round_id = None
@@ -3325,6 +3327,15 @@ class LANClient(object):
 
     def has_team_size_selection(self):
         return TEAM_SIZE_SELECTION_CAPABILITY in self.server_capabilities
+
+    def spg_parking_request(self, kind, actor_id, team, plan):
+        book = self._spg_reservations
+        if book.round_id != self.round_id:
+            book.observe(dict(round_id=self.round_id, revision=0, claims=[]))
+        return book.request((kind, int(actor_id)), team, plan, self.authority_epoch)
+
+    def spg_parking_exclusions(self, kind, actor_id, team):
+        return self._spg_reservations.excluded((kind, int(actor_id)), team)
 
     def send_bot_manifest(self, bots, player_collision_profiles=None):
         if not self.is_bot_authority():
@@ -5647,6 +5658,10 @@ class LANClient(object):
             if self.phase != 'battle' or not valid:
                 self._ignore_runtime_payload(kind, 'invalid_team_command', message)
                 return
+        elif kind == 'spg_parking_ack':
+            if _exact_int(message.get('round_id')) == self.round_id:
+                self._spg_reservations.acknowledge(message)
+            return
         elif kind == 'bot_observation':
             round_id = self._runtime_round_disposition(
                 kind, message, 'invalid bot observation message')
@@ -5761,6 +5776,8 @@ class LANClient(object):
             message = self._adopt_detached_turrets(message)
             if kind == 'snapshot':
                 self.last_snapshot = message
+        if isinstance(message.get('spg_parking'), dict) and message['spg_parking'].get('round_id') == self.round_id:
+            self._spg_reservations.observe(message['spg_parking'])
         self._notify(kind, message, replay_hint=replay_hint)
 
     def _notify(self, kind, message, replay_hint=None):

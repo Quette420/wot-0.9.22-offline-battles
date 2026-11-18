@@ -344,6 +344,25 @@ class BotControlBinding(MissionControl, CombatControl):
         from .. import vehicle_physics
         body = (float(self.state['yaw']), float(self.engine._terrain_pitch(self.state)),
                 float(self.state['roll']))
+        if not self.complete_support():
+            # Recheck the physical basic owner's five witnesses in the
+            # transported accepted chassis. They need support, not coplanarity.
+            pitch, roll = vehicle_physics.ground_pose_for_yaw(body[1], body[2], body[0], yaw)
+            projected = dict(self.state, x=position[0], y=position[1], z=position[2],
+                yaw=yaw, terrain_pitch=pitch, pitch=pitch, roll=roll)
+            projected.pop('_support_mode_sample', None)
+            rows = self.engine._basic_support_status(projected)
+            if trace is not None:
+                trace.extend(dict(family='basic', **row) for row in rows)
+            if maximum_y is not None and any(row['ground'] is not None and
+                    row['ground'] > maximum_y for row in rows):
+                return None
+            if not all(row['valid'] for row in rows):
+                return None
+            gx, gz = vehicle_physics._body_ground_gradient(yaw, pitch, roll)
+            return dict(center_y=position[1], pitch=pitch, roll=roll,
+                normal=vehicle_physics.ground_normal(gx, gz), gradient_x=gx, gradient_z=gz,
+                kind='basic_chassis_contacts', contact_count=5)
         return vehicle_physics.stationary_chassis_support(descriptor, position, yaw,
             body, self.owner._support_column, maximum_y, trace)
 
@@ -354,8 +373,7 @@ class BotControlBinding(MissionControl, CombatControl):
         # A native mode edge invalidates cached parameters before the next
         # physics slice rebuilds them. That cannot select a five-point plan.
         continuous = getattr(self.engine, '_full_support_required', lambda state: False)
-        return bool(continuous(self.state) or
-                    self.engine._suspension_params.get(self.actor_id) is not None)
+        return bool(continuous(self.state) or self.state.get('_edge_support_active'))
 
     def record_support(self, blocked):
         self._support_blocked = bool(blocked)

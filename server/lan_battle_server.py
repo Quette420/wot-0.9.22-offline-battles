@@ -56,7 +56,7 @@ from gui.mods.offline_lan_0922 import state_transfer
 from gui.mods.offline_lan_0922 import snapshot_delta
 from gui.mods.offline_lan_0922 import battle_bonds, tank_collision, credit_coefficients
 from gui.mods.offline_lan_0922 import xp_coefficients
-from gui.mods.offline_lan_0922 import spg_positions, bot_tactics, lineup_slots
+from gui.mods.offline_lan_0922 import spg_positions, spg_reservations, bot_tactics, lineup_slots
 from gui.mods.offline_lan_0922 import turret_obstacle_schema
 from gui.mods.offline_lan_0922.battle_achievements import (
     ACHIEVEMENT_CONDITIONS, AWARDABLE_ACHIEVEMENTS, RECEIPT_STAT_NAMES,
@@ -217,6 +217,7 @@ BOT_CALLSIGNS_0922 = (
     "四零四号履带", "八十八号停车位", "半格信号", "两杯热茶",
 )
 ROUND_SCOPED_MESSAGE_TYPES = frozenset((
+    "spg_parking_request",
     "start_battle", "input", "bot_manifest", "bot_state",
     "bot_observation", "bot_ram_report", "fire_intent",
     "fire_intent_result",
@@ -232,6 +233,7 @@ ROUND_SCOPED_MESSAGE_TYPES = frozenset((
     "team_chat",
 ))
 MODERN_VISIBLE_MESSAGE_TYPES = frozenset((
+    "spg_parking_request",
     "input", "projectile_launch", "projectile_progress",
     "projectile_ricochet", "projectile_resolve",
     "landing_observation", "start_battle",
@@ -3926,19 +3928,71 @@ class BattleState:
             self._elect_bot_authority()
         self.state_revision += 1
 
+    def _spg_parking_book(self):
+        book = getattr(self, '_spg_reservations', None)
+        if book is None or book.round_id != self.round_id:
+            book = self._spg_reservations = spg_reservations.Registry(self.round_id)
+        def alive(owner):
+            row = self.players.get(owner[1]) if owner[0] == 'human' else self.bot_states.get(owner[1])
+            return bool(row and (row.connected and row.alive if owner[0] == 'human'
+                                 else row.get('alive', True) and row.get('health', 1) > 0))
+        book.prune(alive)
+        return book
+
+    def update_spg_parking(self, sender_id, message):
+        """Atomically grant a sourced region across foreground and worker owners."""
+        with self.lock:
+            book = self._spg_parking_book()
+            kind, actor = message.get('actor_kind'), message.get('actor_id')
+            code, accepted = 'invalid_owner', False
+            valid = (kind in ('human', 'bot') and isinstance(actor, int) and
+                     not isinstance(actor, bool) and actor > 0 and
+                     self._message_round_matches(message) and self.phase in ('loading', 'battle'))
+            if valid:
+                valid = (sender_id == actor if kind == 'human' else
+                         sender_id == self.bot_authority_id and
+                         message.get('authority_epoch') == self.authority_epoch)
+            if valid:
+                row = self.players.get(actor) if kind == 'human' else self.bot_states.get(actor)
+                if row is None:
+                    code = 'not_ready'
+                else:
+                    team = row.team if kind == 'human' else row.get('team')
+                    vehicle = self._actor_vehicle_name('player' if kind == 'human' else kind, actor)
+                    live = (row.connected and row.alive if kind == 'human' else
+                            row.get('alive', True) and row.get('health', 1) > 0)
+                    if not live:
+                        code = 'actor_dead'
+                    elif message.get('action') == 'release':
+                        book.release((kind, actor))
+                        accepted, code = True, 'released'
+                    elif self._vehicle_is_spg(vehicle):
+                        plan = spg_positions.canonical_plan(message.get('plan'),
+                            self.map_name, vehicle, team=team, tactics=self.bot_tactics)
+                        if plan is not None:
+                            accepted = book.claim((kind, actor), team, plan)
+                            code = 'granted' if accepted else 'region_owned_or_full'
+                        else:
+                            code = 'invalid_plan'
+            return dict(type='spg_parking_ack', protocol=PROTOCOL_VERSION,
+                round_id=self.round_id, seq=message.get('seq'), actor_kind=kind,
+                actor_id=actor, accepted=accepted, code=code, spg_parking=book.snapshot())
+
     def _authority_fields(self):
+        book = self._spg_parking_book()
+        parking = dict(spg_parking=book.snapshot()) if book.revision else {}
         worker = self.simulation_worker
         if worker is not None and worker.connected:
-            return {
+            return dict(parking, **{
                 "worker_status": "connected",
                 "worker_failure_reason": "",
-            }
+            })
         if self.worker_failure_reason:
-            return {
+            return dict(parking, **{
                 "worker_status": "failed",
                 "worker_failure_reason": self.worker_failure_reason,
-            }
-        return {"worker_status": "missing"}
+            })
+        return dict(parking, worker_status="missing")
 
     def lobby_message(self):
         with self.lock:
@@ -16699,6 +16753,8 @@ class ClientHandler(socketserver.BaseRequestHandler):
             return server.state.resolve_worker_ping(worker, message)
         if message_type == "snapshot_resync":
             return server.state.request_snapshot_resync(worker)
+        if message_type == "spg_parking_request":
+            return worker.send(server.state.update_spg_parking(authority_id, message))
         if message_type == "simulation_progress":
             accepted = server.state.update_simulation_progress(worker, message)
         elif message_type == "player_environment":
@@ -17210,7 +17266,9 @@ class ClientHandler(socketserver.BaseRequestHandler):
                                 "VISIBLE COMMAND rejected sender=%d type=%s" % (
                                     player.player_id, message_type))
                             continue
-                        if message_type == "input":
+                        if message_type == "spg_parking_request":
+                            player.send(server.state.update_spg_parking(player.player_id, message))
+                        elif message_type == "input":
                             if server.state.update_input(
                                     player.player_id, message) is False:
                                 # Rate-limit per player *and* typed reason so

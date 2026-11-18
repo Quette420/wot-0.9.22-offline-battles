@@ -89,6 +89,19 @@ class ActualSiegeAimTests(unittest.TestCase):
         self.assertLess(policy.rows[first['key']]['observed_at'], scene.now)
         self.assertEqual(1, policy._used['foreground'])
 
+    def test_current_executable_sample_precedes_the_owned_pending_pivot(self):
+        scene = self.scene(enabled_pitch=(-.2, .2), hydraulic_center=1.5)
+        first = scene.evaluated_row(sample=0)
+        held = scene.evaluated_row(sample=5)
+        policy, combat = scene.runtime.attack_policy, scene.runtime.combat_stop
+        self.assertTrue(policy._executable(first))
+        combat.pivot = dict(key=held['key'], candidate=held, gun=scene.runtime.gun,
+                            shell=policy.frame['loaded'], target_key=held['target_key'])
+        combat.receipt['selected'] = held['target_key']
+        result = scene.runtime.siege_aim.candidate(policy.frame, scene.now, first)
+        self.assertIsNotNone(result, scene.runtime.siege_aim.status())
+        self.assertEqual(first['key'], result['key'])
+
     def test_disabled_mode_never_inspects_targets_or_native_sources(self):
         scene = self.scene(enabled=False)
         frame = scene.runtime.attack_policy.evaluator.snapshot(scene.now)

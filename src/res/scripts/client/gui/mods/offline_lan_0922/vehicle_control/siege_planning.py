@@ -71,7 +71,8 @@ class ActualSiegeAim(object):
         pivot = getattr(self.runtime.combat_stop, 'pivot', None) or {}
         preferred_key = (preferred or {}).get('key')
         pivot_key = policy.laying_key()
-        if pivot_key is not None and pivot_key != preferred_key:
+        if (pivot_key is not None and pivot_key != preferred_key and
+                not policy._executable(policy.current_row(preferred, require_line=True))):
             current = policy.current_row(pivot.get('candidate'), require_line=True)
             if (current is not None and current.get('key') == pivot_key and
                     (held is None or current.get('target_key') == held) and

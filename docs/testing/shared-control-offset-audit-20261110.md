@@ -93,6 +93,26 @@ permission. The existing mismatched-observation negative still rejects native
 input. These regressions and all 69 player/shared control files pass; native
 retesting of the point-priority correction is required.
 
+Report `wot-error-report-20261119-071848-974d091b3a48.zip` ran `42c0bcc0`
+with S-51, the observed 203 mm gun, player stocks 6/6, two friendly S-51s,
+normal Mines and 15-versus-15. The map picker did not adopt the attempted
+Malinovka selection, so this run must not be described as Malinovka acceptance.
+Player standard HE launches at 07:14:25 and 07:15:07 both reached terminal
+receipts; after explicit manual premium-HE setup, automatic launch at 07:16:21
+reached its terminal receipt too. Friendly Bots #14 and #15 each have a terminal
+impact at 07:16:51. Their regions `p_19039905dbf1` and `p_d6a5180aae4e`
+differ from the player's `spg_1_central_hills`. The round ended naturally by
+team elimination at 07:17:39. Neither exception file contains a traceback.
+This proves the exercised preparation/parking paths, not every SPG/map or an
+automatic premium-shell choice; the premium setup was manual.
+
+Review of the new pivot priority added another failing boundary regression:
+an already executable current sample must precede a pending admitted pivot.
+The native input priority now yields to that current proof; its priority applies
+only while the competing global sample is unproved. The prior pose-mismatch
+negative and both admitted-point scheduling regressions remain intact. Native
+all-UDES retesting is still required before delivery.
+
 This is the latest authorized scope and supersedes the continuous hydraulic-Bot
 policy in the historical section below. Every player vehicle stays on complete
 support. Ordinary Bots retain their existing basic/edge switch. Hydraulic Bots

@@ -2969,7 +2969,8 @@ class BotRuntime(SharedEngineControl):
         if (self._suspension_ground_probe is None and
                 (self._wreck_ground_probe is None or
                  (self.states.get(bot_id, {}).get('alive', True) and
-                  not self.states.get(bot_id, {}).get('_edge_support_active')))):
+                  not self.states.get(bot_id, {}).get('_edge_support_active') and
+                  not full_support))):
             return None
         if bot_id in self._suspension_params:
             return self._suspension_params[bot_id]

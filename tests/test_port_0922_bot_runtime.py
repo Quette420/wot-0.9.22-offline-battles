@@ -6089,6 +6089,10 @@ class BotRuntimeTests(unittest.TestCase):
 
     def test_hydraulic_bot_uses_full_support_without_basic_mode_switching(self):
         runtime, state, calls = self._suspension_case(lambda x, z: 0.)
+        # Production supplies its existing native column reader through the
+        # wreck/edge seam; a dedicated trial callback exists only in fixtures.
+        runtime._wreck_ground_probe = runtime._suspension_ground_probe
+        runtime._suspension_ground_probe = None
         travel = runtime._descriptors[11]
         travel.isPitchHullAimingAvailable = False
         enabled = copy.deepcopy(travel)

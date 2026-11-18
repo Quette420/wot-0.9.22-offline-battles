@@ -1,5 +1,174 @@
 # PR119 control-offset correction — November 10, 2026
 
+## November 19 — Complete support and stationary combat handoff
+
+This section supersedes the hydraulic-support exception in the earlier audit.
+The user now explicitly requires continuous complete support for every player
+vehicle and every hydraulic Bot, in travel, transition and siege modes. Other
+Bots retain the existing basic/detailed support switch. Preserve the original
+route/search mechanism. A route wait prohibits forward/reverse driving but
+allows a physically checked turn; its arrival and duration clocks stay owned
+by the original parking task.
+
+Reports `wot-error-report-20261119-012026-8a0039accc31.zip` and the later full
+snapshot `wot-error-report-20261119-012203-8a0039accc31.zip` run runtime
+`29c33dea`. In the second round, Strv 103-0 #8 was destroyed at 01:17:14.
+Pending/obstructed inspections of other vehicles renewed the player's stop
+until 01:17:53. At the later capture position, repeated siege entries and
+releases produced no player launch after 01:19:56. Jagdtiger #10 destroyed
+the player at 01:21:33. Mode acknowledgements themselves completed normally.
+A local reproduction separately demonstrated lost mode-entry point identity:
+a circle entry with no policy candidate saved no point, release saved no
+failed point, and the unchanged line could immediately reacquire the mode.
+
+The previous Bot support hook was still incompatible: the movement owner
+accepted all five footprint witnesses, but stationary aiming compared a new
+five-column fitted attitude with the Bot's accepted dynamic attitude at
+1e-5 rad. The player hydraulic class was also explicitly excluded from the
+complete contact solver whenever the active native hydraulic flag matched.
+That did not provide the required continuous complete support guarantee.
+
+The correction enables the existing complete contact model for hydraulic
+chassis and keeps their hydraulic actuator separate from the chassis frame.
+The exact #1513 `physics_shared.initVehiclePhysicsClient` bytecode confirms
+zero hydraulic hard ratio and separate native mode spring-length caches.
+The existing stiffness/damping/inertia reconstruction remains a reconstruction;
+this change does not claim to retrieve the native solver's hidden constants.
+A detached zero-time complete-contact solve replaces the independent five-ray
+attitude comparison. It cannot commit movement or fire. Complete collision
+arcs, source checks and actual first-trigger proof remain required.
+
+Parking retains translation ownership. An admitted stationary turn can use
+the common hull/siege input, with the original wait-area bounds and native
+collision/support checks. Another candidate, an obstruction or pending query
+cannot restart the stopping clock. A departed target only hands over to a
+currently clear proposal; otherwise navigation resumes. Siege entry retains
+the actual point, uses two-second clear-line confirmation, waits for the
+native enabled acknowledgement, and only then evaluates gun angles. Release
+fences the failed current-shell points without borrowing another shell's
+failure. Native acceptance and final package/CI identity are recorded below
+only after they have actually completed.
+
+The first normal-battle follow-up exposed an additional class-identity error.
+Report `wot-error-report-20261119-023524-c2c18cb01c0d.zip` contains 29 UDES 03
+Bots, but only 23 complete-dynamics records and 175 legacy five-column fitted
+support refusals. Native active child descriptors do not consistently retain
+the outer hydraulic capability flag. Runtime `bd01e331` therefore retains
+complete support from the installed travel/siege descriptor pair in all four
+mode states. A regression now uses a travel child with its hydraulic flag
+absent/false and a separate enabled child; it no longer models every mode by
+changing only an integer on one permanently flagged descriptor. Ordinary Bot
+support switching remains unchanged. Expanded continuous-contact diagnostics
+are emitted only with detailed diagnostics checked.
+
+The next native run caught a second production admission omission before
+acceptance: the worker installs the existing bounded column reader in its
+`wreck_ground_probe` seam, while unit fixtures installed a dedicated trial
+reader. The live-Bot guard still restricted that seam to edge recovery, so
+selecting continuous support did not actually start the complete solve.
+Runtime `15d7ed96` admits the same existing reader for continuous hydraulic
+support as well. The cross-mode regression now uses the production callback
+wiring, not the dedicated test callback. No new ray rule or navigation input
+is introduced.
+
+The completed `15d7ed96` normal-battle follow-up finally records continuous
+complete dynamics for all 29 UDES Bots. It also isolates a transient proof
+handoff: `_install_bot_descriptor` correctly clears mode-specific spring
+parameters, but `complete_support()` used cache presence as solver ownership.
+During that gap, a plan incorrectly selected the five-column sampler. The
+follow-up `8a58cff9` follows the continuous owner through parameter rebuilding.
+Its regression clears the cache in each of the four native mode states.
+
+The same native round contained no player launch: actual centre-ray armor
+refusals and misses rejected the prepared HE point before a trigger was
+submitted. This is not claimed as a successful player HE firing test or as a
+confirmed cause in the new support solver. Only opt-in `actual_barrel_refusal`
+evidence is added: selected point, observed barrel origin/direction, centre
+endpoint, source pose and the already-computed first material contact. The
+existing predicates, penetration factor, thresholds and debit/launch boundary
+are unchanged; logging neither requests another geometry query nor grants fire.
+
+### Frozen runtime validation and package
+
+Runtime `8a58cff96ec773dc463aff2b1cc4909fc711afc5` passed 31 final related
+test files (all shared-control files, the complete first-trigger admission
+file and hydraulic stationary planning). Cross-mode native-reader activation
+and the diagnostic checkbox regressions passed separately. Earlier broad
+coverage exercised 533 client files; the one initial failure was a fixture
+that changed Bot identity to human only after admission. Its corrected setup
+and complete navigation-command assertions pass. Windows-host reference
+checks explicitly use the existing engine-free fallback; they are not native
+physics acceptance.
+
+The former hydraulic-exclusion and plane-only fixtures now assert complete
+contact ownership and real source/arc observations. Existing production
+position/angle thresholds remain 0.1 mm and 1e-5 rad. The full-contact endpoint
+fixture uses that unchanged position contract for its independently solved
+micrometre-scale height difference, rather than seven-decimal plane identity.
+Navigation-command comparisons, blocked-shot refusal and no-debit assertions
+remain required.
+
+The user permitted an additional normal battle with waiting points, such as
+Mittengard. The canonical `100_thepit` routes currently contain no wait
+extensions. The normal Mines (`10_hills`) TD routes have three independent
+60-second waiting places per side, so those unchanged routes were used with
+30 elite UDES 03 slots, one occupied by the player. No default route, search,
+driver or navigation graph was edited in this follow-up.
+
+Final-runtime report `wot-error-report-20261119-030736-f366e826de13.zip`
+captures the normal-battle stress test before changing fixtures, not a
+completed match. All 29 Bots have complete physical dynamics (1,023 records).
+The existing model uses ten springs and twelve ordinary auxiliary contacts,
+adding its existing rigid-body contacts when tipping. Both client roles have
+zero legacy fitted-plane refusals in this report. Seven Bots entered authored
+parking tasks; their diagnostic spans reach 59.97 seconds. Translation was
+never admitted in those parking records, and Bot #11 has fourteen admitted
+turn observations. The player's stock was 13/13/14; explicit test setup loaded
+HE compact 3722 and received `shell_ready` before restoring automation. Server
+launches `1:p:1:1` at 03:05:58 and `1:p:1:2` at 03:06:06 both use shell index 2
+and have matching impact terminals. Ten Bot launch terminals are also present.
+This does not claim every vehicle, slope or first-trigger refusal is fixed.
+The all-UDES diagnostic stress scene still showed substantial callback delay
+and traffic congestion; those observations are retained, not bypassed by
+relaxing support/fire predicates or changing original navigation.
+
+The final original mixed 15-versus-15 Redshire scene is captured in
+`wot-error-report-20261119-031731-633e4de7605a.zip`. Explicit test setup again
+received `shell_ready` for HE before restoring automation. The player launched
+one HE round at 03:13:23 (`1:p:1:1`, shell index 2), with a matching impact
+terminal after 60 ms. The player survived; the match ended at 03:14:32 by the
+opposing team's base capture. The server recorded 167 Bot projectile terminals.
+All three UDES Bots have complete dynamics; two ordinary ELC Bots temporarily
+used the existing detailed edge path. The 70 legacy fitted-plane refusals
+belong to ordinary Bots, not the player or UDES actors. They are retained as
+observations, not silently reclassified as successful support. The player has
+20 full-contact support observations and no legacy fitted-plane refusal.
+Two clear-line entry episodes each confirm for approximately two seconds,
+then retain engagement through native state 1 until state 2 is acknowledged.
+Obstructed-point review remains visible between these episodes; this evidence
+does not establish that every long aiming delay has been eliminated. The new
+opt-in barrel record was exercised by an ordinary Bot's actual armor refusal,
+including its own source pose and first contact. No fire rule was relaxed.
+
+The exact packaged runtime passed all eight jobs in
+[Tests run 44375799851](https://github.com/colorfulmeans/wot-0.9.22-offline-battles/actions/runs/44375799851),
+including the complete client/launcher suites, Bot behavior, retained-route
+checks, native geometry, Windows launcher/server and native exception trail.
+The handoff update after that runtime is documentation only. Both native
+reports remain in the isolated QA reports folder; their reassembled per-role
+audits are retained in the local `qa-pr119-parity-20261118/support-wait-20261119`
+evidence directory. The isolated test clients and launcher were closed after
+report review.
+
+The Windows test ZIP is `wot_PR119_8a58cff9_Windows_2026-11-19.zip`
+(68,291,555 bytes; 1,298 members), build `local-pr119-8a58cff9`. Independent
+inspection verified all 264 Python 2.7 client modules, 267 paired server
+sources, 45 frozen launcher modules, native-math/source identity, recorder,
+editor and native starter; ZIP CRC/inventory checks passed. The intermediate
+`bd01e331` and `15d7ed96` ZIPs were moved out of Downloads as superseded QA
+artifacts. The original PR119 remains open and unmerged.
+
+
 ## November 19 — Complete player-mechanism migration audit
 
 The user clarified the scope: migrate the complete existing player mechanisms

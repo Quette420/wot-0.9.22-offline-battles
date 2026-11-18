@@ -66,17 +66,24 @@ class OrderedPlayerAttackTests(unittest.TestCase):
             with self.subTest(lane=lane, movable=movable):
                 scene = self.siege_he(1, movable=movable)
                 scene.value(2, line=lane, armor='unknown')
-                scene.value(2, target=2, line='pending', armor='unknown')
+                scene.value(2, target=2, line=lane, armor='unknown')
                 decision = scene.tick(0.)
+                self.assertEqual('wait', decision['action'])
+                self.assertEqual(('bot', 2), scene.policy.ordered_load().target)
+                self.assertEqual('wait', scene.tick(.1)['action'])
+                self.assertEqual(('bot', 1), scene.policy.ordered_load().target)
+                decision = scene.tick(.2)
                 self.assertEqual(action, decision['action'], decision)
-                self.assertEqual({('bot', 1)}, {row[3] for row in scene.calls})
+                self.assertEqual([('bot', 1), ('bot', 2), ('bot', 1)],
+                                 [row[3] for row in scene.calls])
                 self.assertFalse(scene.policy.apply_order({})['fire_allowed'])
 
     def test_new_siege_admission_uses_confirmed_target_while_old_target_is_visible(self):
         scene = self.siege_he(1)
         scene.value(2, line='world_blocked', armor='unknown')
         scene.passed(2, target=2)
-        self.assertEqual('firing_position', scene.tick(0.)['action'])
+        self.assertEqual('wait', scene.tick(0.)['action'])
+        self.assertEqual(('bot', 2), scene.policy.ordered_load().target)
         scene.policy.runtime.combat_stop.receipt.update(episode=2, selected=('bot', 2))
         scene.calls.clear()
         result = scene.tick(.1)

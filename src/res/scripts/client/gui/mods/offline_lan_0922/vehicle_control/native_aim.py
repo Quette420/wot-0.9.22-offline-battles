@@ -45,21 +45,7 @@ def hydraulic_body(position, body, correction, center_z):
     same local-aim * base transform used by the native foreground provider,
     expressed as a value only; neither matrix provider nor gun is mutated.
     """
-    position, body = _point(position), _point(body)
-    correction, center_z = float(correction), float(center_z)
-    if any(math.isnan(v) or math.isinf(v) for v in (correction, center_z)):
-        raise ValueError('invalid hydraulic transform')
-    offset = hull_aiming.correction_translation(correction, center_z)
-    translated = shot_geometry.transform_vehicle_point(offset, position, *body)
-    axes = [shot_geometry.transform_vehicle_vector(
-        shot_geometry.transform_vehicle_vector(vector, 0., correction, 0.), *body)
-        for vector in ((1., 0., 0.), (0., 1., 0.), (0., 0., 1.))]
-    right, up, forward = axes
-    pitch = math.asin(max(-1., min(1., -forward[1])))
-    if abs(math.cos(pitch)) < 1.e-9:
-        raise ValueError('singular hydraulic body')
-    return translated, (math.atan2(forward[0], forward[2]), pitch,
-                        math.atan2(right[1], up[1]))
+    return hull_aiming.compose_body(position, body, correction, center_z)
 
 
 def hydraulic_reach(descriptor, direction, flat_body, config):

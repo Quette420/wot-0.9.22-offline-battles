@@ -141,8 +141,7 @@ class CombatStop(object):
         capture_travel = mode == 'base_capture' and order.get('throttle_override') != 0.
         automatic_approach = bool(capture_travel and order.get('capture_objective') and
             not order.get('capture_area') and not mission.get('explicit') and
-            not order.get('team_command') and 'drive' in runtime.features and
-            getattr(runtime, 'actor_kind', None) == 'human' and not runtime.siege_capable())
+            not order.get('team_command') and 'drive' in runtime.features)
         if capture_travel:
             self.active = self.active and automatic_approach
         # A capture/parking hold may legitimately fire without donating its
@@ -230,9 +229,8 @@ class CombatStop(object):
     def capture_hold(self):
         order, runtime = self.task_order, self.runtime
         area = order.get('capture_area')
-        return bool(self.active and getattr(runtime, 'actor_kind', None) == 'human' and
-                    'drive' in runtime.features and not self.explicit_travel and
-                    area and order.get('combat_mode') in ('base_capture', 'engage') and
+        return bool(self.active and 'drive' in runtime.features and not self.explicit_travel and
+                    isinstance(area, dict) and order.get('combat_mode') in ('base_capture', 'engage') and
                     order.get('throttle_override') == 0. and not order.get('parking_phase') and
                     not runtime.state.get('airborne') and capture_orders.inside(runtime.state, area))
 
@@ -484,8 +482,7 @@ class CombatStop(object):
         if (siege and self._episode == 0 and self._failed_recovery is None and
                 self.runtime.state.get('siege_state') == siege_mechanics.ENABLED):
             return False
-        return (self.can_request_movement and
-                (getattr(self.runtime, 'actor_kind', None) == 'human' or siege) and (
+        return (self.can_request_movement and (
              siege and self._failed_recovery is not None or
             mode in ('route', 'advance', 'advance_contact', 'base_capture') or
             mode == 'engage' and order.get('throttle_override') != 0. and

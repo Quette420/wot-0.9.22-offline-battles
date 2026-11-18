@@ -2311,6 +2311,8 @@ class AttackPolicy(object):
                     lambda: dict(target=ordered.target,
                         aim_sample=(ordered.he_sample if ordered.loaded_he else ordered.sample),
                         checked=len(ordered.covered), targets=tuple(ordered.order),
+                        blocked_targets=tuple(sorted(ordered.blocked_targets)),
+                        blocked_revisit=ordered.blocked_revisit,
                         loaded=loaded, clip=frame['clip'], proposed=result.get('shell_index'),
                         candidate=(result.get('candidate') or {}).get('key'),
                          he_comparison=self.he_comparison,

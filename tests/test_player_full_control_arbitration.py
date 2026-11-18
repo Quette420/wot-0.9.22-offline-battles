@@ -243,6 +243,10 @@ class FullControlArbitrationTests(unittest.TestCase):
                         'a current blocker is not positive movement permission')
                     self.assertIsNotNone(owner._recovery_candidate())
                     checked_proposals += 1
+                elif row['action'] == 'navigate':
+                    self.assertEqual('ordered_no_clear_lane', row['reason'])
+                    self.assertIsNone(policy.decision.get('candidate'))
+                    self.assertFalse(owner.combat_owned)
                 else:
                     self.assertEqual('wait', row['action'])
                     self.assertTrue(policy.stationary_review_wait())

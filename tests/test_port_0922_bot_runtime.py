@@ -7318,7 +7318,7 @@ class BotRuntimeTests(unittest.TestCase):
             'x', 'y', 'z', 'yaw', 'pitch', 'roll', 'aim_yaw', 'turret_yaw',
             'gun_pitch', 'speed', 'push_x', 'push_z', 'movement_dir', 'rotation_dir',
             'reload_time', 'burst_time_left', 'siege_time_left_ms',
-            'combat_fire_elapsed', 'combat_fire_timer', 'aim_feedback_error'))
+            'combat_fire_elapsed', 'combat_fire_timer', 'aim_feedback_error', 'suspension_pitch'))
         represented = set(('critical', 'equipment_states', 'ammo_remaining',
                            'shot_yaw', 'shot_pitch'))
         codec = self.module.bot_state_codec

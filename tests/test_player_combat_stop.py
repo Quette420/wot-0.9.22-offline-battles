@@ -136,6 +136,17 @@ class Scene:
     def native_mode(self, mode):
         self.state['siege_state'] = self.runtime.entity.siegeState = mode
 
+    def confirm_clear_route_contact(self, start):
+        """Observe this current point for the production two-second gate."""
+        self.candidate.update(line='clear', armor='passed')
+        self.decide('aim' if self.candidate['mechanical'] == 'reachable' else 'firing_position')
+        for step in range(16):
+            result = self.apply(start + step * .125)
+            assert not self.owner.stop_allowed, self.owner.receipt
+        result = self.apply(start + 2.001)
+        assert self.owner.stop_allowed, self.owner.receipt
+        return result
+
     def stationary(self, **changes):
         planned = dict(status='proved', proof=dict(proved=True), line='clear',
             mechanical='reachable', armor='passed',

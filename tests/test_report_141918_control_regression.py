@@ -313,9 +313,9 @@ class Report141918ControlRegressionTests(unittest.TestCase):
             self.assertEqual('route', row['executed']['combat_mode'])
             self.assertEqual(1, scene.battle._gun_state.clip)
             self.assertEqual(0., scene.battle._gun_state.reload_time)
-            self.assertEqual('firing_position', row['policy']['action'])
-            self.assertEqual('he_fallback_obstructed', row['policy']['reason'])
-            self.assertEqual('world_blocked', row['policy']['line'])
+            self.assertEqual('wait', row['policy']['action'])
+            self.assertEqual('ordered_he_penetration_pending', row['policy']['reason'])
+            self.assertIsNone(row['policy']['line'])
             # Ordinary HE may retain its already proved one-point plate
             # failure. The new wreck is known physical geometry, and must
             # not turn that local fact into a global all-enemy failure.

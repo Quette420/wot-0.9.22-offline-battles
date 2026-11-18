@@ -332,12 +332,13 @@ class NativeHydraulicMagazineRulesTests(unittest.TestCase):
         gun.shots[1].piercingPower = (1000., 1000.)
         decision = self.review_until(scene, lambda row:
             row['action'] == 'reload_clip' and row.get('early_reload'))
-        self.assertEqual('current_shell_all_armour_failed', decision['reason'])
+        self.assertEqual('ordered_penetration_exhausted', decision['reason'])
         self.assertIsNotNone(runtime.attack_policy.reload_authority)
-        self.assertIsNotNone(decision['candidate'])
-        self.assertEqual((1, 'penetration'),
-            (decision['shell_index'], decision['candidate']['mode']))
-        self.assertTrue(runtime.attack_policy._plannable(decision['candidate']))
+        self.assertEqual(1, decision['shell_index'])
+        self.assertIsNone(decision['candidate'])
+        # A complete mounted-shell failure selects the next penetration load;
+        # its new shot is reviewed after native loading, never pre-authorized.
+        self.assertTrue(runtime.attack_policy._failure_domain((0,))['all_failed'])
         self.assertEqual(siege_mechanics.ENABLED, scene.entity.siegeState)
         order = dict(combat_mode='engage', target_id=scene.target.id,
             target_kind='bot', move_position=(0., 0., 0.),
@@ -354,7 +355,7 @@ class NativeHydraulicMagazineRulesTests(unittest.TestCase):
         self.assertEqual(siege_mechanics.ENABLED, scene.entity.siegeState)
         self.assertFalse(scene.launches())
 
-    def test_actual_enabled_he_partial_clip_fallback_keeps_verified_ap_for_next_clip(self):
+    def test_actual_enabled_he_partial_clip_does_not_queue_ap_before_fallback_commits(self):
         scene = self.scene()
         runtime, gun = scene.runtime, scene.runtime.gun
         scene.set_he(piercing=0.)
@@ -363,20 +364,19 @@ class NativeHydraulicMagazineRulesTests(unittest.TestCase):
         before = tuple(gun.ammo)
         policy = runtime.attack_policy
         decision = self.review_until(scene, lambda row:
-            (row.get('candidate') or {}).get('mode') == 'he_fallback' and
-            policy.next_shell == 1)
+            (row.get('candidate') or {}).get('mode') == 'he_fallback')
         self.assertEqual((0, 'he_fallback'),
             (decision['candidate']['shell_index'], decision['candidate']['mode']))
         self.assertIn(decision['action'], ('aim', 'firing_position'))
         domain = policy._failure_domain((0,))
         self.assertTrue(domain['all_failed'], domain)
         self.assertGreater(domain['projected_failed'], 0)
-        self.assertIsNotNone(policy._best_penetration(exclude=0, plannable=True))
-        self.assertEqual('penetration', policy.next_plan['mode'])
+        self.assertIsNone(policy.next_plan)
+        self.assertEqual(0, policy.ordered_load().he_fallback_rounds)
         self.assertIsNone(policy.reload_authority)
         runtime._apply_shell_intent()
         runtime._apply_next_shell()
-        self.assertEqual((0, 2, 1, before),
+        self.assertEqual((0, 2, None, before),
             (gun.shot_index, gun.clip, gun.pending_index, tuple(gun.ammo)))
         self.assertEqual(siege_mechanics.ENABLED, scene.entity.siegeState)
         self.assertEqual(0., scene.battle._local_siege_aim_pitch)

@@ -1,4 +1,4 @@
-"""One mounted shell and one target at a time for ordinary player auto fire."""
+"""One mounted shell and one target at a time for ordinary automatic fire."""
 
 def shell_order(shell):
     return (float(shell['piercing']), float(shell.get('nominal_damage', 0.)),
@@ -24,6 +24,10 @@ class OrderedAttack(object):
         self.he_identity = None
         self.covered = set()
         self.checked_lanes = set()
+        self.blocked_targets = set()
+        self.blocked_origin = None
+        self.blocked_revisit = False
+        self.blocked_points = {}
         self.cursor = 0
         self.committed_shell = None
         self.committed_rounds = 0
@@ -52,7 +56,19 @@ class OrderedAttack(object):
         self.order.extend(key for key in live if key not in self.order)
         self.covered.intersection_update(live)
         self.checked_lanes.intersection_update(live)
+        self.blocked_targets.intersection_update(live)
+        for key in list(self.blocked_points):
+            if key not in live:
+                self.blocked_points.pop(key)
+        if self.blocked_origin is not None and self.blocked_origin not in live:
+            self.blocked_origin = None
+            self.blocked_revisit = False
+            self.blocked_points.clear()
         if self.loaded != shell['index']:
+            if self.loaded is not None and not self.loaded_he and not shell['is_he']:
+                # Obstruction demotion belongs to this mounted-shell pass.
+                # A new load starts its own current-distance target order.
+                self.order = list(live)
             if self.loaded_he and not shell['is_he'] and self.target in self.order:
                 self.order.remove(self.target)
                 self.order.insert(0, self.target)
@@ -64,7 +80,11 @@ class OrderedAttack(object):
             self.he_identity = None
             self.covered.clear()
             self.checked_lanes.clear()
+            self.blocked_targets.clear()
+            self.blocked_origin = None
+            self.blocked_revisit = False
             self.cursor = 0
+            self.blocked_points.clear()
         if self.target not in live:
             self.target, self.sample, self.he_sample = None, None, None
 
@@ -133,9 +153,17 @@ class OrderedAttack(object):
             policy.rows.clear()
             policy.selected = None
             policy._frame_invalid = True
+            self.blocked_points.clear()
+            self.blocked_targets.clear()
+            self.blocked_origin = None
+            self.blocked_revisit = False
             return policy._recover_incomplete(now, 'ordered_point_observation_changed')
         policy.fallback = row['mode'] == 'he_fallback'
         policy.reload_authority = None
+        self.blocked_targets.clear()
+        self.blocked_origin = None
+        self.blocked_revisit = False
+        self.blocked_points.clear()
         return policy._choose('aim', reason, row)
 
     def _retain_target(self, row):
@@ -278,9 +306,16 @@ class OrderedAttack(object):
 
     def _no_clear_contact(self, policy, now, jobs, rows, reason):
         blocked = [(row, policy._obstructed_lane(row)) for row in rows]
-        if (any(lane is not None for row, lane in blocked) and
+        current_jobs = [job for job in jobs if job[0][1] == self.target]
+        if (self._blocked_pass_complete(policy, current_jobs) or
+                any(lane is not None for row, lane in blocked) and
                 all(lane is not None or row is not None and row.get('scope') == 'excluded'
                     for row, lane in blocked)):
+            if self.blocked_origin is None:
+                self.blocked_origin = self.target
+            self.blocked_targets.add(self.target)
+            self.order.remove(self.target)
+            self.order.append(self.target)
             replacement = policy.clear_handoff(jobs, self.order, self.target, now)
             if replacement is not None:
                 self._retain_target(replacement)
@@ -288,6 +323,30 @@ class OrderedAttack(object):
                 self.cursor = 0
                 policy.selected = replacement['key']
                 return policy._choose('wait', 'blocked_target_handoff')
+            next_target = next((key for key in self.order
+                                if key not in self.blocked_targets), None)
+            if next_target is None and not self.blocked_revisit:
+                next_target = self.blocked_origin
+                self.blocked_revisit = True
+                self.blocked_points.pop(next_target, None)
+                # Work history is not current firing evidence. The final
+                # revisit must observe this target again, even at rest.
+                for job in jobs:
+                    if job[0][1] == next_target:
+                        policy.rows.pop(job[0], None)
+                        invalidate = getattr(policy.evaluator, 'invalidate_line', None)
+                        if callable(invalidate):
+                            invalidate(job[0])
+            if next_target is not None:
+                self.target, self.sample = next_target, None
+                self.he_sample = self.he_identity = None
+                self.cursor = 0
+                policy.selected = None
+                return policy._recover_incomplete(now, 'ordered_he_penetration_pending')
+            self.blocked_targets.clear()
+            self.blocked_origin = None
+            self.blocked_revisit = False
+            self.blocked_points.clear()
             combat = getattr(policy.runtime, 'combat_stop', None)
             if combat is not None and combat.stop_allowed:
                 stable = next((row for row, lane in blocked if lane is not None and
@@ -297,6 +356,29 @@ class OrderedAttack(object):
                 if stable is not None:
                     return policy._choose('firing_position', 'current_target_stable_obstruction', stable)
         return policy._choose('navigate', reason)
+
+    def _blocked_pass(self, policy, jobs):
+        """Remember inspection work, never a current line or armour verdict."""
+        if not jobs:
+            return set()
+        key, shell, target, unused_sample, unused_mode = jobs[0]
+        identity = (policy.frame['identity'], shell.get('signature'),
+                    target.get('sample_identity'), frozenset(job[3] for job in jobs))
+        previous = self.blocked_points.get(key[1])
+        if previous is None or previous[0] != identity:
+            previous = identity, set()
+            self.blocked_points[key[1]] = previous
+        return previous[1]
+
+    def _blocked_pass_complete(self, policy, jobs):
+        inspected = self._blocked_pass(policy, jobs)
+        return bool(jobs) and all(job[3] in inspected for job in jobs)
+
+    def _record_blocked_point(self, policy, inspected, job, row):
+        if policy._obstructed_lane(row) is not None:
+            inspected.add(job[3])
+        elif row is not None and row.get('line') == 'clear':
+            inspected.discard(job[3])
 
     @staticmethod
     def _can_lay(policy, row, mode):
@@ -346,6 +428,9 @@ class OrderedAttack(object):
                     row.get('mechanical') == 'hull_laying' and not combat.capture_can_lay(row))
 
         current = [policy._current(job, require_line=True) for job in jobs]
+        inspected = self._blocked_pass(policy, jobs)
+        for job, row in zip(jobs, current):
+            self._record_blocked_point(policy, inspected, job, row)
         for row in current:
             if policy._executable_current(row):
                 return 'aim', row
@@ -357,7 +442,7 @@ class OrderedAttack(object):
                    not policy._executable(row) and
                    (job[0] == refresh and not policy._reviewed(row, 'penetration') or
                     self._negative_evidence(policy, job, row) is None)]
-        pending.sort(key=lambda index: (jobs[index][0] != priority,
+        pending.sort(key=lambda index: (jobs[index][3] in inspected, jobs[index][0] != priority,
                                        (index - self.cursor) % len(jobs)))
         for index in pending:
             if policy._used['foreground'] >= policy.foreground_budget:
@@ -365,6 +450,7 @@ class OrderedAttack(object):
             self.cursor = index + 1
             row = policy._evaluate(jobs[index], now, 'foreground')
             current[index] = row
+            self._record_blocked_point(policy, inspected, jobs[index], row)
             if policy._executable_current(row):
                 return 'aim', row
         unfinished = [jobs[index] for index in pending
@@ -376,6 +462,7 @@ class OrderedAttack(object):
             for row in policy._ordered_point_slice(unfinished, now):
                 index = by_key[row['key']]
                 current[index] = row
+                self._record_blocked_point(policy, inspected, jobs[index], row)
                 self.cursor = index + 1
                 if policy._executable_current(row):
                     return 'aim', row
@@ -397,9 +484,24 @@ class OrderedAttack(object):
                         not row.get('scatter_blocked') and
                         row.get('line') in ('friendly_blocked', 'world_blocked') and
                         isinstance(row.get('solution'), dict)), None)
+        if all(job[3] in inspected for job in jobs):
+            # A moving muzzle may revoke every exact row between callbacks.
+            # Finishing this finite work pass only demotes the target. Any
+            # shot or recovery still needs its own fresh native evidence.
+            return 'complete', blocked
         if not all(evidence):
             if any(row and row.get('stationary_progress') for row in current):
                 return 'stationary_wait', None
+            if getattr(policy.runtime, 'siege_capable', lambda: False)():
+                native = next((row for row in current if row is not None and
+                    row.get('line') == 'clear' and row.get('mechanical') in
+                    ('hull_laying', 'mechanical_limited') and
+                    isinstance(row.get('solution'), dict)), None)
+                if native is not None:
+                    # This is only an actuator request. The existing siege
+                    # consumer still proves support and actual hydraulic reach;
+                    # no projected point becomes a current firing proof.
+                    return 'native_lay', native
             lay = next((row for row in current if self._unproved_hull_lay(row) and
                         (not capture or combat.capture_can_lay(row))), None)
             if lay is not None and not getattr(policy.runtime, 'siege_capable', lambda: False)():
@@ -456,13 +558,17 @@ class OrderedAttack(object):
         # An admitted circle turn outlives transient point refreshes. Finish
         # reviewing its target before checking vehicles on the opposite side.
         held = getattr(combat, 'capture_lay_target', lambda: None)()
-        review_order = sorted(self.order, key=lambda key: key != held) if held in groups else self.order
+        review_order = sorted(self.order, key=lambda key: key != held) if held in groups else list(self.order)
+        if held not in groups and self.target in review_order:
+            start = review_order.index(self.target)
+            review_order = review_order[start:] + review_order[:start]
         obstructed = None
         navigation_owned = False
         for key in review_order:
             target_jobs = groups[key]
-            if key in self.covered and all(self._negative_evidence(
-                    policy, job, policy._current(job, require_line=True)) for job in target_jobs):
+            if key in self.covered and (self._blocked_pass_complete(policy, target_jobs) or
+                    all(self._negative_evidence(policy, job, policy._current(job, require_line=True))
+                        for job in target_jobs)):
                 continue
             self.covered.discard(key)
             self.checked_lanes.discard(key)
@@ -497,6 +603,10 @@ class OrderedAttack(object):
                     self.checked_lanes.add(key)
                 else:
                     obstructed = obstructed or row
+                    if all(policy._obstructed_lane(policy._current(job, require_line=True))
+                           is not None for job in target_jobs):
+                        self.order.remove(key)
+                        self.order.append(key)
         if navigation_owned:
             return policy._choose('wait', 'current_shot_navigation_owned')
         recovery = next((policy._current(job, require_line=True) for job in jobs
@@ -509,12 +619,14 @@ class OrderedAttack(object):
                                   movement_reason=recovery.get('reason'))
         if not self.checked_lanes:
             self.covered.clear()
+            self.blocked_points.clear()
             if obstructed is not None:
                 return policy._choose('firing_position', 'unverified_points_obstructed', obstructed)
             return policy._choose('navigate', 'ordered_no_clear_lane')
         if not policy._failure_fenced((shell['index'],)):
             self.covered.clear()
             self.checked_lanes.clear()
+            self.blocked_points.clear()
             return policy._recover_incomplete(now, 'ordered_sweep_observation_changed')
         if any(row.get('unavailable') and frame['ammo'][row['index']] > 0
                for row in frame['shells']):

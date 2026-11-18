@@ -305,9 +305,11 @@ class CombatControl(object):
                 not self.attack_policy._executable(candidate, candidate.get('mode', 'penetration'))):
             return False
         task = owner.task_order
+        capture_hold = getattr(owner, 'capture_hold', lambda: False)()
         if 'drive' in self.features and (task.get('throttle_override') != 0. or
-                _distance(_point(task.get('move_position') or state['position']),
-                          state['position']) > shared_driver.WAYPOINT_ARRIVAL_RADIUS):
+                not capture_hold and _distance(
+                    _point(task.get('move_position') or state['position']),
+                    state['position']) > shared_driver.WAYPOINT_ARRIVAL_RADIUS):
             return False
         if (not command or 'drive' in self.features and (
                 command.get('movement_intent', True) or
@@ -397,7 +399,17 @@ class CombatControl(object):
             # Keep the decision's target so the shared aim-intention holder
             # can refresh its motion, but never borrow a stale fire edge.
             return dict(command, fire_allowed=False), target
-        if not self._gun_handoff_preserves_controls(current, command):
+        preserves_controls = self._gun_handoff_preserves_controls(current, command)
+        if combat_detail_enabled():
+            combat_detail(self, 'gun_handoff_review', self.actor_id, now,
+                (current.get('key'), preserves_controls), lambda: dict(
+                    candidate=current.get('key'), accepted=preserves_controls,
+                    capture_hold=getattr(owner, 'capture_hold', lambda: False)(),
+                    position=tuple(self.state['position']),
+                    task_destination=owner.task_order.get('move_position'),
+                    movement_intent=command.get('movement_intent'),
+                    throttle=command.get('throttle'), turn=command.get('turn')))
+        if not preserves_controls:
             # A genuine movement conflict closes this gun-only lease. It
             # does not erase the policy's observed enemy or armour evidence.
             self._gun_handoff = None

@@ -70,7 +70,7 @@ class TrafficPivotHandoffTests(unittest.TestCase):
         # The shared CombatStop performs a bounded native-point preview only
         # after the normal in-place laying attempt proves stalled.
         from test_player_combat_stop import Scene
-        scene=Scene(admitted=False)
+        scene=Scene()
         scene.raw_order.update(combat_mode='route', target_id=None,
             target_kind=None, move_position=(20., 0., -30.),
             face_position=(20., 0., -30.), throttle_override=None,
@@ -91,10 +91,13 @@ class TrafficPivotHandoffTests(unittest.TestCase):
             self.assertEqual((20.,0.,-30.),released['move_position'])
             self.assertFalse(scene.owner.stop_allowed)
         recovered=scene.apply(10.2)
-        self.assertEqual('gun_angle_adjust',recovered['combat_mode'])
-        self.assertNotEqual(scene.target['position'],recovered['move_position'])
+        self.assertEqual('route',recovered['combat_mode'])
         self.assertFalse(recovered['fire_allowed'])
-        self.assertIsNotNone(scene.owner._physical_recovery)
+        self.assertIsNone(scene.owner._physical_recovery)
+        scene.candidate.update(mechanical='reachable')
+        recovered=scene.confirm_clear_route_contact(10.3)
+        self.assertEqual('engage',recovered['combat_mode'])
+        scene.decide('navigate', candidate=False, reason='ordered_no_clear_lane')
         self.assertEqual('route',scene.apply(16.3)['combat_mode'])
         self.assertFalse(scene.owner.stop_allowed)
         self.assertIsNone(scene.owner._physical_recovery)

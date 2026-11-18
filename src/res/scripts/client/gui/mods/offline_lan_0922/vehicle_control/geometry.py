@@ -1322,6 +1322,12 @@ class SharedBattleGeometry(object):
         everywhere else.
         """
         canonical = vehicle.matrix if ground_matrix is None else ground_matrix
+        if not self._worker_mode and record.get('native_remote') and self._remote_factory is not None:
+            getter = getattr(self._remote_factory, 'rendered_hydraulic_collision_matrices', None)
+            if callable(getter):
+                matrices = getter(record.get('engine_id'))
+                if matrices is not None:
+                    return matrices
         if (self._worker_mode and record.get('native_remote') and
                 self._remote_factory is not None):
             getter = getattr(

@@ -1,5 +1,71 @@
 # PR119 control-offset correction — November 10, 2026
 
+## November 18 follow-up — Actor parity, finite blocked review and hydraulic pose
+
+The `201622-fb0bb6f40e74` report establishes two separate ELC defects.
+Bot #7 saw Object 261 #29 before reaching the capture circle, but automatic
+capture travel admitted ordinary players only. Inside the circle, clear,
+penetrable HE points still lost gun handoff because the saved parking anchor
+was 7.995 m from the actual vehicle. The vehicle was already inside the
+50 m capture area. The same anchor mismatch affected ELC #21.
+
+Production Bot and player-siege constructors also selected the old penetration
+policy while ordinary players selected ordered review. Same-fact regressions
+on original commit `7b08b4be` fail for both omitted entries: remaining points
+on the current vehicle, APCR before HE, and two committed high-penetration
+single shots before returning to the lowest penetration shell.
+
+All ordinary actors now select the existing ordered policy. Artillery retains
+its explicit artillery branches. The common policy owns penetration/damage
+ordering, current-car point review, target sweep, next load, committed-shot
+return, and no-HE exit. Route admission uses two seconds for every actor;
+the existing five-second no-HE cooldown and native siege mode echo still
+apply. Automatic capture approach and circle hold no longer exclude Bots or
+player siege vehicles. Gun handoff in a stopped capture area uses actual
+circle membership, movement intent and unchanged chassis inputs, rather than
+requiring arrival within 1.5 m of an obsolete anchor.
+
+Fully blocked HE contacts move to the end of a finite review queue. Other
+vehicles receive foreground inspection even without spare atomic capacity.
+After all alternatives fail, the original contact receives one fresh final
+revisit before existing checked position recovery or route release. Moving
+the source preserves completed inspection work, not old firing evidence.
+Contact/sample/load/round changes and failed observation fences retire the
+relevant work. Fresh clear observations restore points immediately. A clear
+alternative continues the same engagement without a new route timer. HE
+penetration and maximum expected blast damage remain within the current car.
+
+The report also contains 22 hydraulic projection errors. In one complete
+Bot #24 observation at 20:12:09.195, Euler pitch addition retained chassis
+yaw while local hydraulic composition changed body yaw by 2.576663 degrees.
+The worker aim/review, gun source and native presentation now use one local
+pivot composition. Chassis integration retains its existing state layout;
+the derived body pose does not overwrite driver yaw or ground support.
+The worker publishes the hydraulic correction through the existing compact
+state row; client presentation uses that correction once, instead of a second
+independent native hydraulic predictor. Rendered hull and ground collision
+matrices retain their separate owners. The paired server and client must
+ship together. Existing support, collision and final trigger checks remain.
+
+New detailed evidence covers Bot hydraulic inputs and circle gun handoff;
+both builders are guarded by the detailed diagnostics entrance. No new
+diagnostic payload is collected with that option disabled.
+
+Local validation includes constructor parity, actual commit counters, finite
+moving-source review with atomic work disabled, same-engagement front-enemy
+handoff, circle-anchor offset, local-pivot matrices and wire roundtrip.
+Legacy recovery fixtures explicitly establish an engagement where they test
+continuity; cold blocked route cases retain full route/control comparisons.
+Reentry cases now require current clear evidence throughout two seconds.
+The legacy wire-column digest is preserved after removing the new appended
+hydraulic column; it was not replaced with a new expected digest.
+The final scoped run passed 2187 cases in 54 isolated files. CPython 2.7.18
+compiled all 264 client modules. The broad Windows-host run
+without its matching native simulation is diagnostic only; its unavailable
+native cases do not establish release acceptance. Exact-head CI, package
+inspection and native Redshire 15 vs 15 acceptance are recorded below when
+completed. PR #119 remains open and unmerged.
+
 ## November 12 follow-up — Finish obstructed HE engagements
 
 The `214138-c65b14d3ce9e` report showed UDES 03 holding Type 4 Heavy #12

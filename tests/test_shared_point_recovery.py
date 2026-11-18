@@ -86,13 +86,15 @@ class PointRecoveryTests(unittest.TestCase):
         scene.position((1., 0., 0.))
         result = scene.apply(2.)
         self.assertFalse(scene.owner.combat_owned)
-        self.assertTrue(scene.owner.physical_recovery_pending())
+        self.assertFalse(scene.owner.physical_recovery_pending())
         scene.runtime.point_recovery_probe = lambda *args: dict(status='clear')
         result = scene.apply(2.1)
+        self.assertFalse(scene.owner.combat_owned)
+        scene.candidate.update(mechanical='reachable')
+        result = scene.confirm_clear_route_contact(2.2)
         self.assertTrue(scene.owner.combat_owned)
         self.assertTrue(scene.owner.stop_allowed)
-        self.assertIsNotNone(scene.owner._physical_recovery)
-        self.assertFalse(result['fire_allowed'])
+        self.assertIsNone(scene.owner._physical_recovery)
 
     def test_expired_ready_without_reloading_returns_to_bounded_recheck(self):
         scene = self.scene()

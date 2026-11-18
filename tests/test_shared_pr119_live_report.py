@@ -296,7 +296,7 @@ class StableRouteAttackTests(unittest.TestCase):
                     self.assertEqual('native_lay', owner.receipt['reason'])
                     self.assertEqual('passed', candidate['armor'])
 
-    def test_front_vehicle_cancels_confirmation_until_the_ideal_lane_reopens(self):
+    def test_friendly_front_vehicle_cancels_confirmation_until_the_ideal_lane_reopens(self):
         scene = self.moving_scene((0., 0., 0.), limited=True, clip=10)
         scene.set_he(piercing=100.)
 
@@ -310,7 +310,9 @@ class StableRouteAttackTests(unittest.TestCase):
         saw_native_block = False
         for step in range(47):
             if step == 4:
-                front = scene.eligible_enemy(60, armor=300.)
+                # An enemy front vehicle is now itself a legal HE handoff.
+                # A friendly must still cancel every firing opportunity.
+                front = scene.vehicle(60, point(18.), team=1)
                 scene.pose(front, point(18.))
                 scene.runtime._strategic_due = 0.
             if step == 30:
@@ -323,8 +325,7 @@ class StableRouteAttackTests(unittest.TestCase):
             if 4 <= step < 30:
                 self.assertIsNone(owner._route_confirmation)
                 saw_native_block = saw_native_block or any(
-                    row.get('line') == 'enemy_blocked' and row.get('reason') == 'planned_front_vehicle' and
-                    row['blocker']['actor_key'] == ('bot', 60) for row in policy.rows.values())
+                    row.get('line') == 'friendly_blocked' for row in policy.rows.values())
             if step < 46:
                 self.assertFalse(owner.combat_owned)
                 self.assertEqual('route', order['combat_mode'])
@@ -333,6 +334,43 @@ class StableRouteAttackTests(unittest.TestCase):
         self.assertEqual(2., owner.receipt['confirmation_seconds'])
         self.assertEqual('native_lay', owner.receipt['reason'])
         self.assertEqual('hull_laying', policy.decision['candidate']['mechanical'])
+
+    def test_fully_blocking_enemy_hands_he_to_front_contact_in_same_engagement(self):
+        scene = self.moving_scene((0., 0., 0.), limited=False, clip=1)
+        scene.set_he(piercing=100.)
+        target = scene.eligible_enemy(50, armor=30.)
+        scene.pose(target, (0., 0., 45.))
+        policy, owner = scene.runtime.attack_policy, scene.runtime.combat_stop
+        for step in range(17):
+            scene.native_position((0., 0., step * .01))
+            scene.battle._local_speed = .08
+            scene.tick(.125)
+        self.assertTrue(owner.combat_owned)
+        episode = owner._episode
+        front = scene.eligible_enemy(60, armor=30.)
+        scene.pose(front, (0., 0., 18.))
+        scene.runtime._strategic_due = 0.
+        saw_block = False
+        for step in range(60):
+            scene.native_position((0., 0., .17 + step * .01))
+            scene.battle._local_speed = .08
+            scene.tick(.125)
+            self.assertTrue(owner.combat_owned, owner.receipt)
+            self.assertEqual(episode, owner._episode)
+            self.assertIsNone(owner._route_confirmation)
+            saw_block = saw_block or any(row.get('line') == 'enemy_blocked'
+                for row in policy.rows.values())
+            if policy.ordered.target == ('bot', 60):
+                break
+        self.assertTrue(saw_block)
+        self.assertEqual(('bot', 60), policy.ordered.target)
+        scene.battle._local_speed = 0.
+        for unused in range(30):
+            scene.tick(.125)
+            if scene.launches():
+                break
+        self.assertEqual([0], [shot['shell_index'] for shot in scene.launches()])
+        self.assertEqual(('bot', 60), policy.decision['candidate']['target_key'])
 
     def test_route_he_keeps_ownership_while_clear_points_are_still_being_compared(self):
         scene = self.moving_scene((0., 0., 0.), limited=False, clip=1)

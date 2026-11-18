@@ -12790,9 +12790,8 @@ class BotRuntime(SharedEngineControl):
     def _exact_shot_direction(state, descriptor):
         """Return the current barrel ray in the stabilised world basis."""
         try:
-            yaw = state.get('yaw', 0.0)
-            pitch = state.get('pitch', 0.0)
-            roll = state.get('roll', 0.0)
+            unused_position, body = hull_aiming.body_pose(state, descriptor)
+            yaw, pitch, roll = body
             if abs(pitch) <= 1.0e-12 and abs(roll) <= 1.0e-12:
                 flat_yaw = (
                     _wrapped(yaw + state.get('turret_yaw', 0.0))
@@ -12822,8 +12821,12 @@ class BotRuntime(SharedEngineControl):
         shot_pitch = -math.atan2(
             direction[1], max(1.0e-12, horizontal))
         try:
+            source = _copy_runtime_state(state)
+            mounted, body = hull_aiming.body_pose(state, descriptor)
+            source.update(zip(('x', 'y', 'z'), mounted))
+            source.update(zip(('yaw', 'pitch', 'roll'), body))
             raw = self.direct_launch_origin_probe(
-                _copy_runtime_state(state), descriptor, int(shell_index),
+                source, descriptor, int(shell_index),
                 int(state.get('fire_seq', 0)) + 1,
                 shot_yaw, shot_pitch, 0.0)
             origin = tuple(float(value) for value in raw)
@@ -12923,10 +12926,9 @@ class BotRuntime(SharedEngineControl):
     def _pitch_status_at_correction(
             cls, state, descriptor, direction, terrain_pitch, correction):
         try:
-            local = shot_geometry.world_direction_to_local_gun_angles(
-                direction, state.get('yaw', 0.0),
-                terrain_pitch + correction,
-                state.get('roll', 0.0))
+            unused_position, body = hull_aiming.compose_body((0., 0., 0.),
+                (state.get('yaw', 0.), terrain_pitch, state.get('roll', 0.)), correction, 0.)
+            local = shot_geometry.world_direction_to_local_gun_angles(direction, *body)
         except (TypeError, ValueError, OverflowError):
             return None
         limits = cls._effective_gun_pitch_limits(
@@ -13014,11 +13016,20 @@ class BotRuntime(SharedEngineControl):
             before = cls._turret_state_pose(state)
             after = dict(before)
             after['pitch'] = terrain_pitch + correction
+            # Keep chassis integration unchanged; test the body which the
+            # shared hydraulic matrix will actually present above it.
+            proposed = dict(state, suspension_pitch=correction,
+                            terrain_pitch=terrain_pitch, pitch=terrain_pitch + correction)
+            for pose, sample in ((before, state), (after, proposed)):
+                mounted, body = hull_aiming.body_pose(sample, descriptor)
+                pose['hull'] = dict(zip(('x', 'y', 'z', 'yaw', 'pitch', 'roll'),
+                                        mounted + body))
             if not motion_probe(before, after, descriptor):
                 return _number(state.get('suspension_pitch'))
         state['terrain_pitch'] = terrain_pitch
         state['suspension_pitch'] = correction
         state['pitch'] = terrain_pitch + correction
+        state['_gun_aim_body'] = hull_aiming.body_pose(state, descriptor)[1]
         return correction
 
     @classmethod

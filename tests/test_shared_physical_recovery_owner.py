@@ -58,7 +58,7 @@ class PhysicalRecoveryOwnershipTests(unittest.TestCase):
             self.assertEqual('route', scene.apply(now)['combat_mode'])
         scene.candidate.update(mechanical='reachable', line='clear', armor='passed')
         scene.decide('aim')
-        result = scene.apply(20.1)
+        result = scene.confirm_clear_route_contact(20.1)
         self.assertTrue(scene.owner.stop_allowed)
         self.assertEqual('engage', result['combat_mode'])
 
@@ -106,10 +106,12 @@ class PhysicalRecoveryOwnershipTests(unittest.TestCase):
                 scene.position((1., 0., 0.))
                 scene.apply(retry_at)
                 self.assertFalse(scene.owner.physical_recovery_active())
-                self.assertTrue(scene.owner.physical_recovery_pending())
+                self.assertFalse(scene.owner.physical_recovery_pending())
                 scene.runtime.point_recovery_probe = lambda *args: dict(status='clear')
                 scene.apply(retry_at + .1)
-                self.assertTrue(scene.owner.physical_recovery_active())
+                self.assertFalse(scene.owner.physical_recovery_active())
+                scene.candidate.update(mechanical='reachable')
+                scene.confirm_clear_route_contact(retry_at + .2)
                 self.assertIsNone(scene.owner._failed_recovery)
 
     def test_verified_shot_retires_its_own_lease_before_new_blocker(self):

@@ -24999,6 +24999,12 @@ class BattleRuntime(SharedBattleGeometry):
                 yaw, pitch, roll = _native_ypr((
                     state.get('yaw', 0.0), state.get('pitch', 0.0),
                     state.get('roll', 0.0)))
+                hydraulic = getattr(self._remote_factory, 'set_entity_hydraulic_pitch', None)
+                if ('suspension_pitch' in state and callable(hydraulic) and
+                        hydraulic(engine_id, float(state['suspension_pitch']))):
+                    # The native compound applies the shared local pivot.
+                    # Its root remains the integrated ground/chassis pose.
+                    pitch = float(state.get('terrain_pitch', pitch - float(state['suspension_pitch'])))
                 rotation = _engine_rotation(yaw, pitch, roll)
                 aim_yaw = float(state.get('aim_yaw', yaw))
                 gun_pitch = float(state.get('gun_pitch', 0.0))
@@ -25043,7 +25049,7 @@ class BattleRuntime(SharedBattleGeometry):
                 speed,
                 control_pose_epoch if motion_active else None,
                 motion_alive,
-                int(state.get('siege_state', 0) or 0))
+                int(state.get('siege_state', 0) or 0), state.get('suspension_pitch', 0.))
             if record.get('_authority_pose_signature') == pose_signature:
                 self._authority_pose_skips += 1
             else:

@@ -138,6 +138,7 @@ SCALARS = (
     ('shot_yaw', ANGLE_SCALE),
     ('shot_pitch', ANGLE_SCALE),
     ('turret_yaw', ANGLE_SCALE),
+    ('suspension_pitch', ANGLE_SCALE),
 )
 SCALAR_COUNT = len(SCALARS)
 _SCALAR_INDEX = dict(
@@ -153,6 +154,7 @@ CLAMPS = {
     'gun_pitch': (-1.2, 1.2),
     'speed': (-80.0, 80.0),
     'shot_pitch': (-1.2, 1.2),
+    'suspension_pitch': (-math.pi, math.pi),
 }
 
 MISSING = -1

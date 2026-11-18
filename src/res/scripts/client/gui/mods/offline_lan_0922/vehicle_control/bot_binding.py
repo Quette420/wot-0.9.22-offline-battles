@@ -17,7 +17,6 @@ from .attack_policy import AttackPolicy
 from .combat_control import CombatControl
 from .combat_stop import CombatStop
 from .mission_control import MissionControl
-from .native_aim import hydraulic_body
 from .siege_planning import ActualSiegeAim
 
 
@@ -206,7 +205,7 @@ class BotControlBinding(MissionControl, CombatControl):
         self.weapon = _BotAimObservation(self)
         self.combat_stop = CombatStop(self)
         self.siege_aim = ActualSiegeAim(self)
-        self.attack_policy = AttackPolicy(self, ordered_he=True)
+        self.attack_policy = AttackPolicy(self, ordered=True)
         ammo = self.engine._ammo_states.get(self.actor_id)
         if (ammo is not None and int(ammo.next) != int(ammo.loaded) and
                 not (ammo.reload_pending and self.gun.clip == 0)):
@@ -308,9 +307,9 @@ class BotControlBinding(MissionControl, CombatControl):
         if origin is None:
             origin = self.mutable_shot_ray()[0]
         position = _point(state['position'])
-        body = _point((state['yaw'], state['pitch'], state['roll']))
+        mounted, body = hull_aiming.body_pose(state, descriptor)
         return (position, body, _point(origin), self.gun_angles(),
-                id(descriptor), id(_field(descriptor, 'gun')), position)
+                id(descriptor), id(_field(descriptor, 'gun')), mounted)
 
     def weapon_identity(self):
         native = self.engine._gun_states.get(self.actor_id)
@@ -383,14 +382,17 @@ class BotControlBinding(MissionControl, CombatControl):
         body = (float(state['yaw']), float(self.engine._terrain_pitch(state)),
                 float(state['roll']))
         position = _point(state['position'])
-        # Worker integration already publishes the corrected body pose.
-        # Invert its measured offset to obtain the flat actuator basis; do
-        # not read the hidden observer PlayerAvatar's hydraulic matrix.
-        mounted, unused = hydraulic_body(position, body, correction, config['centerZ'])
-        flat = tuple(position[axis] * 2. - mounted[axis] for axis in range(3))
+        # The integrated position and terrain pitch remain the chassis basis.
+        # source_pose separately derives the body using this same local pivot.
         matrix = self.owner._runtime.math.Matrix()
         matrix.setRotateYPR(body)
-        matrix.translation = self.owner._vector(flat)
+        matrix.translation = self.owner._vector(position)
+        if combat_detail_enabled():
+            combat_detail(self, 'bot_hydraulic_pose', self.actor_id, self.now,
+                int(state.get('siege_state', 0)), lambda: dict(
+                    chassis_position=position, chassis_body=body,
+                    correction=correction,
+                    gun_body=hull_aiming.body_pose(state, descriptor)))
         return dict(flat_matrix=matrix, pitch=correction)
 
     def control_current(self, control):

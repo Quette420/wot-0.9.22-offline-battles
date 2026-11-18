@@ -7317,6 +7317,7 @@ class BattleState:
         for name in ("shot_yaw", "shot_pitch"):
             if name in raw:
                 result[name] = raw[name]
+        result['suspension_pitch'] = raw.get('suspension_pitch', 0.0)
         # Contact acknowledgements and velocity must advance atomically even
         # when an unrelated combat ledger is contained.
         result['push_x'] = raw.get('push_x', 0.0)

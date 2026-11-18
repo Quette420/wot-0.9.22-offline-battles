@@ -11,8 +11,8 @@ from gui.mods.offline_lan_0922 import siege_mechanics
 
 
 class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
-    def scene(self, statuses=(), siege=None):
-        scene = Scene(admitted=False, siege=siege)
+    def scene(self, statuses=(), siege=None, admitted=True):
+        scene = Scene(admitted=admitted and siege is None, siege=siege)
         scene.raw_order.update(combat_mode='route', target_kind=None,
             target_id=None, move_position=(20., 0., -30.),
             face_position=(20., 0., -30.), throttle_override=None,
@@ -42,16 +42,18 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
         self.assertFalse(result['fire_allowed'])
 
     def test_current_world_blocker_with_pending_probe_keeps_actual_route(self):
-        scene = self.scene(['pending'] * 8)
+        scene = self.scene(['pending'] * 8, admitted=False)
         for tick in range(4):
             scene.state['yaw'] = tick * .2
             self.assert_route(scene, scene.apply(tick * .1))
         self.assertEqual(0, scene.owner._episode)
-        self.assertEqual(1, len(set(row[1] for row in scene.probes)))
+        self.assertEqual([], scene.probes)
 
     def test_checked_same_point_destination_is_the_first_movement_admission(self):
         scene = self.scene(['pending', 'clear'])
-        self.assert_route(scene, scene.apply(0.))
+        first = scene.apply(0.)
+        self.assertEqual('engage', first['combat_mode'])
+        self.assertFalse(first['fire_allowed'])
         result = scene.apply(.1)
         self.assertTrue(scene.owner.stop_allowed)
         self.assertEqual(1, scene.owner._episode)
@@ -61,7 +63,7 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
         self.assertFalse(result['fire_allowed'])
 
     def test_yaw_or_translation_after_failed_review_requires_new_checked_goal(self):
-        scene = self.scene(['blocked'] * 100)
+        scene = self.scene(['blocked'] * 100, admitted=False)
         for tick in range(12):
             self.assert_route(scene, scene.apply(tick * .1))
         for tick in range(1, 6):
@@ -73,17 +75,17 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
     def test_reopened_current_line_retires_only_the_old_blocked_point_failure(self):
         scene = self.scene(['blocked'] * 40)
         for tick in range(12):
-            self.assert_route(scene, scene.apply(tick * .1))
+            scene.apply(tick * .1)
+        self.assert_route(scene, scene.apply(1.2))
         self.assertIsNotNone(scene.owner._failed_recovery)
-        scene.candidate.update(line='clear', mechanical='hull_laying')
-        result = scene.apply(2.)
+        scene.candidate.update(line='clear', mechanical='reachable')
+        result = scene.confirm_clear_route_contact(2.)
         self.assertTrue(scene.owner.stop_allowed)
-        self.assertEqual('native_lay', scene.owner.receipt['reason'])
-        self.assertFalse(result['fire_allowed'])
+        self.assertEqual('verified_shot', scene.owner.receipt['reason'])
         self.assertIsNone(scene.owner._failed_recovery)
 
     def test_cold_wall_cannot_enter_native_siege_mode(self):
-        scene = self.scene(['pending'] * 4, siege=siege_mechanics.DISABLED)
+        scene = self.scene(['pending'] * 4, siege=siege_mechanics.DISABLED, admitted=False)
         for tick in range(3):
             self.assert_route(scene, scene.apply(tick * .1))
             self.assertFalse(scene.owner.waiting_for_siege())
@@ -91,7 +93,7 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
     def test_mode_entry_cannot_add_authority_to_single_feature_control(self):
         for features in ({'fire'}, {'drive'}):
             with self.subTest(features=features):
-                scene = self.scene(siege=siege_mechanics.DISABLED)
+                scene = self.scene(siege=siege_mechanics.DISABLED, admitted=False)
                 scene.runtime.features = features
                 scene.candidate.update(line='clear', mechanical='mechanical_limited')
                 self.assert_route(scene, scene.apply(0.))
@@ -182,12 +184,13 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
         self.assert_route(scene, scene.apply(6.1))
         scene.probe_statuses[:] = ['pending', 'clear']
         self.assert_route(scene, scene.apply(6.2))
-        self.assertEqual(1, len(scene.probes))
-        result = scene.apply(6.3)
+        self.assertEqual([], scene.probes)
+        self.assert_route(scene, scene.apply(6.3))
+        scene.candidate.update(mechanical='reachable')
+        result = scene.confirm_clear_route_contact(6.4)
         self.assertTrue(scene.owner.stop_allowed)
-        self.assertEqual('gun_angle_adjust', result['combat_mode'])
-        self.assertEqual(scene.probes[-1][1], result['move_position'])
-        self.assertFalse(result['fire_allowed'])
+        self.assertEqual('engage', result['combat_mode'])
+        self.assertIsNone(scene.owner._physical_recovery)
 
     def test_stalled_clear_lay_cannot_reacquire_from_yaw_noise(self):
         scene = self.lay_scene()
@@ -209,7 +212,7 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
             key=(0, ('bot', 3), 1, 'penetration'), target_key=('bot', 3), sample=1,
             solution=dict(point=(-25., 1., 80.), yaw=-.7))
         scene.decide('firing_position')
-        result = scene.apply(6.2)
+        result = scene.confirm_clear_route_contact(6.2)
         self.assertTrue(scene.owner.stop_allowed)
         self.assertEqual(2, scene.owner._episode)
         self.assertEqual(('bot', 3), (result['target_kind'], result['target_id']))
@@ -225,11 +228,9 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
         scene.decide('firing_position', move_request=dict(key=scene.candidate['key']))
         scene.probe_statuses[:] = ['pending']
         self.assert_route(scene, scene.apply(6.2))
-        phase = scene.owner._physical_recovery
-        self.assertEqual(key, phase['key'])
-        self.assertEqual(key, phase['candidate']['key'])
-        self.assertEqual(key[2], phase['sample'])
-        self.assertEqual(key, scene.probes[-1][0])
+        self.assertIsNone(scene.owner._physical_recovery)
+        self.assertEqual([], scene.probes)
+        self.assertEqual(key, scene.owner._failed_recovery['key'])
 
     def test_missing_current_lay_geometry_never_replays_the_old_turn(self):
         scene = self.lay_scene()
@@ -244,7 +245,7 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
         scene.candidate.update(line='friendly_blocked', mechanical='reachable',
             blocker=dict(blocker_kind='bot', blocker_id=5, blocker_team=1,
                          blocker_position=(0., 0., 12.), blocker_radius=2.))
-        self.assert_route(scene, scene.apply(0.))
+        self.assertEqual('engage', scene.apply(0.)['combat_mode'])
         result = scene.apply(.1)
         self.assertEqual('gun_angle_adjust', result['combat_mode'])
         self.assertEqual(scene.candidate['key'], scene.owner._physical_recovery['key'])

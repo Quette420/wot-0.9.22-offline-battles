@@ -8,7 +8,9 @@ from gui.mods.offline_lan_0922.ai.adapter import BotAdapter
 
 class AvoidanceHandoffTests(unittest.TestCase):
     def scene(self, kind='bot', status='clear'):
-        scene = Scene(admitted=False)
+        # Recovery continuity starts with an established engagement. Cold
+        # blocked travel below must preserve the original route instead.
+        scene = Scene(admitted=status != 'pending')
         scene.target.update(kind=kind)
         scene.raw_order.update(combat_mode='route', target_id=None,
             target_kind=None, move_position=(20., 0., -30.),
@@ -38,7 +40,7 @@ class AvoidanceHandoffTests(unittest.TestCase):
                     self.assertEqual((20., 0., -30.), order['face_position'])
                     self.assertFalse(scene.owner.stop_allowed)
                 self.assertEqual(0, scene.owner._episode)
-                self.assertEqual(1, len(set(row[1] for row in scene.probes)))
+                self.assertEqual([], scene.probes)
 
     def test_source_and_friendly_identity_do_not_replace_the_selected_point(self):
         scene = self.scene()

@@ -12,6 +12,28 @@ from test_player_combat_ownership import OwnershipScene
 
 
 class CaptureFireHandoffTests(unittest.TestCase):
+    def test_capture_gun_handoff_uses_circle_even_when_stop_anchor_is_eight_metres_away(self):
+        scene = self.scene(limited=True)
+        scene.runtime.set_mission('capture_base', {})
+        for unused in range(20):
+            scene.tick()
+            if scene.runtime._gun_handoff is not None:
+                break
+        runtime = scene.runtime
+        self.assertIsNotNone(runtime._gun_handoff)
+        candidate = runtime.attack_policy.decision['candidate']
+        command = copy.deepcopy(runtime._last_order)
+        task = runtime.combat_stop.task_order
+        anchor = task['move_position']
+        point = runtime.state['position']
+        task['move_position'] = (point[0] - 8., point[1], point[2])
+        self.assertTrue(runtime.combat_stop.capture_hold())
+        self.assertTrue(runtime._gun_handoff_preserves_controls(candidate, command))
+        with mock.patch.object(runtime.combat_stop, 'capture_hold', return_value=False):
+            self.assertFalse(runtime._gun_handoff_preserves_controls(candidate, command))
+        task['move_position'] = anchor
+        self.assertEqual(command, runtime._last_order)
+
     def scene(self, features=('drive', 'fire'), limited=False, clip=1, soft_armor=10.):
         scene = OwnershipScene()
         scene.setUp()

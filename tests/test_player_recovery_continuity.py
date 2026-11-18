@@ -15,6 +15,17 @@ from gui.mods.offline_lan_0922.vehicle_control.attack_policy import AttackPolicy
 
 
 class SelectedPointRecoveryContinuityTests(unittest.TestCase):
+    def confirm_clear_reentry(self, scene, start):
+        scene.candidate.update(line='clear', mechanical='reachable', armor='passed')
+        scene.decide('aim')
+        for step in range(10):
+            scene.apply(start + step * .2)
+            self.assertFalse(scene.owner.stop_allowed)
+        result = scene.apply(start + 2.)
+        self.assertTrue(scene.owner.stop_allowed)
+        self.assertIsNone(scene.owner._physical_recovery)
+        return result
+
     def scene(self, statuses=None):
         scene = Scene()
         scene.raw_order.update(combat_mode='route', target_kind=None,
@@ -122,9 +133,10 @@ class SelectedPointRecoveryContinuityTests(unittest.TestCase):
         self.assertFalse(scene.owner.stop_allowed)
         scene.runtime.point_recovery_probe = lambda *args: dict(status='clear')
         result = scene.apply(2.2)
-        self.assertTrue(scene.owner.stop_allowed)
-        self.assertIsNotNone(scene.owner._physical_recovery)
+        self.assertFalse(scene.owner.stop_allowed)
+        self.assertIsNone(scene.owner._physical_recovery)
         self.assertFalse(result['fire_allowed'])
+        self.confirm_clear_reentry(scene, 2.3)
 
     def test_unrelated_target_motion_cannot_unlock_failed_selected_sample(self):
         scene = self.scene(['blocked'] * 40)
@@ -138,11 +150,12 @@ class SelectedPointRecoveryContinuityTests(unittest.TestCase):
         scene.target['position'] = (0., 0., 79.)
         scene.apply(2.1)
         self.assertFalse(scene.owner.stop_allowed)
-        self.assertTrue(scene.owner.physical_recovery_pending())
+        self.assertFalse(scene.owner.physical_recovery_pending())
         scene.runtime.point_recovery_probe = lambda *args: dict(status='clear')
         scene.apply(2.2)
-        self.assertTrue(scene.owner.stop_allowed)
-        self.assertIsNotNone(scene.owner._physical_recovery)
+        self.assertFalse(scene.owner.stop_allowed)
+        self.assertIsNone(scene.owner._physical_recovery)
+        self.confirm_clear_reentry(scene, 2.3)
 
     def test_yaw_change_requests_review_but_cannot_certify_movement(self):
         scene = self.scene(['blocked'] * 40)
@@ -155,10 +168,11 @@ class SelectedPointRecoveryContinuityTests(unittest.TestCase):
         scene.state['yaw'] = .16
         scene.apply(2.1)
         self.assertFalse(scene.owner.stop_allowed)
-        self.assertTrue(scene.owner.physical_recovery_pending())
+        self.assertFalse(scene.owner.physical_recovery_pending())
         scene.runtime.point_recovery_probe = lambda *args: dict(status='clear')
         scene.apply(2.2)
-        self.assertTrue(scene.owner.stop_allowed)
+        self.assertFalse(scene.owner.stop_allowed)
+        self.confirm_clear_reentry(scene, 2.3)
 
     def test_navigation_decision_and_real_mission_handoff_return_original_driver(self):
         for outcome in ('navigate', 'team_return_base', 'withdraw'):

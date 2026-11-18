@@ -1130,6 +1130,7 @@ class LanClientQueueTests(unittest.TestCase):
             'combat_seq', 'combat_fire_elapsed', 'combat_fire_timer',
             'death_reason', 'display_health', 'shot_yaw', 'shot_pitch',
             'route_wreck_blocked', 'local_combat_manoeuvre',
+            'suspension_pitch',
         }
         self.assertEqual(29, len(queued_bots))
         for state in queued_bots:

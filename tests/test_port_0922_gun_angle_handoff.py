@@ -219,7 +219,7 @@ class CandidateReachabilityTests(unittest.TestCase):
 
 class SupportMotionEvidenceTests(unittest.TestCase):
     def test_projection_and_timed_transition_capture_actual_inputs_without_new_casts(self):
-        from gui.mods.offline_lan_0922.native_input_diagnostics import detailed_enabled
+        from gui.mods.offline_lan_0922.native_input_diagnostics import combat_detail_enabled
         runtime,state=support_fixtures.ContactSupportTests.scene(self,lambda x,z:0.)
         state.update(speed=0.,_edge_support_active=True)
         for step in (0.,.2):
@@ -231,7 +231,7 @@ class SupportMotionEvidenceTests(unittest.TestCase):
             self.assertEqual((0.,0.,-.2),state['_support_motion_receipt']['tick_pose'])
             self.assertEqual(2.+step,state['_support_motion_receipt']['at'])
             self.assertIn('support_motion_pose',state['_support_motion_receipt'])
-            if detailed_enabled():
+            if combat_detail_enabled():
                 self.assertIn('BOT SUPPORT MODE',out.getvalue())
             else:
                 self.assertEqual('',out.getvalue(),

@@ -3155,6 +3155,7 @@ class BotRuntime(SharedEngineControl):
         tilted = (self._hydraulic_support_vehicle(state) and
                   self._hydraulic_support_excursion(state) >= .6)
         if missing or tilted:
+            state.pop('_support_mode_solver_receipt', None)
             self._clear_basic_support_datum(state, 'point_support_lost')
             state['_edge_support_active'] = True
             state['_support_admission_reason'] = (

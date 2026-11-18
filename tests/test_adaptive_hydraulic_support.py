@@ -47,6 +47,17 @@ class AdaptiveSupportTests(unittest.TestCase):
         self.assertEqual(before, tuple(state[name] for name in
             ('x','y','z','yaw','pitch','roll','speed','vertical_speed')))
 
+    def test_unchecked_diagnostics_retire_old_solver_without_emitting_columns(self):
+        runtime,state,unused = self.fixture._suspension_case(lambda x,z:0.)
+        runtime.states[11] = state
+        state.update(y=1.,airborne=True,_support_mode_solver_receipt=dict(stale=True))
+        from gui.mods.offline_lan_0922 import native_input_diagnostics
+        with mock.patch.object(self.fixture.module,'combat_detail_enabled',return_value=False), \
+                mock.patch.object(native_input_diagnostics,'write_json_record') as emit:
+            self.assertTrue(runtime._contact_edge_support_needed(state))
+        self.assertNotIn('_support_mode_solver_receipt',state)
+        emit.assert_not_called()
+
     def test_stationary_basic_owner_rechecks_witnesses_without_coplanar_fit(self):
         runtime, state, unused = self.fixture._suspension_case(
             lambda x, z: .1 if z > 1. else 0.)

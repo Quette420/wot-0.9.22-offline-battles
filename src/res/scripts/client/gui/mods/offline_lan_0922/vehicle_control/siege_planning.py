@@ -291,12 +291,12 @@ class ActualSiegeAim(object):
             if not any(value is not None and _point(weapon_point) == _point(value)
                        for value in (solution.get('point'), solution.get('source_point'))):
                 return None
-            entity = observation(runtime).source_entity()
-            if (entity.typeDescriptor is not lease['descriptor'] or
+            descriptor = observation(runtime).source_descriptor()
+            if (descriptor is not lease['descriptor'] or
                     observation(runtime).native_siege_state() != hull_aiming.ENABLED or
                     observation(runtime).mode_pending() or
                     lease['identity'] != tuple(observation(runtime).weapon_identity()) +
-                                          (id(_field(entity.typeDescriptor, 'gun')),) or
+                                          (id(_field(descriptor, 'gun')),) or
                     int(runtime.gun.shot_index) != key[0] or runtime.gun.ammo[key[0]] <= 0 or
                     _shell_signature(key[0], runtime.gun.shots[key[0]]) != lease['shell_signature']):
                 return None

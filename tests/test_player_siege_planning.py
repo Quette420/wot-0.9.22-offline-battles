@@ -447,6 +447,40 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
             engine._suspension_params.pop(actor, None)
             self.assertTrue(binding.complete_support())
 
+    def test_worker_aim_uses_integrated_descriptor_while_presentation_lags(self):
+        from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
+        scene = self.scene()
+        engine, actor = scene.runtime.engine, scene.runtime.actor_id
+        native = engine._descriptors[actor]
+        self.assertIs(native, scene.enabled_descriptor)
+        key = 'bot:%s' % actor
+        scene.battle._records[key] = dict(scene.battle._records['player:1'],
+            kind='bot', network_id=actor, local=False, state=engine.states[actor])
+        self.addCleanup(scene.battle._records.pop, key, None)
+        binding = BotControlBinding(scene.battle, engine, actor)
+        self.addCleanup(binding.close)
+        target = dict(scene.runtime.visible_targets()[0])
+        self.assertTrue(binding.observe(scene.now, [target]))
+        binding.combat_stop.active = binding.combat_stop.combat_owned = True
+        binding.combat_stop.targets = (target,)
+        frames = []
+        # The network/rendered Vehicle can expose an earlier mode or a fresh
+        # descriptor object. Neither changes the worker's integrated gun.
+        for shown in (scene.enabled_descriptor, scene.travel_descriptor,
+                      scene.enabled_descriptor):
+            scene.entity.typeDescriptor = shown
+            frame = binding.attack_policy.evaluator.snapshot(scene.now)
+            self.assertIs(native, frame['descriptor'])
+            self.assertIsNotNone(active_hydraulic_pose(binding, frame))
+            frames.append(frame)
+            scene.fixture.now += .11
+        self.assertEqual(frames[0]['identity'], frames[1]['identity'])
+        self.assertEqual(frames[0]['identity'], frames[2]['identity'])
+        # Presentation cannot manufacture a completed physical mode switch.
+        engine.states[actor]['siege_state'] = 1
+        frame = binding.attack_policy.evaluator.snapshot(scene.now)
+        self.assertIsNone(active_hydraulic_pose(binding, frame))
+
     def test_travel_mode_uses_real_basic_contacts_over_a_supported_step(self):
         from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
         from gui.mods.offline_lan_0922.vehicle_control.stationary_plan import StationaryPlanner

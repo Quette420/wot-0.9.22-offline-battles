@@ -60,7 +60,7 @@ class ArtillerySelection(object):
     def _frame(runtime):
         physical = observation(runtime)
         entity = physical.source_entity()
-        descriptor = entity.typeDescriptor
+        descriptor = physical.source_descriptor()
         gun = runtime.gun
         shell_index = int(gun.shot_index)
         shot = gun.shots[shell_index]

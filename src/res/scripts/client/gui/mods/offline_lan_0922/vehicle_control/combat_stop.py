@@ -292,7 +292,7 @@ class CombatStop(object):
             return False
         state = runtime.state
         yaw = state['yaw']
-        low, high, limited = gun_yaw_limits(runtime.entity.typeDescriptor)
+        low, high, limited = gun_yaw_limits(observation(runtime).source_descriptor())
         if not limited:
             return False
         local_yaw = shot_geometry.world_direction_to_local_gun_angles(

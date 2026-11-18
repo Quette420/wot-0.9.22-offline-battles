@@ -267,9 +267,23 @@ class BotControlBinding(MissionControl, CombatControl):
         return entity if entity is not None and getattr(entity, 'isStarted', False) else None
 
     def source_descriptor(self):
+        # Integrated physics and weapons own the active mode. The rendered
+        # Vehicle can still carry a preceding network publication's descriptor.
         descriptor = self.engine._descriptors.get(self.actor_id)
         if descriptor is None:
             raise ValueError('worker installed descriptor is unavailable')
+        if combat_detail_enabled():
+            entity = self.source_entity()
+            shown = getattr(entity, 'typeDescriptor', None)
+            if shown is not descriptor:
+                combat_detail(self, 'bot_source_descriptor', self.actor_id, self.now,
+                    (id(descriptor), id(shown)), lambda: dict(
+                        native_mode=int(self.state['siege_state']),
+                        shown_mode=getattr(entity, 'siegeState', None),
+                        native_hydraulic=hull_aiming.pitch_params(descriptor),
+                        shown_hydraulic=hull_aiming.pitch_params(shown),
+                        native_gun=id(_field(descriptor, 'gun')),
+                        shown_gun=id(_field(shown, 'gun'))))
         return descriptor
 
     def installed_descriptor(self):

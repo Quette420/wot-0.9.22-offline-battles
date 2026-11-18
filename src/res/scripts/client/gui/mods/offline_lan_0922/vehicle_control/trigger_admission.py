@@ -170,7 +170,8 @@ class TriggerAdmission(object):
         if solution.get('target_pose') is not None and solution['target_pose'] != signature:
             return 'auto_target_pose_changed', target, solution
         candidate = context.get('candidate')
-        artillery = 'SPG' in (entity.typeDescriptor.type.tags or ())
+        descriptor = self.physical.source_descriptor()
+        artillery = 'SPG' in (descriptor.type.tags or ())
         if not artillery:
             if solution.get('source_pose') != native_source_pose(control.runtime, raw_ray[0]):
                 return 'auto_source_pose_changed', target, solution
@@ -182,7 +183,7 @@ class TriggerAdmission(object):
                     return 'auto_he_contact_unknown', target, solution
             elif candidate.get('armor') != 'passed':
                 return 'auto_penetration_unproved', target, solution
-        reach = _mechanical(entity.typeDescriptor, raw_ray[1],
+        reach = _mechanical(descriptor, raw_ray[1],
                             native_source_pose(control.runtime, raw_ray[0])[1])
         if reach['status'] != 'reachable':
             return 'auto_gun_laying', target, solution

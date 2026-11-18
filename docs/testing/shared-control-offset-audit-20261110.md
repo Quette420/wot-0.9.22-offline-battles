@@ -15,6 +15,22 @@ projected angle refusals are not yet explained by that omission. Their exact
 endpoint/body/hydraulic inputs are now recorded only when detailed diagnostics
 is checked. This remains work in progress, not a completed native fix.
 
+The follow-up native report `wot-error-report-20261119-055406-2ee42835f30a.zip`
+ran `2b5fedc3` through a complete all-UDES round. Its endpoint diagnostics
+separated travel-mode pitch refusals from the active-mode budget/reset loop;
+the refusals captured during the round had no active hydraulic projection.
+Source inspection and a failing worker regression exposed another binding
+omission: common evaluation, trigger refresh, hydraulic leases and final
+mechanical admission read the rendered Vehicle's descriptor, while worker
+physics and weapons use the integrated actor's descriptor. A lagging mode or
+republished display descriptor could therefore discard physical planning work
+or inspect the travel gun after the native worker had enabled siege. Shared
+source-descriptor reads now follow the actor observation binding. Players keep
+their actual local native Vehicle; Bots use their integrated immutable mode
+descriptor. A displayed-mode change cannot impersonate a physical switch or
+retire an unchanged native gun. Checked-only mismatch records distinguish the
+two sources. Native retesting of this correction is still required.
+
 This is the latest authorized scope and supersedes the continuous hydraulic-Bot
 policy in the historical section below. Every player vehicle stays on complete
 support. Ordinary Bots retain their existing basic/edge switch. Hydraulic Bots

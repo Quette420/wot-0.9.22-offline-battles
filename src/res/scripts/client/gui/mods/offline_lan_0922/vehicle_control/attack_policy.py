@@ -3043,8 +3043,7 @@ class NativeAttackEvaluator(object):
                 if combat_detail_enabled():
                     receipt.update(gate='target_not_observed', target=target_key)
                 return None
-            entity = physical.source_entity()
-            descriptor = entity.typeDescriptor
+            descriptor = physical.source_descriptor()
             pose = native_source_pose(runtime)
             identity = tuple(physical.weapon_identity()) + (id(descriptor.gun),)
             ammo, clip = tuple(gun.ammo), gun.clip
@@ -3071,7 +3070,7 @@ class NativeAttackEvaluator(object):
             if (current is None or runtime.target_entity(current) is not target['entity'] or
                     native_target_pose(self.owner, target['entity'])[0] != target['pose'] or
                     native_source_pose(runtime) != pose or runtime.gun is not gun or
-                    tuple(physical.weapon_identity()) + (id(physical.source_entity().typeDescriptor.gun),) != identity or
+                    tuple(physical.weapon_identity()) + (id(physical.source_descriptor().gun),) != identity or
                     gun.shot_index != index or tuple(gun.ammo) != ammo or gun.clip != clip or
                     _shell_signature(index, gun.shots[index]) != shell['signature'] or
                     _combat_signature(runtime) != combat_signature or self._scene_stamp() != scene):
@@ -3096,7 +3095,7 @@ class NativeAttackEvaluator(object):
         source = runtime.current_source()
         gun = runtime.gun
         entity = observation(runtime).source_entity()
-        descriptor = entity.typeDescriptor
+        descriptor = observation(runtime).source_descriptor()
         origin, unused_direction = observation(runtime).mutable_shot_ray()
         origin = _point(origin)
         pose = native_source_pose(runtime, origin)

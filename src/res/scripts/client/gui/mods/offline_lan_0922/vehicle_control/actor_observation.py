@@ -45,6 +45,9 @@ class PlayerObservation(object):
     def source_entity(self):
         return self.owner._server_entity(self.owner._server.vehicle_id)
 
+    def source_descriptor(self):
+        return self.source_entity().typeDescriptor
+
     def installed_descriptor(self):
         return getattr(self.owner, '_local_descriptor', None)
 
@@ -57,7 +60,7 @@ class PlayerObservation(object):
 
     def source_pose(self, origin=None):
         owner = self.owner
-        descriptor = self.source_entity().typeDescriptor
+        descriptor = self.source_descriptor()
         if origin is None:
             origin = self.mutable_shot_ray()[0]
         matrix = owner._runtime.math.Matrix(owner._local_stabilised_pose())

@@ -22,6 +22,9 @@ def install_plan_observations(scene, around_center=True, track_center=1.5, slope
     descriptor, battle, runtime = scene.entity.typeDescriptor, scene.battle, scene.runtime
     descriptor.chassis.rotationIsAroundCenter = around_center
     descriptor.physics['trackCenterOffset'] = track_center
+    # The full contact certificate now consumes the same mass/clearance
+    # contract as physical support; the older ray-only fixture omitted mass.
+    descriptor.physics.setdefault('weight', 35000.)
     scene.entity.siegeState = 0
     scene.catalog_calls, scene.ground_calls = [], []
     scene.catalog_status, scene.scene_revision = 'clear', 0

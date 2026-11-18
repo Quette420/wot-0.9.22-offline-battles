@@ -46,7 +46,7 @@ class SharedEngineControl(SharedOrderPlanning):
                 not runtime._live() or policy.decision.get('action') == 'unchanged'):
             runtime._shared_aim_intention = None
             return command, target
-        if owner.capture_hold() and getattr(runtime, '_gun_handoff', None) is not None:
+        if owner.stationary_hold() and getattr(runtime, '_gun_handoff', None) is not None:
             command, target = runtime.consume_gun_handoff(
                 state, command, target, now, after_movement=True)
             if command.get('_shared_weapon_handoff'):

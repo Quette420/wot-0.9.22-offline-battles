@@ -365,13 +365,43 @@ class VehiclePhysicsSuspensionTrialTests(unittest.TestCase):
         self.assertGreater(params['pitch_inertia'], 0.0)
         self.assertGreater(params['roll_inertia'], 0.0)
 
-    def test_exact_pitch_hull_aiming_descriptor_is_outside_the_trial(self):
+    def test_hydraulic_chassis_keeps_full_contacts_in_both_native_modes(self):
         descriptor = self._exact_client_descriptor()
         descriptor.isPitchHullAimingAvailable = True
+        descriptor.type.hullAimingParams = dict(pitch=dict(isEnabled=False))
+        for enabled in (False, True):
+            descriptor.type.hullAimingParams['pitch']['isEnabled'] = enabled
+            params = vehicle_physics.derive_suspension_params(descriptor)
+            self.assertEqual(10, len(params['springs']))
+            self.assertEqual(12, len(params['pseudo_contacts']))
+            self.assertEqual(0., params['hard_ratio'])
+            self.assertTrue(all(spring['stiffness'] > 0. for spring in params['springs']))
 
-        with self.assertRaisesRegex(
-                ValueError, '#1513 hydraulic suspension'):
-            vehicle_physics.derive_suspension_params(descriptor)
+    def test_stationary_full_contact_proof_matches_the_accepted_dynamic_pose(self):
+        descriptor = self._exact_client_descriptor()
+        descriptor.isPitchHullAimingAvailable = True
+        params = vehicle_physics.derive_suspension_params(descriptor)
+        terrain = lambda x, z: .015 * z + .009 * x + .004 * math.sin(z * 3.)
+        position, yaw = (0., 0., 0.), .4
+        state = self._state()
+        for unused in range(150):
+            position = (0., state['height'], 0.)
+            ground = tuple(terrain(*p) for p in vehicle_physics.suspension_world_points(
+                params, position, yaw, state['pitch'], state['roll']))
+            pseudo = tuple(terrain(*p) for p in vehicle_physics.suspension_pseudo_world_points(
+                params, position, yaw, state['pitch'], state['roll']))
+            state = vehicle_physics.damper_suspension_step(params, state, ground, 1. / 30., pseudo)
+        calls = []
+        def query(x, z, hint, ceiling):
+            calls.append((x, z))
+            return terrain(x, z)
+        support = vehicle_physics.stationary_chassis_support(descriptor,
+            (0., state['height'], 0.), yaw, (yaw, state['pitch'], state['roll']), query)
+        self.assertIsNotNone(support)
+        self.assertEqual(22, len(calls))
+        self.assertAlmostEqual(state['height'], support['center_y'], places=5)
+        self.assertAlmostEqual(state['pitch'], support['pitch'], places=5)
+        self.assertAlmostEqual(state['roll'], support['roll'], places=5)
 
     def test_an_unrefined_descriptor_keeps_a_bounded_contact_memory(self):
         descriptor = self._exact_client_descriptor()

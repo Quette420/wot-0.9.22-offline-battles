@@ -422,7 +422,7 @@ class OrderedAttack(object):
                                              'friendly_blocked', 'world_blocked'):
             return False
         combat = getattr(policy.runtime, 'combat_stop', None)
-        if getattr(combat, 'capture_hold', lambda: False)() and not combat.capture_can_lay(row):
+        if getattr(combat, 'stationary_hold', lambda: False)() and not combat.capture_can_lay(row):
             return False
         planned = policy._executable(policy._planned_evidence(row), mode)
         if planned or getattr(policy.runtime, 'siege_capable', lambda: False)():
@@ -457,7 +457,7 @@ class OrderedAttack(object):
 
     def _inspect(self, policy, now, jobs, refresh=None):
         combat = getattr(policy.runtime, 'combat_stop', None)
-        capture = getattr(combat, 'capture_hold', lambda: False)()
+        capture = getattr(combat, 'stationary_hold', lambda: False)()
 
         def capture_excluded(row):
             return (capture and row is not None and row.get('line') == 'clear' and

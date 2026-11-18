@@ -341,13 +341,17 @@ class BotControlBinding(MissionControl, CombatControl):
         return (self.state or {}).get('_suspension_ground_plane')
 
     def chassis_support_at(self, position, yaw, descriptor, maximum_y, trace):
-        # Read the same five native columns as the foreground certificate.
-        # This is a detached support observation, never a chassis update.
-        return self.owner._sample_chassis_support(
-            position, yaw, descriptor, maximum_y, trace)[-1]
+        from .. import vehicle_physics
+        body = (float(self.state['yaw']), float(self.engine._terrain_pitch(self.state)),
+                float(self.state['roll']))
+        return vehicle_physics.stationary_chassis_support(descriptor, position, yaw,
+            body, self.owner._support_column, maximum_y, trace)
 
     def support_rise_blocked(self):
         return bool(self._support_blocked)
+
+    def complete_support(self):
+        return self.engine._suspension_params.get(self.actor_id) is not None
 
     def record_support(self, blocked):
         self._support_blocked = bool(blocked)

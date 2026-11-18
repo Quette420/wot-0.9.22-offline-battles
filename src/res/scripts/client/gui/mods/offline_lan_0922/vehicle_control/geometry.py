@@ -2051,6 +2051,14 @@ class SharedBattleGeometry(object):
             preview['support_arc'] = support_arc
         bot_state = getattr(self._bots, 'states', {}).get(int(bot_id), {})
         bot_state.pop('_rotation_contact_trace', None)
+        control = getattr(self._bots, '_actor_controls', {}).get(int(bot_id))
+        circle = getattr(control, 'capture_pivot_circle', None)
+        if circle is not None:
+            from .native_drive import capture_pivot_allows
+            if not capture_pivot_allows(circle, position, end_position, pivot_offset,
+                                       _angle_delta(start_yaw, end_yaw)):
+                bot_state['_rotation_contact_trace'] = dict(reason='stationary_hold_bounds')
+                return False
         pitch = _number(bot_state.get(
             'terrain_pitch', bot_state.get('pitch')))
         roll = _number(bot_state.get('roll'))

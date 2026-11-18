@@ -732,8 +732,8 @@ def _suspension_wheel_radius(chassis, config, spring_spacing):
 	return max(0.125, float(spring_spacing) * 0.5)
 
 
-def suspension_trial_excluded(descriptor):
-	'''Return whether exact #1513 uses hydraulic hull-aiming suspension.'''
+def has_hydraulic_suspension(descriptor):
+	'''Identify the hydraulic actuator independently of its current mode.'''
 	return bool(_value(
 		descriptor, 'isPitchHullAimingAvailable', False))
 
@@ -753,14 +753,6 @@ def derive_suspension_params(descriptor):
 	native solver owns them and no #1513 process is given them, so those are
 	an explicit trial projection and are the reason this remains a trial.
 	'''
-	if suspension_trial_excluded(descriptor):
-		# Exact #1513 initVehiclePhysicsClient gives pitch-hull-aiming tanks a
-		# zero hard ratio and installs mode-specific suspensionSpringsLength
-		# caches on both descriptors.  This trial owns neither that native hull
-		# aiming state nor those per-mode caches, so its ordinary-tank projection
-		# must not compete with the existing hydraulic implementation.
-		raise ValueError(
-			'#1513 hydraulic suspension is outside the contrib trial')
 	physics = derive_params(descriptor)
 	descriptor_physics = _required_value(
 		descriptor, 'physics', 'vehicle physics descriptor')
@@ -798,7 +790,12 @@ def derive_suspension_params(descriptor):
 	compression_ratio = _suspension_compression(mass_tons)
 	rest_length = clearance / max(compression_ratio, 0.01)
 	static_compression = max(0.01, rest_length - clearance)
-	hard_ratio = _hard_ratio(clearance, chassis_length)
+	# #1513 initVehiclePhysicsClient uses the carrier length for the physical
+	# springs and zero hard ratio on hydraulic chassis. Its mode-specific
+	# extension belongs to the separate hull actuator. Integrate the unactuated
+	# chassis here; composing that actuator twice would tilt the contact frame.
+	hard_ratio = (0.0 if has_hydraulic_suspension(descriptor) else
+		_hard_ratio(clearance, chassis_length))
 	track_length = _track_length(clearance, chassis_length)
 	step_z = track_length / float(NUM_SPRING_PAIRS - 1)
 	config = _detailed_chassis_config(descriptor)
@@ -971,6 +968,56 @@ def derive_suspension_params(descriptor):
 		'fixed_step': SERVER_PHYSICS_STEP,
 		'constraint_iterations': SERVER_PHYSICS_CONSTRAINT_ITERATIONS,
 	}
+
+
+def stationary_chassis_support(descriptor, position, yaw, body, query,
+		maximum_y=None, trace=None):
+	'''Recheck the complete contact model without advancing physical time.
+
+	The initial attitude is the accepted chassis, transported to the requested
+	yaw. A five-column terrain fit cannot certify this dynamic spring pose.
+	This detached solve neither updates the actor nor grants rotation or fire.
+	'''
+	params = derive_suspension_params(descriptor)
+	pitch, roll = ground_pose_for_yaw(body[1], body[2], body[0], yaw)
+	params = suspension_pose_params(params, pitch, roll)
+	def sample(family, points, coordinates):
+		values = []
+		for index, (point, coordinate) in enumerate(zip(points, coordinates)):
+			x, z = coordinate
+			layers = [] if trace is not None else None
+			height = (query(x, z, position[1], maximum_y, layers) if layers is not None else
+				query(x, z, position[1], maximum_y))
+			values.append(height)
+			if trace is not None:
+				trace.append(dict(family=family, index=index, x=x, z=z, height=height,
+					layers=layers))
+		return tuple(values)
+	ground = sample('spring', params['springs'],
+		suspension_world_points(params, position, yaw, pitch, roll))
+	pseudo = sample('pseudo', params['pseudo_contacts'],
+		suspension_pseudo_world_points(params, position, yaw, pitch, roll))
+	before = dict(height=position[1], pitch=pitch, roll=roll,
+		vertical_velocity=0., pitch_velocity=0., roll_velocity=0.)
+	solved = damper_suspension_step(params, before, ground, 0., pseudo)
+	if solved['airborne'] or not solved['contact_count']:
+		return None
+	normal = ground_normal(*_body_ground_gradient(yaw, solved['pitch'], solved['roll']))
+	gradient_x, gradient_z = -normal[0] / normal[1], -normal[2] / normal[1]
+	return dict(center_y=solved['height'], pitch=solved['pitch'], roll=solved['roll'],
+		normal=normal, gradient_x=gradient_x, gradient_z=gradient_z,
+		kind='full_chassis_contacts',
+		contact_count=solved['contact_count'], rigid_contact_count=solved['rigid_contact_count'])
+
+
+def _body_ground_gradient(yaw, pitch, roll):
+	# World normal of the accepted chassis basis, not a fitted terrain face.
+	nx = math.cos(yaw) * -math.sin(roll) + math.sin(yaw) * math.sin(pitch) * math.cos(roll)
+	ny = math.cos(pitch) * math.cos(roll)
+	nz = -math.sin(yaw) * -math.sin(roll) + math.cos(yaw) * math.sin(pitch) * math.cos(roll)
+	if ny <= .01:
+		raise ValueError('stationary chassis support is oververtical')
+	return -nx / ny, -nz / ny
 
 
 def ground_pose_for_yaw(pitch, roll, old_yaw, new_yaw):

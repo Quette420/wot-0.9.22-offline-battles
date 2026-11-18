@@ -101,8 +101,18 @@ class PlayerObservation(object):
         return getattr(self.owner, '_local_ground_plane', None)
 
     def chassis_support_at(self, position, yaw, descriptor, maximum_y, trace):
-        return self.owner._sample_chassis_support(
-            position, yaw, descriptor, maximum_y, trace)[-1]
+        from .. import vehicle_physics
+        flat = self.hydraulic_state().get('flat_matrix')
+        if flat is None:
+            flat = self.owner._local_matrix
+        matrix = self.owner._runtime.math.Matrix(flat)
+        body = (float(matrix.yaw), float(matrix.pitch), float(matrix.roll))
+        return vehicle_physics.stationary_chassis_support(descriptor, position, yaw,
+            body, self.owner._support_column, maximum_y, trace)
+
+    def complete_support(self):
+        return bool(getattr(self.owner, '_local_suspension_params', None) is not None and
+                    not getattr(self.owner, '_local_suspension_disabled', False))
 
     def support_rise_blocked(self):
         return bool(getattr(self.owner, '_local_support_rise_blocked', False))

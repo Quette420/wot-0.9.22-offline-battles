@@ -305,7 +305,7 @@ class CombatControl(object):
                 not self.attack_policy._executable(candidate, candidate.get('mode', 'penetration'))):
             return False
         task = owner.task_order
-        capture_hold = getattr(owner, 'capture_hold', lambda: False)()
+        capture_hold = owner.stationary_hold()
         if 'drive' in self.features and (task.get('throttle_override') != 0. or
                 not capture_hold and _distance(
                     _point(task.get('move_position') or state['position']),
@@ -497,13 +497,24 @@ class CombatControl(object):
             order.pop('confirmed_facing', None)
         area = ((self._mission or {}).get('capture_area') or
                 self.combat_stop.task_order.get('capture_area'))
-        if area and capture_orders.inside(self.state, area) and not self.state.get('airborne'):
-            center = area['point']
-            order['capture_pivot_circle'] = ((center['x'], center['z']), area['radius'])
+        hold_area = area or self.combat_stop.task_order.get('parking_area')
+        if hold_area and capture_orders.inside(self.state, hold_area) and not self.state.get('airborne'):
+            center = hold_area['point']
+            order['capture_pivot_circle'] = ((center['x'], center['z']), hold_area['radius'])
         else:
             order.pop('capture_pivot_circle', None)
         if combat_detail_enabled():
             task = self.combat_stop.task_order
+            if task.get('parking_phase') in ('waiting', 'queue'):
+                owner = self.combat_stop
+                combat_detail(self, 'parking_combat_handoff', self.actor_id, now,
+                    (owner.combat_owned, bool(owner._capture_lay), order.get('target_kind'),
+                     order.get('target_id')), lambda: dict(combat_owned=owner.combat_owned,
+                        translation_allowed=owner.can_request_movement,
+                        turn_target=(owner._capture_lay or {}).get('key'),
+                        selected=owner._intent_target, area=hold_area,
+                        position=tuple(self.state['position']),
+                        mode=order.get('combat_mode'), policy=self.attack_policy.decision.get('reason')))
             objective = area or task.get('capture_objective')
             if objective is not None:
                 inside = capture_orders.inside(self.state, objective)

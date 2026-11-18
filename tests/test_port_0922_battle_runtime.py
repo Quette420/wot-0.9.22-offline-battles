@@ -25889,33 +25889,23 @@ class BattleRuntimeContractTests(unittest.TestCase):
         self.assertTrue(battle._local_suspension_disabled)
         battle._terrain_support.assert_called_once()
 
-    def test_hydraulic_player_keeps_existing_support_path(self):
+    def test_hydraulic_player_uses_complete_contacts_without_legacy_support(self):
         runtime = _runtime()
         battle = BattleRuntime(runtime)
         battle._avatar = runtime.bigworld.avatar
-        battle._terrain_support = mock.Mock(return_value=(0.0, 0.0))
-        battle._suspension_ground_y = mock.Mock()
+        battle._terrain_support = mock.Mock(side_effect=AssertionError('legacy support'))
+        battle._suspension_ground_y = mock.Mock(return_value=0.)
         descriptor = _suspension_descriptor()
         descriptor.isPitchHullAimingAvailable = True
-        entity = _Vehicle(
-            10, descriptor, _Vector(), (0, 0, 0), {'health': 500})
-
-        # Switching from a conventional tank must retire its diagnostic samples.
-        battle._local_suspension_probe_trace = ((355.0, 85.0, 13.8),)
-        position = battle._update_vertical_motion(
-            entity, (0.0, 0.0, 0.0), 0.0, 0.04)
-
-        self.assertEqual((0.0, 0.0, 0.0), position)
-        self.assertEqual((), battle._local_suspension_probe_trace)
-        with mock.patch('sys.stdout') as output:
-            self.assertFalse(battle._report_local_prop_support(position, 100.0))
-        output.write.assert_not_called()
-        self.assertIsNone(battle._local_suspension_params)
-        self.assertTrue(battle._local_suspension_disabled)
-        self.assertIn(
-            '#1513 hydraulic suspension', battle._local_suspension_report)
-        battle._suspension_ground_y.assert_not_called()
-        battle._terrain_support.assert_called_once()
+        entity = _Vehicle(10, descriptor, _Vector(), (0, 0, 0), {'health': 500})
+        battle._local_fall_armed = True
+        for mode in (0, 1, 2, 3):
+            entity.siegeState = mode
+            battle._update_vertical_motion(entity, (0., 0., 0.), 0., .04)
+            self.assertIsNotNone(battle._local_suspension_params)
+            self.assertFalse(battle._local_suspension_disabled)
+        self.assertGreaterEqual(battle._suspension_ground_y.call_count, 4 * 22)
+        battle._terrain_support.assert_not_called()
 
     def test_native_suspension_failure_rolls_back_then_uses_legacy(self):
         runtime = _runtime()

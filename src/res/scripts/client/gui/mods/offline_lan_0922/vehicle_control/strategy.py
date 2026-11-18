@@ -2715,6 +2715,11 @@ class BotPlanner(EmptyAmmoMixin, RouteTasksMixin, RouteRecoveryMixin):
         order['parking_phase'] = phase
         order['parking_slot'] = state.get('parking_slot')
         if phase == 'waiting':
+            arrival = state.get('parking_pose', {}).get(state.get('index', 0))
+            if arrival is not None:
+                radius = max(.5, _number(bot.get('profile', {}).get('parking_radius'),
+                    math.hypot(3.5, 1.7)))
+                order['parking_area'] = dict(point=dict(arrival), radius=radius * 2.)
             index=state.get('index',0);points=authored['points']
             places=bot_tactics.waiting_positions(points[index]);slot=state.get('parking_slot')
             done=state.setdefault('parking_heading_done',set())

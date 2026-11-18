@@ -642,7 +642,9 @@ class StationaryPlanner(object):
                     position=dependencies[2], pose=frame['pose'][:6] + (dependencies[3],))
             support_frame = dict(planned, body=hydraulic['body']) if hydraulic is not None else planned
             support_body = support_frame['body']
-            chassis = getattr(observation(self.runtime), 'chassis_support_at', None) if hydraulic else None
+            physical = observation(self.runtime)
+            complete = getattr(physical, 'complete_support', lambda: False)()
+            chassis = getattr(physical, 'chassis_support_at', None) if hydraulic or complete else None
             if chassis is None:
                 proposal = self._project_point(planned, shell, target, raw_prediction, pivot, hydraulic)
             source = self._support(support_frame, support_frame['position'], support_body[0],

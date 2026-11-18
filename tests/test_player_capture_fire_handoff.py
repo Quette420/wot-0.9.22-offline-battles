@@ -151,6 +151,33 @@ class CaptureFireHandoffTests(unittest.TestCase):
         self.assertEqual((traces[-1]['throttle'], traces[-1]['turn']),
                          (scene.battle._sender.forward, scene.battle._sender.turn))
 
+    def test_route_wait_turns_a_limited_gun_then_commits_without_forward_or_reverse(self):
+        scene = self.scene(limited=True)
+        scene.battle._local_physics = dict(rotationIsAroundCenter=True)
+        scene.pose(scene.battle._runtime.bigworld.entities[2], (65., 0., 85.))
+        original = scene.runtime._mission_order
+        def waiting(order, now):
+            result = original(order, now)
+            return dict(result, parking_phase='waiting', combat_mode='hold',
+                capture_area=None, move_position=(45., 0., 45.), throttle_override=0.,
+                parking_area=dict(point=dict(x=45., y=0., z=45.), radius=8.))
+        scene.runtime._mission_order = waiting
+        for unused in range(40):
+            scene.tick()
+            self.assertEqual(0., scene.battle._sender.forward)
+            self.assertIsNone(scene.runtime.combat_stop._physical_recovery)
+            if scene.battle._sender.turn > .01:
+                break
+        self.assertGreater(scene.battle._sender.turn, .01)
+        self.assertEqual('waiting', scene.applied_order()['parking_phase'])
+        self.assertFalse(scene.runtime.combat_stop.can_request_movement)
+        self.assertEqual(2, scene.applied_order()['target_id'])
+        scene.native_position((45., 0., 45.), yaw=.45)
+        self.run_until_shots(scene)
+        self.assertEqual(2, scene.runtime.weapon.target['network_id'])
+        self.assertEqual(0., scene.battle._sender.forward)
+        self.assertEqual('waiting', scene.applied_order()['parking_phase'])
+
     def test_limited_gun_inside_actual_arc_can_fire_without_a_new_hull_turn(self):
         scene = self.scene(limited=True)
         scene.runtime.set_mission('capture_base', {})

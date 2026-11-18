@@ -5836,7 +5836,7 @@ class BattleRuntime(SharedBattleGeometry):
     def _stack_pressure_contact(self, actor, entity):
         """Observe the same descriptor contacts as suspension, without stepping it."""
         descriptor = entity.typeDescriptor
-        if vehicle_physics.suspension_trial_excluded(descriptor):
+        if vehicle_physics.has_hydraulic_suspension(descriptor):
             # Hydraulic tanks retain their existing native owner and the
             # pre-existing five-point observer, not the ordinary spring trial.
             shape, yaw = actor['collision_shape'], actor.get('yaw', 0.)
@@ -19457,7 +19457,7 @@ class BattleRuntime(SharedBattleGeometry):
         try:
             descriptor = self._local_descriptor or entity.typeDescriptor
             if (self._worker_mode or dt <= 0.0 or not
-                    vehicle_physics.suspension_trial_excluded(descriptor)):
+                    vehicle_physics.has_hydraulic_suspension(descriptor)):
                 return
             moving = (abs(before) + abs(drive) + abs(self._local_turn_speed) +
                       abs(self._local_drive_throttle) + abs(self._local_drive_turn) +
@@ -22797,17 +22797,6 @@ class BattleRuntime(SharedBattleGeometry):
 
     def _ensure_local_suspension_params(self, descriptor):
         """Lazily enable the descriptor-backed ten-spring trial."""
-        if vehicle_physics.suspension_trial_excluded(descriptor):
-            self._local_suspension_params = None
-            self._local_suspension_probe_trace = ()
-            self._local_suspension_disabled = True
-            self._local_spring_ground_memory = None
-            self._local_pseudo_ground_memory = None
-            self._local_suspension_support_vertical_speed = 0.0
-            self._local_suspension_support_gradient = None
-            self._report_local_suspension_trial(
-                'excluded: #1513 hydraulic suspension')
-            return None
         if self._local_suspension_disabled:
             return None
         if self._local_suspension_params is None:
@@ -24439,7 +24428,7 @@ class BattleRuntime(SharedBattleGeometry):
         motion_yaw = yaw
         airborne_at_start = bool(self._local_airborne)
         hydraulic_origin = None
-        if vehicle_physics.suspension_trial_excluded(
+        if vehicle_physics.has_hydraulic_suspension(
                 self._local_descriptor or entity.typeDescriptor):
             hydraulic_origin = {
                 'airborne': airborne_at_start,

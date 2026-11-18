@@ -2942,13 +2942,19 @@ class BotRuntime(SharedEngineControl):
             '[Offline LAN 0.9.22] SUSPENSION bot trial %s\n' % (outcome,))
         return True
 
+    def _full_support_required(self, state):
+        return bool(BOT_FULL_SUPPORT_ENABLED or
+                    vehicle_physics.has_hydraulic_suspension(
+                        self._descriptors.get(int(state['id']))))
+
     def _suspension_params_for(self, bot_id):
         """Keep basic driving; a shoved ledge hull uses detailed contacts."""
-        state = self.states.get(int(bot_id), {})
-        edge_support = (not BOT_FULL_SUPPORT_ENABLED and
+        state = self.states.get(int(bot_id), {'id': int(bot_id)})
+        full_support = self._full_support_required(state)
+        edge_support = (not full_support and
                         self._contact_edge_support_needed(state,
                             state.get('_support_selection_stage','current_pose')))
-        if not BOT_FULL_SUPPORT_ENABLED and not edge_support:
+        if not full_support and not edge_support:
             # Keep this before activation/cache: contact on continuous ground
             # alone does not enable the more expensive spring integration.
             self._report_suspension_trial(
@@ -2968,11 +2974,6 @@ class BotRuntime(SharedEngineControl):
             self._suspension_params[bot_id] = None
             self._suspension_param_failures += 1
             self._report_suspension_trial('inactive: no descriptor')
-            return None
-        if vehicle_physics.suspension_trial_excluded(descriptor):
-            self._suspension_params[bot_id] = None
-            self._report_suspension_trial(
-                'excluded: #1513 hydraulic suspension')
             return None
         try:
             params = vehicle_physics.derive_suspension_params(descriptor)
@@ -3193,7 +3194,7 @@ class BotRuntime(SharedEngineControl):
         """Hand back only after admitted landing effects, without moving the hull."""
         if state.get('_support_release_after_contacts'):
             return False
-        if BOT_FULL_SUPPORT_ENABLED or not state.get('_edge_support_active'):
+        if self._full_support_required(state) or not state.get('_edge_support_active'):
             return False
         rows = self._basic_support_status(state)
         if state.get('airborne') or not all(row['valid'] for row in rows):
@@ -9372,7 +9373,7 @@ class BotRuntime(SharedEngineControl):
             support_vertical_speed)
         moment = float(getattr(self, '_contact_now', None) or 0.0)
         abnormal = vehicle_physics.suspension_abnormal_step(physics_state, solved)
-        if ((state.get('_edge_support_active') or BOT_FULL_SUPPORT_ENABLED) and
+        if ((state.get('_edge_support_active') or self._full_support_required(state)) and
                 (moment >= state.get('_next_edge_support_log', -1.e30) or
                  (abnormal and moment >= state.get('_next_abnormal_support_log', -1.e30)))):
             state['_next_edge_support_log'] = moment + 2.0
@@ -9707,7 +9708,7 @@ class BotRuntime(SharedEngineControl):
                                    attempted_yaw=None,
                                    suspension_motion_pose=None):
         """Run grounded/ballistic phases and reject false raised support."""
-        if not BOT_FULL_SUPPORT_ENABLED and not state.get('_edge_support_active'):
+        if not self._full_support_required(state) and not state.get('_edge_support_active'):
             was_grounded=bool(state.get('grounded_once'))
             blocked = self._integrate_basic_vertical_motion(
                 state, step, tick_pose, attempted_yaw, suspension_motion_pose)
@@ -15656,6 +15657,11 @@ class BotRuntime(SharedEngineControl):
                     (state.get('z', 0.0)-start[2])*math.cos(state.get('yaw', 0.0))) / sweep['step'], 'realised_player_contact'
         return _number(state.get('speed')), 'physical_speed'
 
+    def _stationary_parking_turn(self, state, target):
+        control = self._actor_controls.get(state['id'])
+        owner = getattr(control, 'combat_stop', None)
+        return bool(owner is not None and owner.stationary_turn_allowed(target))
+
     def _record_traffic_pivot(self, state, command, safety, target, hull_aiming, now):
         """Publish a denied firing pivot for the shared movement owner.
 
@@ -17306,7 +17312,8 @@ class BotRuntime(SharedEngineControl):
                 # Parking releases rear laying in _rear_laying_order. Do not
                 # recreate that episode later in the same control update and
                 # replace destination steering with an opposing firing pivot.
-                not command.get('parking_phase'),
+                (not command.get('parking_phase') or
+                 self._stationary_parking_turn(state, target)),
                 combat_mode=command.get('combat_mode'),
                 movement_intent=command.get('movement_intent', True),
                 rear_turn=rear_turn, allow_rear_start=allow_rear_start)

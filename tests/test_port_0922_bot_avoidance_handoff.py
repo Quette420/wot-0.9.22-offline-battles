@@ -10,8 +10,9 @@ class AvoidanceHandoffTests(unittest.TestCase):
     def scene(self, kind='bot', status='clear'):
         # Recovery continuity starts with an established engagement. Cold
         # blocked travel below must preserve the original route instead.
-        scene = Scene(admitted=status != 'pending')
-        scene.target.update(kind=kind)
+        # Admit the original actor identity before testing its continuation.
+        # Changing a Bot into a human after admission is a departed target.
+        scene = Scene(admitted=status != 'pending', target_kind=kind)
         scene.raw_order.update(combat_mode='route', target_id=None,
             target_kind=None, move_position=(20., 0., -30.),
             face_position=(20., 0., -30.), throttle_override=None,

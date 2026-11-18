@@ -201,7 +201,7 @@ class ContactDecisionTests(unittest.TestCase):
                 battle._stack_context['hits'].append((('bot',28),lower,(x,roof_y,z)))
                 return (fixture._Vector(x,roof_y,z),fixture._Vector(0.,1.,0.))
         battle._stack_ground_hit=native
-        with mock.patch.object(vp,'suspension_trial_excluded',return_value=False), \
+        with mock.patch.object(vp,'has_hydraulic_suspension',return_value=False), \
                 mock.patch.object(vp,'derive_suspension_params',return_value=params) as derive:
             with contextlib.redirect_stdout(io.StringIO()):
                 hit=battle._stack_pressure_contact(actor,entity)

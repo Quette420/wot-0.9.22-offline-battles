@@ -6087,40 +6087,33 @@ class BotRuntimeTests(unittest.TestCase):
         self.assertEqual(
             1, runtime.diagnostic_totals()['suspension_param_failures'])
 
-    def test_hydraulic_bot_uses_four_point_ground_without_spring_queries(self):
-        runtime,state,unused=self._suspension_case(lambda x,z:3.2)
-        runtime._descriptors[11].isPitchHullAimingAvailable=True
-        self.assertIsNone(runtime._suspension_params_for(11))
-        state.update(x=0.,y=3.6,z=0.,yaw=0.,speed=0.,pitch=-.566,
-                     terrain_pitch=-.566,roll=-.363,grounded_once=True)
-        probe=mock.Mock(return_value=3.2);runtime._physics_ground_probe=probe
-        ground=mock.Mock(return_value=3.2);runtime.ground_probe=ground
-        self.assertTrue(runtime._update_slope_pose(state))
-        self.assertEqual(4,probe.call_count)
-        ground.assert_not_called()
-        # Cheap four-point support blends towards flat ground; it does not
-        # snap a previously tilted hull in one control slice.
-        self.assertAlmostEqual(-.283, state['pitch'])
-        self.assertAlmostEqual(-.1815, state['roll'])
+    def test_hydraulic_bot_uses_full_support_without_basic_mode_switching(self):
+        runtime, state, calls = self._suspension_case(lambda x, z: 0.)
+        runtime._descriptors[11].isPitchHullAimingAvailable = True
+        with mock.patch.object(self.module, 'BOT_FULL_SUPPORT_ENABLED', False):
+            for mode in (0, 1, 2, 3):
+                state['siege_state'] = mode
+                self.assertIsNotNone(runtime._suspension_params_for(11))
+                self.assertFalse(runtime._update_vertical_motion(state, .1))
+                self.assertFalse(runtime._release_detailed_support(state))
+                self.assertFalse(state.get('_edge_support_active', False))
+                self.assertIsNotNone(runtime._suspension_params[11])
+        self.assertGreaterEqual(len(calls), 4 * 22)
+        with mock.patch.object(runtime, '_ground_probe_at') as basic:
+            self.assertFalse(runtime._update_slope_pose(state))
+        basic.assert_not_called()
+        self.assertEqual('detailed_solver_owns_pose', state['_slope_pose_refresh']['reason'])
 
-    def test_hydraulic_bot_is_excluded_without_disabling_ordinary_bot(self):
-        runtime, state, calls = self._suspension_case(
-            lambda unused_x, unused_z: 0.0)
-        hydraulic = runtime._descriptors[11]
-        hydraulic.isPitchHullAimingAvailable = True
+    def test_hydraulic_full_support_does_not_enable_ordinary_bots(self):
+        runtime, state, unused = self._suspension_case(lambda x, z: 0.)
+        runtime._descriptors[11].isPitchHullAimingAvailable = True
         runtime._descriptors[12] = _suspension_descriptor()
-
-        self.assertIsNone(runtime._suspension_params_for(11))
-        self.assertIsNotNone(runtime._suspension_params_for(12))
-        self.assertFalse(runtime._update_vertical_motion(state, 0.1))
-
-        self.assertEqual([], calls)
-        self.assertEqual(
-            0, runtime.diagnostic_totals()['suspension_param_failures'])
-        self.assertIn(
-            'excluded: #1513 hydraulic suspension',
-            runtime._suspension_trial_reports)
-        self.assertEqual(0.0, state['y'])
+        runtime.states[11] = state
+        runtime.states[12] = dict(state, id=12)
+        with mock.patch.object(self.module, 'BOT_FULL_SUPPORT_ENABLED', False), \
+                mock.patch.object(runtime, '_contact_edge_support_needed', return_value=False):
+            self.assertIsNotNone(runtime._suspension_params_for(11))
+            self.assertIsNone(runtime._suspension_params_for(12))
 
     def test_suspension_pose_guard_discards_rejected_contact_history(self):
         runtime, state, unused_calls = self._suspension_case(

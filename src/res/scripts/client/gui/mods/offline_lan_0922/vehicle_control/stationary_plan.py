@@ -440,6 +440,19 @@ class StationaryPlanner(object):
                     abs(next_correction - correction) < 1.e-7 and
                     sum((origin[i] - previous[i]) ** 2 for i in range(3)) < 1.e-12):
                 if not reach['reachable']:
+                    if combat_detail_enabled():
+                        combat_detail(self.runtime, 'stationary_endpoint_rejected',
+                            self.runtime.actor_id, frame['observed_at'],
+                            (shell['index'], target['key'], raw.get('sample')),
+                            lambda: dict(target=target['key'], sample=sample,
+                                source_position=position, source_body=body,
+                                projected_position=projected_position,
+                                flat_body=flat_body, projected_body=projected_body,
+                                origin=origin, direction=direction, reach=reach,
+                                active_reach=active if hydraulic is not None else None,
+                                correction=correction, next_correction=next_correction,
+                                turret=turret, following_turret=following_turret,
+                                tags=tuple(sorted(_field(_field(descriptor, 'type'), 'tags', ()) or ()))))
                     raise _Deferred('stationary_projected_pitch_pending')
                 path = ballistics.ballistic_path(origin, gun_yaw, gun_pitch, speed, gravity, flight)
                 solution = dict(raw.get('solution') or {})
@@ -645,7 +658,11 @@ class StationaryPlanner(object):
             support_body = support_frame['body']
             physical = observation(self.runtime)
             complete = getattr(physical, 'complete_support', lambda: False)()
-            chassis = getattr(physical, 'chassis_support_at', None) if hydraulic or complete else None
+            # The physical owner supplies both its five-contact and complete
+            # support proof. Mode changes must not select the unrelated strict
+            # coplanar sampler while that same chassis is using basic contacts.
+            owns_contacts = hydraulic or complete or getattr(self.runtime, 'actor_kind', 'human') == 'bot'
+            chassis = getattr(physical, 'chassis_support_at', None) if owns_contacts else None
             if chassis is None:
                 proposal = self._project_point(planned, shell, target, raw_prediction, pivot, hydraulic)
             source = self._support(support_frame, support_frame['position'], support_body[0],

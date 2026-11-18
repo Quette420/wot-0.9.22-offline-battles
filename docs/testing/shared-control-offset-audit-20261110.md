@@ -2,6 +2,19 @@
 
 ## November 19 — Physical SPG preparation and adaptive hydraulic Bots
 
+Follow-up report `wot-error-report-20261119-052258-3a16d8e04a1a.zip`, runtime
+`2eeac164`, exposed an unfinished native acceptance case: the last friendly
+UDES 03 #7 and enemy #19 on the central Mines hill selected each other with
+clear lanes but never completed their chassis-turn receipts. They repeatedly
+entered and left siege mode. Basic support in travel mode still selected the
+old independent coplanar-fit proof instead of the worker's physical five
+contacts. This omission is corrected for worker actors in every mode. The
+regression fails before the change on a supported 2 cm step and passes after
+it; a missing intermediate contact still rejects the turn. Active-mode
+projected angle refusals are not yet explained by that omission. Their exact
+endpoint/body/hydraulic inputs are now recorded only when detailed diagnostics
+is checked. This remains work in progress, not a completed native fix.
+
 This is the latest authorized scope and supersedes the continuous hydraulic-Bot
 policy in the historical section below. Every player vehicle stays on complete
 support. Ordinary Bots retain their existing basic/edge switch. Hydraulic Bots

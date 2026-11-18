@@ -447,6 +447,91 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
             engine._suspension_params.pop(actor, None)
             self.assertTrue(binding.complete_support())
 
+    def test_travel_mode_uses_real_basic_contacts_over_a_supported_step(self):
+        from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
+        from gui.mods.offline_lan_0922.vehicle_control.stationary_plan import StationaryPlanner
+        from test_player_siege_engagement import pitch_limits
+        scene = self.scene(enabled=False)
+        # Isolate chassis proof from the gun's pitch restriction. The physical
+        # five contacts accept this small step; an independent coplanar fit
+        # rejects it even though no witness is missing.
+        scene.entity.typeDescriptor.gun.pitchLimits = pitch_limits(-.35, .35)
+        scene.ground_function = lambda x, z: .02 if z > 1. else 0.
+        scene.pose(scene.target, (math.sin(.7) * 100., 0., math.cos(.7) * 100.))
+        scene.observe()
+        engine, actor = scene.runtime.engine, scene.runtime.actor_id
+        engine.states[actor].pop('_edge_support_active', None)
+        key = 'bot:%s' % actor
+        scene.battle._records[key] = dict(scene.battle._records['player:1'],
+            kind='bot', network_id=actor, local=False, state=engine.states[actor])
+        self.addCleanup(scene.battle._records.pop, key, None)
+        binding = BotControlBinding(scene.battle, engine, actor)
+        self.addCleanup(binding.close)
+        target = dict(scene.runtime.visible_targets()[0])
+        self.assertTrue(binding.observe(scene.now, [target]))
+        binding.combat_stop.active = binding.combat_stop.combat_owned = True
+        binding.combat_stop.targets = (target,)
+        self.assertFalse(binding.complete_support())
+        planner = StationaryPlanner(binding)
+        planner.clock = lambda: 0.
+        before = dict(binding.state)
+        for unused in range(30):
+            evaluator = binding.attack_policy.evaluator
+            frame = evaluator.snapshot(scene.now)
+            observed = next(row for row in frame['targets'] if row['entity'] is scene.target)
+            shell = frame['shells'][0]
+            raw = evaluator._prediction(frame, shell, observed, 0)
+            plan = planner.project(frame, shell, observed, raw, scene.now, 'foreground')
+            if plan['status'] == 'proved' or not plan.get('progressing'):
+                break
+            scene.fixture.now += .11
+        self.assertEqual('proved', plan['status'], plan)
+        self.assertEqual('basic_chassis_contacts', plan['proof']['source_support']['kind'])
+        self.assertTrue(plan['proof']['arc'])
+        self.assertFalse(plan['proof']['fire_permission'])
+        self.assertEqual(before, dict(binding.state))
+        # Identical supported endpoints cannot conceal a missing witness in
+        # the middle of the turn. This still runs the physical basic sampler.
+        angle = math.pi / 36. * 3.5
+        length = max(1.5, float(binding.state.get('half_length', 3.5)))
+        missing = (math.sin(angle) * length, math.cos(angle) * length)
+        scene.ground_function = lambda x, z: (None if
+            math.hypot(x - missing[0], z - missing[1]) < .01 else 0.)
+        planner = StationaryPlanner(binding)
+        planner.clock = lambda: 0.
+        for unused in range(30):
+            plan = planner.project(frame, shell, observed, raw, scene.now, 'foreground')
+            if not plan.get('progressing'):
+                break
+            scene.fixture.now += .11
+        self.assertEqual('pending', plan['status'], plan)
+        self.assertEqual('stationary_native_support_pending', plan['reason'])
+
+    def test_rejected_endpoint_angles_are_logged_only_when_checked(self):
+        from gui.mods.offline_lan_0922.vehicle_control import stationary_plan
+        for enabled in ('0', '1'):
+            with self.subTest(detailed=enabled):
+                scene = self.scene()
+                frame, shell, target, raw = scene.plan_frame()
+                reach = stationary_plan.mechanical_reach
+                def refused(*args, **kwargs):
+                    return dict(reach(*args, **kwargs), reachable=False)
+                with mock.patch.dict(os.environ, {'WOT_OFFLINE_DIAGNOSTICS': '1',
+                        'WOT_OFFLINE_COMBAT_DIAGNOSTICS': enabled}), \
+                        mock.patch.object(stationary_plan, 'mechanical_reach', refused), \
+                        mock.patch('gui.mods.offline_lan_0922.native_input_diagnostics.write_json_record') as emit:
+                    with self.assertRaises(stationary_plan._Deferred) as raised:
+                        scene.planner._project_point(frame, shell, target, raw,
+                            dict(rotationIsAroundCenter=True))
+                self.assertEqual('stationary_projected_pitch_pending', raised.exception.reason)
+                rows = [call.args[1] for call in emit.call_args_list
+                        if call.args[0] == 'BATTLE REVIEW' and
+                        call.args[1].get('stage') == 'stationary_endpoint_rejected']
+                self.assertEqual(1 if enabled == '1' else 0, len(rows))
+                if rows:
+                    self.assertFalse(rows[0]['reach']['reachable'])
+                    self.assertIn('projected_body', rows[0])
+
     def test_chassis_collision_surfaces_require_detailed_diagnostics(self):
         for enabled in ('0', '1'):
             with self.subTest(detailed=enabled):

@@ -32,6 +32,7 @@ WALL_SECONDS_PER_TICK = .004
 PROJECTION_ITERATIONS = 12
 _POSITION_EPSILON = .0001
 _PEER_DEPENDENCY = 11
+_SUPPORT_DEPENDENCY = 14
 _WALL_CLOCK = getattr(time, 'perf_counter', time.time)
 
 
@@ -41,6 +42,34 @@ def _angle(value):
 
 def _same_point(first, second, tolerance):
     return all(abs(a - b) <= tolerance for a, b in zip(first, second))
+
+
+def _support_stamp(physical):
+    plane = physical.support_plane()
+    values = None
+    if isinstance(plane, dict):
+        values = tuple((name, None if plane.get(name) is None else
+            _point(plane[name]) if name == 'normal' else _finite(plane[name]))
+            for name in ('center_y', 'normal', 'pitch', 'roll',
+                         'gradient_x', 'gradient_z', 'residual'))
+    return bool(getattr(physical, 'complete_support', lambda: False)()), values
+
+
+def _same_support_stamp(first, second):
+    if first[0] != second[0] or first[1] is None or second[1] is None:
+        return first == second
+    for (name, before), (other, after) in zip(first[1], second[1]):
+        if name != other or before is None or after is None:
+            if name != other or before != after:
+                return False
+            continue
+        tolerance = _POSITION_EPSILON if name in ('center_y', 'residual') else NATIVE_ANGLE_TOLERANCE
+        if name == 'residual' and (before <= _POSITION_EPSILON) != (after <= _POSITION_EPSILON):
+            return False
+        if not (_same_point(before, after, tolerance) if name == 'normal'
+                else abs(before - after) <= tolerance):
+            return False
+    return True
 
 
 def _pending(reason, progressing=False):
@@ -227,11 +256,12 @@ class StationaryPlanner(object):
         if not callable(revision):
             raise _Deferred('stationary_native_scene_revision_unavailable')
         native_scene = (id(owner._avatar), owner._avatar.spaceID, revision())
-        accepted_plane = observation(runtime).support_plane()
-        native_support = (bool(getattr(observation(runtime), 'complete_support', lambda: False)()),
-            tuple((name, repr(accepted_plane.get(name))) for name in
-            ('center_y', 'normal', 'pitch', 'roll', 'gradient_x', 'gradient_z', 'residual'))
-            if isinstance(accepted_plane, dict) else None)
+        native_support = _support_stamp(observation(runtime))
+        if old is not None and _same_support_stamp(old[_SUPPORT_DEPENDENCY], native_support):
+            # Use the same existing native precision as the source-pose
+            # anchor. Compare to that anchor, never to the preceding sample,
+            # so a real accumulated support change still retires all work.
+            native_support = old[_SUPPORT_DEPENDENCY]
         bounds = tuple(_finite(value) for value in runtime.geometry._arena_bounds)
         if not arena_boundary.valid(bounds):
             raise _Deferred('stationary_arena_bounds_unavailable')
@@ -631,7 +661,11 @@ class StationaryPlanner(object):
                         self.runtime.actor_id, now, changed,
                         lambda: dict(fields=changed, epoch=self._epoch_serial,
                                      support=len(self._supports), arcs=len(self._arcs),
-                                     plans=len(self._plans)))
+                                     plans=len(self._plans),
+                                     support_before=self._epoch[_SUPPORT_DEPENDENCY]
+                                         if 'support' in changed else None,
+                                     support_after=dependencies[_SUPPORT_DEPENDENCY]
+                                         if 'support' in changed else None))
                 peer = _PEER_DEPENDENCY
                 if (self._epoch is None or self._epoch[:peer] != dependencies[:peer] or
                         self._epoch[peer + 1:] != dependencies[peer + 1:]):

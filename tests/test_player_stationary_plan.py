@@ -152,6 +152,40 @@ class StationaryPlanTests(unittest.TestCase):
         self.assertEqual(0, blocked['verified_arcs'])
         self.assertEqual('stationary_native_rotation_blocked', blocked['reason'])
 
+    def test_support_observation_precision_keeps_anchor_but_not_cumulative_drift(self):
+        from gui.mods.offline_lan_0922.vehicle_control.stationary_plan import NATIVE_ANGLE_TOLERANCE
+        scene = self.scene(bearing=.7)
+        frame, plan = scene.plan()
+        self.assertEqual('proved', plan['status'], plan)
+        original = dict(scene.battle._local_ground_plane)
+        for factor in (.25, .75):
+            # Independent support measurements can differ below the same
+            # native precision already accepted by the body's planning pose.
+            plane = dict(original, center_y=original['center_y'] + .000001,
+                         residual=original.get('residual', 0.) + .000001)
+            normal = list(original['normal'])
+            normal[0] += NATIVE_ANGLE_TOLERANCE * factor
+            plane['normal'] = tuple(normal)
+            scene.battle._local_ground_plane = plane
+            self.assertTrue(scene.planner.current(frame, plan['proof']))
+        # Compare to the original anchor, never the last jittered reading.
+        # Crossing the existing precision boundary retires the certificate.
+        normal[0] = original['normal'][0] + NATIVE_ANGLE_TOLERANCE * 1.25
+        scene.battle._local_ground_plane = dict(plane, normal=tuple(normal))
+        self.assertFalse(scene.planner.current(frame, plan['proof']))
+        scene.battle._local_ground_plane = dict(original, center_y=original['center_y'] + .001)
+        self.assertFalse(scene.planner.current(frame, plan['proof']))
+
+    def test_support_precision_cannot_hide_crossing_the_strict_fit_boundary(self):
+        from gui.mods.offline_lan_0922.vehicle_control.stationary_plan import _POSITION_EPSILON
+        scene = self.scene(bearing=.7)
+        scene.battle._local_ground_plane['residual'] = .9 * _POSITION_EPSILON
+        frame, plan = scene.plan()
+        self.assertEqual('proved', plan['status'], plan)
+        self.assertTrue(scene.planner.current(frame, plan['proof']))
+        scene.battle._local_ground_plane['residual'] = 1.1 * _POSITION_EPSILON
+        self.assertFalse(scene.planner.current(frame, plan['proof']))
+
     def test_native_center_arc_and_support_produce_motion_only_receipt(self):
         scene = self.scene(bearing=.7)
         old_state, old_origin = copy.deepcopy(scene.runtime.state), scene.origin

@@ -46,6 +46,24 @@ stall allowance. Other targets, stale/blocked rows, repeated prefixes, dependenc
 epoch changes and extra ground samples cannot renew it. No timeout or geometry
 guard was relaxed. Native acceptance of this correction remains pending.
 
+Report `wot-error-report-20261119-061811-637301543de0.zip` ran `3cd449ae`.
+Checked worker arc progress was now observed, but a separate player/full-support
+cache defect remained. At 06:13:42–44 the source stayed at approximately
+(181.04204, 20.32813, 75.70489); support height changed about 0.0000002 m and
+pitch about 0.000005 rad. Those variations fit the existing source precision,
+yet exact repr-based support dependencies restarted the planner almost every
+frame (epoch 271 to 315 in two seconds), preventing completed arc work. Support
+stamps now contain numeric observations and retain the same anchor within the
+existing 0.0001 m / 0.00001 rad precision. The comparison uses the original
+anchor so cumulative drift still invalidates; support-owner changes and a
+residual crossing the existing strict-plane boundary still invalidate too.
+Neither contact queries, physical suspension, collision guards nor final fire
+proof are changed. A regression fails before the fix and retains the certificate
+for sub-precision measurement jitter afterward, while genuine height/normal
+changes still retire it. Further invalidations include before/after support
+observations only through the checked detailed-diagnostics entrance. Native
+player/full-support retesting is still required.
+
 This is the latest authorized scope and supersedes the continuous hydraulic-Bot
 policy in the historical section below. Every player vehicle stays on complete
 support. Ordinary Bots retain their existing basic/edge switch. Hydraulic Bots

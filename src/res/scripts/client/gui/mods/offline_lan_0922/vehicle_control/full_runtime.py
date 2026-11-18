@@ -502,12 +502,10 @@ class _NativeAimInput(object):
         if None in desired:
             return False
         descriptor = runtime.entity.typeDescriptor
-        # Copied artillery fire admission intentionally requires an exact
-        # world-ballistic barrel (1e-7). Letting its native source settle at
-        # ordinary float32 tolerance would deadlock that unchanged proof.
-        # Ordinary tanks use the observed #1513 native-angle precision.
-        type_tags = getattr(getattr(descriptor, 'type', None), 'tags', ()) or ()
-        tolerance = 1.e-7 if 'SPG' in type_tags else NATIVE_ANGLE_TOLERANCE
+        # Input inversion and physical preparation share native precision.
+        # Artillery subsequently proves the actual dispersed barrel path;
+        # ideal-angle bit equality cannot be a prerequisite for that proof.
+        tolerance = NATIVE_ANGLE_TOLERANCE
         stabilised = getattr(battle, '_local_stabilised_pose', battle._local_body_pose)
         body = battle._runtime.math.Matrix(stabilised())
         basis = float(body.yaw), float(body.pitch), float(body.roll)

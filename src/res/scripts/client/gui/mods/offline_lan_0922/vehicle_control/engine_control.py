@@ -223,8 +223,8 @@ class SharedEngineControl(SharedOrderPlanning):
                 state, target, descriptor, shell_index, now, force)
         # The native rotator consumes an installed source asynchronously. A
         # newly solved point cannot replace its own unconsumed proposal every
-        # frame, otherwise a moving contact can never meet the copied 1e-7
-        # physical alignment gate. This is an input lease, never launch proof:
+        # frame, otherwise a moving contact cannot settle at native input
+        # precision. This is an input lease, never launch proof:
         # the original exact-arc and target-motion reproof remain mandatory.
         signature = self._ballistic_solution_signature(state, target, descriptor, shell_index)
         reproof = self._artillery_reproofs.get(state['id']) or {}

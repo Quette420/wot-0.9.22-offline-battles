@@ -1,5 +1,85 @@
 # PR119 control-offset correction — November 10, 2026
 
+## November 19 — Physical SPG preparation and adaptive hydraulic Bots
+
+This is the latest authorized scope and supersedes the continuous hydraulic-Bot
+policy in the historical section below. Every player vehicle stays on complete
+support. Ordinary Bots retain their existing basic/edge switch. Hydraulic Bots
+now use that switch plus terrain-attitude admission and a stable return. The
+original route definitions, search, driver and final projectile collision rules
+are preserved. PR119 remains unmerged; no tag or release is authorized.
+
+Input report `wot-error-report-20261119-034847-62516ff5ea51.zip` ran runtime
+`8a58cff9`. Its second round used S-51 on Malinovka, with two HE stocks of six.
+There were two confirmed launch-preparation defects: a 1e-7 rad ideal-angle
+gate rejected observed native barrel roundoff despite coarse alignment, and
+pending current-target arc review withdrew fire permission and canceled the
+already queued exact-path job. Preparation now uses the existing native 1e-5
+rad precision and freezes dispersion around the actual barrel. The full exact
+world-path receipt is still mandatory before ammunition or the shot sequence
+can settle. An ideal level barrel retains the original deterministic scatter.
+Matching pending target/shell metadata preserves a job; a real withdrawal,
+changed source, target, loaded round or expired proof still retires it. Missing
+preparation inputs now have separate reasons, with additional source snapshots
+only through the checked detailed-diagnostics entrance.
+
+The same report showed separate player/worker parking registries selecting the
+same initial region. The server now atomically owns round-scoped region claims
+for both actor types. Existing sourced position selection handles a refused
+region. A pending claim holds translation without withdrawing legal firing
+work. Transfer is atomic, a refused transfer keeps the previous claim, and
+release, death, disconnection and the next round retire ownership. This changes
+parking coordination, not the path search or movement mechanism.
+
+The full-UDES input `wot-error-report-20261119-030736-f366e826de13.zip` showed
+worker-frame latency rather than high network RTT. Complete support work was
+a material contributor, including ground sampling and Python orchestration;
+the native suspension kernel alone did not account for that cost. Hydraulic
+Bots now select by terrain pitch/roll, excluding hydraulic aiming correction.
+The explicitly custom selection policy uses 0.6 m footprint vertical excursion
+for tilt admission (the existing basic upper reach), 0.3 m for return hysteresis,
+and one continuous second of restored support. Any missing footprint witness
+still admits complete support immediately. Neither native mode-transition edge
+can downgrade it. A handoff preserves pose and velocities and never spends the
+same physical time twice. Stationary hydraulic proof reads the current physical
+owner: the same five supported witnesses for basic ownership, the detached
+complete contact solve for full ownership. Five witnesses need support, not
+coplanarity. Ownership also invalidates cached stationary certificates. This
+does not grant rotation or fire before the retained collision and weapon checks.
+
+The UDES report also demonstrated a fan endpoint outside the original six-metre
+route-arrival disk. The original 13 m fan layout stays intact. Reaching its
+local endpoint now latches a handoff to the authored goal through the original
+navigator; the original route owner accepts its ordinary disk/crossing. The
+vehicle does not have to reach the centre. The latch lasts only for that route
+segment and does not change wait duration or safe-turn permissions.
+
+Runtime candidate `9f520970` passed the 557 Bot-runtime cases and the targeted
+player/shared controller suites (69 test files), plus the new physical-barrel,
+pending-job, reservation and adaptive-support regressions. The independent
+package inspection verified all 265 Python 2.7 client modules, 268 bundled
+server sources, 45 frozen launcher modules and the unchanged native source
+stamp. Native acceptance is in progress; results and final delivery identity
+will be recorded here after report review.
+
+The first packaged native run produced report
+`wot-error-report-20261119-050036-cf9f6be4c3aa.zip` (S-51, normal Malinovka,
+15 versus 15, player HE stocks 6/6). Player shots at 04:52:19, 04:53:03 and
+04:54:07 each have a server terminal receipt. Friendly S-51 #29 also has
+terminal receipts at 04:53:15 and 04:54:09. The shared reservation rejected
+#29's duplicate east-region proposal and reassigned it to the central field;
+the player and the other friendly SPG retained distinct regions. The complete
+battle ended by team elimination at 04:58:19, rather than a test-process kill.
+Neither exception record contains an exception beyond its session header.
+
+Review also found a second 1e-7 prerequisite in the player's native source
+inversion. A regression quantizing the inverse to a 4e-6 grid (inside the
+existing 1e-5 native contract) reproduced 120 ticks with no launch. The source
+inversion now uses the same native precision as preparation; the regression
+then launches and settles exactly one physical round. This is not a relaxation
+of the exact world path, friendly lane, target-motion or final launch checks.
+The updated native package is being retested before delivery.
+
 ## November 19 — Complete support and stationary combat handoff
 
 This section supersedes the hydraulic-support exception in the earlier audit.

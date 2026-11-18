@@ -721,7 +721,7 @@ class NativeAimLoopBoundaryTests(unittest.TestCase):
         self.assertGreater(scene.runtime.state['fire_seq'], 0)
 
     def test_real_artillery_float32_native_angles_preserve_exact_arc_proof(self):
-        """Native float32 SPG input must satisfy the copied 1e-7 arc gate."""
+        """Native float32 SPG input still requires the actual exact arc proof."""
         from test_player_fire_admission_complete import ArtilleryFireScene, f
         scene = ArtilleryFireScene()
         scene.setUp()
@@ -743,6 +743,25 @@ class NativeAimLoopBoundaryTests(unittest.TestCase):
                 break
         self.assertTrue(scene.launches(), scene.artillery_trace[-1])
         self.assertLess(scene.battle._avatar.gunRotator.gunPitch, -.9)
+        self.assertEqual([19, 10], scene.battle._gun_state.ammo)
+
+    def test_artillery_native_input_precision_still_completes_actual_barrel_proof(self):
+        from test_player_fire_admission_complete import ArtilleryFireScene
+        scene = ArtilleryFireScene()
+        scene.setUp()
+        self.addCleanup(scene.doCleanups)
+        scene.configure_artillery()
+        original = scene.observed_source_angles
+        # The reviewed client precision is 1e-5 rad. An inverse whose
+        # representable angles are 4e-6 apart cannot satisfy ideal 1e-7.
+        scene.observed_source_angles = lambda *args: tuple(
+            round(value / 4.e-6) * 4.e-6 for value in original(*args))
+        scene.battle._runtime.get_shot_angles = scene.observed_source_angles
+        for unused in range(120):
+            scene.artillery_tick()
+            if scene.launches():
+                break
+        self.assertTrue(scene.launches(), scene.artillery_trace[-1])
         self.assertEqual([19, 10], scene.battle._gun_state.ammo)
 
     def test_only_a_committed_native_shot_advances_copied_aim_receipt(self):

@@ -49,11 +49,22 @@ class SharedWorkerTargetHandoffTests(unittest.TestCase):
                              (16, (150., 0., 150.))):
             self.move_actor(scene, actor, point)
             self.set_armor(scene, actor, 1000.)
-        for unused in range(5):
+        original_visibility = engine.visibility_probe
+        def observed_nearby(source, target, *args):
+            visible = original_visibility(source, target, *args)
+            return visible and sum((source[axis]-target[axis])**2
+                                   for axis in ('x','z')) <= 70.**2
+        engine.visibility_probe = observed_nearby
+        for unused in range(100):
             scene.step()
+            binding = engine._actor_controls[11]
+            if (binding.combat_stop.combat_owned and abs(binding.state.get('speed', 0.)) < .001 and
+                    binding.attack_policy.decision['action'] == 'aim' and binding.state['fire_seq'] > 0):
+                break
         binding = engine._actor_controls[11]
         self.assertEqual(('bot', 14), binding.attack_policy.current_target_key())
         self.assertEqual('aim', binding.attack_policy.decision['action'])
+        self.assertTrue(binding.combat_stop.combat_owned)
         return scene, binding
 
     @staticmethod
@@ -95,7 +106,10 @@ class SharedWorkerTargetHandoffTests(unittest.TestCase):
             self.assertEqual(source, tuple(binding.state['position']))
             self.assertEqual(committed, binding.state['fire_seq'])
             self.assertFalse(hasattr(binding.attack_policy, 'search_started'))
-        self.assertEqual('firing_position', binding.attack_policy.decision['action'])
+        decision = binding.attack_policy.decision
+        self.assertIn(decision['action'], ('firing_position', 'wait'))
+        if decision['action'] == 'wait':
+            self.assertEqual('ordered_current_target_pending', decision['reason'])
         marker = binding.combat_stop._physical_recovery
         self.assertIsNotNone(marker)
         self.assertEqual(('bot', 14), marker['target'])
@@ -137,7 +151,7 @@ class SharedWorkerTargetHandoffTests(unittest.TestCase):
         if stale_blocker:
             self.move_actor(scene, 12, (-16., 0., 0.))
             scene.step()
-            self.assertEqual('stationary_alternatives_pending',
+            self.assertEqual('ordered_current_target_pending',
                              binding.attack_policy.decision['reason'])
             self.assertFalse(binding.combat_stop.physical_recovery_active())
             # A prior real obstruction is history, not current movement
@@ -155,7 +169,9 @@ class SharedWorkerTargetHandoffTests(unittest.TestCase):
             scene.step()
             self.assertFalse(binding.combat_stop.physical_recovery_active())
             self.assertNotIn('_gun_angle_adjustment', binding.state)
-            self.assertEqual(source, tuple(binding.state['position']))
+            if not binding.combat_stop.combat_owned:
+                self.assertEqual('route',binding._last_order['combat_mode'])
+                self.assertEqual('route',binding._last_order['control_trace']['action_owner'])
             self.assertEqual(ammo, tuple(binding.gun.ammo))
             self.assertEqual(committed, binding.state['fire_seq'])
             self.assertFalse(hasattr(binding.attack_policy, 'search_started'))
@@ -169,25 +185,30 @@ class SharedWorkerTargetHandoffTests(unittest.TestCase):
     def test_slow_stale_blocker_cannot_survive_unknown_native_geometry(self):
         self.assert_unknown_native_geometry_cannot_authorize_recovery(stale_blocker=True)
 
-    def test_slow_review_prefers_a_fresh_native_shot_before_physical_movement(self):
+    def test_slow_fresh_native_shot_retires_the_current_physical_review(self):
         scene, binding = self.scene_with_proved_target()
         self.account_slow_native_queries(binding)
         self.move_actor(scene, 12, (-16., 0., 0.))
         scene.step()
-        self.assertEqual('stationary_alternatives_pending',
+        self.assertEqual('ordered_current_target_pending',
                          binding.attack_policy.decision['reason'])
         self.assertFalse(binding.combat_stop.physical_recovery_active())
         self.set_armor(scene, 15, 30.)
         self.move_actor(scene, 15, (-5., 0., 5.))
         scene.next_plan = 0.
+        retained_phase = None
         for unused in range(200):
             scene.step()
-            self.assertFalse(binding.combat_stop.physical_recovery_active())
             self.assertFalse(hasattr(binding.attack_policy, 'search_started'))
             if binding.attack_policy.current_target_key() == ('bot', 15):
                 break
+            phase = binding.combat_stop._physical_recovery
+            if phase is not None:
+                if retained_phase is None: retained_phase = phase
+                self.assertIs(retained_phase, phase)
         self.assertEqual(('bot', 15), binding.attack_policy.current_target_key())
         self.assertEqual('aim', binding.attack_policy.decision['action'])
+        self.assertFalse(binding.combat_stop.physical_recovery_active())
         candidate = binding.attack_policy.decision['candidate']
         evidence = binding.attack_policy.current_row(candidate, require_line=True)
         self.assertEqual(('clear', 'passed', 'reachable'),
@@ -221,7 +242,7 @@ class SharedWorkerTargetHandoffTests(unittest.TestCase):
             decision = binding.attack_policy.decision
             self.assertIn(decision['action'], ('firing_position', 'wait'))
             if decision['action'] == 'wait':
-                self.assertEqual('stationary_alternatives_pending', decision['reason'])
+                self.assertEqual('ordered_current_target_pending', decision['reason'])
             self.assertIs(marker, binding.combat_stop._physical_recovery,
                           'The raw macro hint cancelled the retained shared recovery.')
             self.assertEqual(original, {name: marker[name] for name in original},

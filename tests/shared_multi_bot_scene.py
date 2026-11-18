@@ -21,7 +21,7 @@ from gui.mods.offline_lan_0922.vehicle_control.strategy import BotPlanner
 
 
 class MultiBotScene(OwnershipScene):
-    def configure_workers(self, count=6, enemies=True, diverse=True, schedule='stress20'):
+    def configure_workers(self, count=6, enemies=True, diverse=True, schedule='stress20', reload_seconds=None):
         self.configure(clip=1, burst=1)
         self.control.close()
         self.schedule = schedule
@@ -68,6 +68,8 @@ class MultiBotScene(OwnershipScene):
             descriptor = copy.deepcopy(template)
             descriptor.name = descriptor.type.name = 'japan:J16_ST_B1'
             descriptor.gun.reloadTime = 1.6 + (index % 3) * .4 if diverse else 2.
+            if reload_seconds is not None:
+                descriptor.gun.reloadTime = float(reload_seconds)
             descriptor.gun.clip = (2 if diverse and index % 2 else 1, .4)
             descriptor.gun.burst = (1, .1)
             descriptor.gun.rotationSpeed = 10.

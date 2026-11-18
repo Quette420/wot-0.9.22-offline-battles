@@ -70,9 +70,10 @@ class SharedNativeAimContinuityTests(unittest.TestCase):
         self.assertIsNone(scene.control.last_control_failure)
 
     def obstruct(self):
-        # A newly observed wall invalidates the line proof, not the selected
-        # task's gun-facing intention. Native query verdicts remain real.
-        self.scene.world[:] = [((7., -20., 15.), (17., 20., 30.))]
+        # A pending native query can retain an existing aim intention.
+        # Confirmed obstruction now has a separate finite route-release test.
+        def pending(): raise RuntimeError('native observation pending')
+        self.scene.on_probe = pending
         self.scene.runtime.attack_policy.evaluator.jobs.clear()
         self.scene.runtime.attack_policy.rows.clear()
         self.advance()
@@ -103,6 +104,7 @@ class SharedNativeAimContinuityTests(unittest.TestCase):
         self.obstruct()
         scene = self.scene
         episode = scene.runtime.combat_stop._episode
+        scene.on_probe = None
         scene.world[:] = []
         scene.runtime.attack_policy.evaluator.jobs.clear()
         scene.runtime.attack_policy.rows.clear()
@@ -150,10 +152,11 @@ class SharedWorkerAimContinuityTests(unittest.TestCase):
         # A native descriptor observation makes target acquisition precede
         # physical alignment. No readiness result or candidate is injected.
         scene.descriptors['11'].turret.rotationSpeed = .15
-        for unused in range(20):
+        for unused in range(80):
             scene.step()
             binding = scene.engine._actor_controls[11]
-            if binding.attack_policy.decision['action'] == 'aim':
+            if (binding.attack_policy.decision['action'] == 'aim' and
+                    binding.combat_stop.combat_owned):
                 break
         self.assertEqual('aim', binding.attack_policy.decision['action'])
         self.assertEqual(12, binding.state['_diagnostic_aim_intent']['target_id'])
@@ -161,7 +164,8 @@ class SharedWorkerAimContinuityTests(unittest.TestCase):
         return scene, binding
 
     def obstruct(self, scene, binding):
-        scene.world[:] = [((4., -20., -8.), (16., 20., 8.))]
+        def pending(): raise RuntimeError('native observation pending')
+        scene.on_probe = pending
         binding.attack_policy.evaluator.jobs.clear()
         binding.attack_policy.rows.clear()
 

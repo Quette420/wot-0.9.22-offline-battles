@@ -68,7 +68,7 @@ class HandoffAmmunitionTests(unittest.TestCase):
             if scene.launches():
                 break
         self.assertEqual(1, len(scene.launches()), scene.runtime.status())
-        self.assertEqual('current_he_fallback_contact', policy.decision['reason'])
+        self.assertEqual('current_he_clip_fallback', policy.decision['reason'])
         self.assertIsNone(scene.runtime.combat_stop.task_order['target_id'])
         self.assertEqual(5, scene.runtime.combat_stop.task_order['initial_target_hint']['target_id'])
         self.assertEqual(2, scene.runtime.weapon.target['network_id'])

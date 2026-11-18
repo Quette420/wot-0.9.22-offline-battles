@@ -320,8 +320,9 @@ class HEVerificationFlowTests(unittest.TestCase):
                 self.assertEqual(1, scene.control.shot_commits)
                 scene.doCleanups()
 
-    def test_whitelisted_hesh_compares_fallback_only_after_the_current_plate_sweep(self):
+    def test_only_whitelisted_hesh_left_compares_fallback_after_the_plate_sweep(self):
         scene, target = self.scene(armor=300., hesh=HESH_PAIRS[0])
+        scene.battle._gun_state.ammo[1] = 0
         policy = scene.runtime.attack_policy
         self.run_until_shots(scene)
         self.assertEqual('he_fallback', policy.decision['candidate']['mode'])
@@ -334,6 +335,20 @@ class HEVerificationFlowTests(unittest.TestCase):
         self.assertEqual(points, {row['sample'] for row in fallback})
         self.assertEqual(max(row['expected_damage'] for row in fallback),
                          policy.decision['candidate']['expected_damage'])
+
+    def test_failed_primary_hesh_loads_and_fires_its_penetrating_ap_backup(self):
+        scene, target = self.scene(armor=300., hesh=HESH_PAIRS[0])
+        gun, policy = scene.battle._gun_state, scene.runtime.attack_policy
+        gun.shots[1].piercingPower = (1000., 1000.)
+        scene.battle.client.effective_params['gun']['shots'][1]['source_shot'][
+            'piercingPower'] = gun.shots[1].piercingPower
+        initial = tuple(gun.ammo)
+        self.run_until_shots(scene)
+        self.assertEqual([1], [shot['shell_index'] for shot in scene.launches()])
+        self.assertEqual('penetration', policy.decision['candidate']['mode'])
+        self.assertFalse(scene.launches()[0]['is_he'])
+        self.assertEqual((initial[0], initial[1] - 1), tuple(gun.ammo))
+        self.assertEqual(1, scene.control.shot_commits)
 
     def test_native_he_fallback_chooses_the_largest_blast_on_the_current_vehicle(self):
         scene, target = self.scene(layered=True)

@@ -32,3 +32,8 @@ def shell_mode(shell):
     if mode in (FULL, SINGLE_POINT):
         return mode
     return SINGLE_POINT if shell.get('is_he') else FULL
+
+
+def penetration_round(shell):
+    """Include reviewed premium HE in the primary penetration sequence."""
+    return not shell.get('is_he') or shell_mode(shell) == FULL

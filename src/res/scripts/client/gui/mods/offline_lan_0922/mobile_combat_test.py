@@ -10,6 +10,7 @@ PFM = 'sweden:S09_L_120_TD'
 ELC = 'france:F62_ELC_AMX'
 UDES = 'sweden:S21_UDES_03'
 FV = 'uk:GB48_FV215b_183'
+CONWAY = 'uk:GB81_FV4004'
 TYPE4 = 'japan:J25_Type_4'
 OHO = 'japan:J27_O_I_120'
 OBJECT261 = 'ussr:R52_Object_261'
@@ -24,6 +25,8 @@ LOADOUTS = {
     UDES: ('_105mm_kan_UDES_03',
            (('_105mm_slpprj_m_61', 13), ('_105mm_slpprj_m_ny', 13), ('_105mm_slsgr_m_61A', 14))),
     FV: ('_183mm_L4', (('_183mm_AP_Mk1', 6), ('_183mm_HE_Mk1', 7), ('_183mm_HESH', 7))),
+    CONWAY: ('_5_5inch_AT_Gun', (('_5_5inch_AP_Mk_1', 10),
+               ('_5_5inch_HESH_Mk_1', 10), ('_5_5inch_HE_Mk_1T', 10))),
     TYPE4: ('_150mm_45_41st_Year_Type',
             (('_150mm_Common_Type_0_HE', 20), ('_150mm_Common_Type_0_HE_Kai', 20))),
     OHO: ('_150mm_Howitzer_Type96',
@@ -41,6 +44,11 @@ def enabled():
 def lineup():
     return [dict(team=team, slot=slot, vehicle=vehicle, skill='veteran', enabled=True)
             for team in (1, 2) for slot, vehicle in enumerate(VEHICLES)]
+
+
+def player_slot_vehicle(vehicle):
+    """The requested Conway player occupies the existing large-gun TD slot."""
+    return FV if vehicle == CONWAY else vehicle
 
 
 def ammunition(descriptor, vehicle):

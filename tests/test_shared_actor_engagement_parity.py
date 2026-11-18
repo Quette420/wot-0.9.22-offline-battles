@@ -43,6 +43,7 @@ class ActorEntryParityTests(unittest.TestCase):
         return scene.runtime.attack_policy
 
     def observations(self, policy, **options):
+        options.setdefault('he_validation', 'single_point')
         scene = Observations(**options)
         original = policy.runtime, policy.evaluator
         self.addCleanup(setattr, policy, 'runtime', original[0])
@@ -137,7 +138,7 @@ class AdmissionParityTests(unittest.TestCase):
 
 class BlockedReviewProgressTests(unittest.TestCase):
     def scene(self):
-        scene = Observations(targets=3, points=9)
+        scene = Observations(targets=3, points=9, he_validation='single_point')
         scene.policy = AttackPolicy(SimpleNamespace(), evaluator=scene, ordered=True)
         scene.frame.update(loaded=2, ordered=True)
         for target in (1, 2, 3):

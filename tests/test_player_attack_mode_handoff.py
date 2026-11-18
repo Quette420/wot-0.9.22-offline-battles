@@ -363,6 +363,9 @@ class NativeHydraulicMagazineRulesTests(unittest.TestCase):
         gun.shots[1].piercingPower = (1000., 1000.)
         before = tuple(gun.ammo)
         policy = runtime.attack_policy
+        # Install the ordinary-HE fixture before starting its load review.
+        # configure_plan previously reviewed the same slot as AP.
+        policy.reset()
         decision = self.review_until(scene, lambda row:
             (row.get('candidate') or {}).get('mode') == 'he_fallback')
         self.assertEqual((0, 'he_fallback'),

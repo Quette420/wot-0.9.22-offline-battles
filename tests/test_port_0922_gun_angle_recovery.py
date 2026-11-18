@@ -156,9 +156,11 @@ class NativeGunAndPointRecoveryTests(unittest.TestCase):
         self.assertFalse(scene.owner.stop_allowed)
         scene.runtime.point_recovery_probe = lambda *args: dict(status='clear')
         result = scene.apply(3.2)
-        self.assertEqual('gun_angle_adjust', result['combat_mode'])
+        self.assertEqual('route', result['combat_mode'])
+        scene.candidate.update(mechanical='reachable')
+        result = scene.confirm_clear_route_contact(3.3)
+        self.assertEqual('engage', result['combat_mode'])
         self.assertTrue(scene.owner.stop_allowed)
-        self.assertFalse(result['fire_allowed'])
 
     def test_real_priority_travel_does_not_receive_combat_translation(self):
         for mode in ('team_return_base', 'withdraw', 'base_defense'):
@@ -182,7 +184,7 @@ class NativeGunAndPointRecoveryTests(unittest.TestCase):
         self.assertIsNone(scene.owner._physical_recovery)
 
     def test_friendly_lane_recovery_uses_the_same_checked_point_and_stall_exit(self):
-        scene = self.scene(admitted=False)
+        scene = self.scene()
         scene.candidate.update(line='friendly_blocked', mechanical='reachable')
         order = scene.apply(2.)
         phase = scene.owner._physical_recovery

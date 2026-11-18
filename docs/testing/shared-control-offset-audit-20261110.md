@@ -59,12 +59,50 @@ continuity; cold blocked route cases retain full route/control comparisons.
 Reentry cases now require current clear evidence throughout two seconds.
 The legacy wire-column digest is preserved after removing the new appended
 hydraulic column; it was not replaced with a new expected digest.
-The final scoped run passed 2187 cases in 54 isolated files. CPython 2.7.18
-compiled all 264 client modules. The broad Windows-host run
-without its matching native simulation is diagnostic only; its unavailable
-native cases do not establish release acceptance. Exact-head CI, package
-inspection and native Redshire 15 vs 15 acceptance are recorded below when
-completed. PR #119 remains open and unmerged.
+The expanded scoped run passed 2539 cases in 82 isolated files. This is the
+engine-free reference branch used by Linux CI, selected explicitly in an
+external Windows-host harness; it is not native Windows acceptance. Each
+test retains its original production policy, geometry consumers and assertions.
+CPython 2.7.18 also compiled all 264 client modules.
+
+The first native Redshire 15 vs 15 round used runtime `d8293ff6`, paired CI
+launcher build `colorfulmeans-44319287219-1`, on Chinese HD #1513. Completed
+test-channel receipts establish player UDES 03's actual HE 3722 load with
+13 AP / 13 APCR / 14 HE before automatic control resumed. Clear route evidence
+qualified for 2.016 seconds before siege was requested. Four accepted native
+triggers fired HE, reducing its stock from 14 to 10. The exported session
+`222416-1644d8118b66` includes all launcher, server, player and worker roles;
+none is missing. Neither client role contains a traceback or hydraulic pose
+disagreement. This intermediate round exposed the premium-HE primary-role
+gap below; it does not validate the later correction.
+
+### Premium HE primary roles and reopened points
+
+The gun/shell whitelist is a primary penetration role, not only permission to
+inspect more HE points. The five exact #1513 pairs now enter the common
+penetration sequence. In particular, Conway 5.5-inch HESH precedes its AP
+backup. The manually proportioned test rack retains every stocked shell,
+including basic HE; applying primary roles no longer starts these Bots on AP.
+Ordinary HE still reviews only its current vehicle. Primary HESH sweeps targets
+and then its penetration backup before HE fallback. Physical HE kind, damage
+and actual launch checks are unchanged. Two committed fallback shots, or the
+existing magazine boundary, control return; penetrating primary HE is not
+counted as fallback. Explicit manual selection starts that shell's primary role.
+
+Additional consumer regressions identified stale inspection work hiding a
+fresh clear point, and an all-unusable HE damage comparison that never reopened
+after its obstruction disappeared. Fresh observations now retire those obsolete
+work records. HE retains a completed comparison through small source movement,
+then reproves its winning point before aiming; a changed observation fence
+revokes all firing rows. Known physical recovery is allowed to finish its
+existing bounded native probe instead of being cancelled by completed work
+history. The original driver, support proof and trigger admission are unchanged.
+
+The next native player is Conway `uk:GB81_FV4004` with `_5_5inch_AT_Gun`,
+capacity 30 and a 10/10/10 AP/HESH/HE rack. Its 120 mm alternative is rejected
+by the test entrance. It replaces the human's large-TD slot only; the other
+29 Bots retain the original lineup. Native follow-up and final package details
+will be appended after execution. PR #119 remains open and unmerged.
 
 ## November 12 follow-up — Finish obstructed HE engagements
 

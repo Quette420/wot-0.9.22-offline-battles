@@ -169,7 +169,7 @@ class NativeStationaryCombatTests(unittest.TestCase):
         self.assertTrue(policy._plannable(policy.decision['candidate']))
         self.assertFalse(scene.launches())
 
-    def test_whitelisted_hesh_fallback_does_not_start_another_targets_yaw_domain(self):
+    def test_ordinary_he_fallback_does_not_start_another_targets_yaw_domain(self):
         scene = self.scene(limits=(-.1, .1), clip=6, burst=1, bearing=0., rate=.8)
         other = scene.vehicle(43, (math.sin(.8) * 40., 0., math.cos(.8) * 40.), team=2)
         self.admit_contacts(scene)
@@ -177,15 +177,12 @@ class NativeStationaryCombatTests(unittest.TestCase):
             for material in getattr(other.typeDescriptor, name).materials.values():
                 material.armor = 10000.
         scene.set_he(1.)
-        # The held target owns both the full HESH penetration review and
+        # The held target owns both the ordinary HE penetration review and
         # the blast ranking. The other target's yaw domain cannot delay it.
-        descriptor = scene.entity.typeDescriptor
-        descriptor.name = descriptor.type.name = 'uk:GB83_FV4005'
-        descriptor.gun.name = '_183mm_AT_Gun'
-        scene.battle._gun_state.shots[0].shell.name = '_183mm_HESH'
         self.piercing(scene, 1, 1000.)
         scene.rotator_enabled = True
         policy, qualified = scene.runtime.attack_policy, None
+        policy.reset()
         started = scene.now
         for unused in range(120):
             scene.tick()

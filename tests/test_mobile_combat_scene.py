@@ -28,6 +28,21 @@ class MobileCombatSceneTests(unittest.TestCase):
             self.assertEqual([(player, team, 14)], room._waiting_assignment_plan([player]))
         self.assertEqual(scene.MAP, room.map_name)
 
+    def test_conway_player_uses_existing_td_slot_with_140mm_equal_rack(self):
+        room = BattleState(mobile_test=True)
+        for team in (1, 2):
+            player = SimpleNamespace(player_id=1, requested_team=team, team=team, slot=0,
+                                     vehicle=scene.CONWAY)
+            self.assertEqual([(player, team, 10)], room._waiting_assignment_plan([player]))
+        gun, rounds = scene.LOADOUTS[scene.CONWAY]
+        self.assertEqual('_5_5inch_AT_Gun', gun)
+        mounted = dict(gun=dict(name=gun, maxAmmo=30, shots=[
+            dict(shell=dict(name=name)) for name, count in rounds]))
+        with patch.dict(os.environ, {scene.ENV: '1', 'WOT_OFFLINE_DIAGNOSTICS': '1'}):
+            self.assertEqual([10, 10, 10], scene.ammunition(mounted, scene.CONWAY))
+            mounted['gun']['name'] = '_120mm_AT_Gun_L1A1'
+            with self.assertRaises(ValueError): scene.ammunition(mounted, scene.CONWAY)
+
     def test_scene_routes_survive_the_round_payload(self):
         profile = bot_tactics.effective_round(scene.tactics(), scene.MAP)
         settings = profile['maps'][scene.MAP]

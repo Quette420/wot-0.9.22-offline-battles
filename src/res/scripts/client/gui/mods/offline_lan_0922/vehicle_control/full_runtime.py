@@ -2008,6 +2008,10 @@ class FullPlayerRuntime(MissionControl, CombatControl):
             name = 'NEXT_SHELLS' if code == getattr(settings, 'NEXT_SHELLS', None) else 'CURRENT_SHELLS'
             self._manual_shell = (gun, pending, name)
             if name == 'CURRENT_SHELLS':
+                ordered = self.attack_policy.ordered or self.attack_policy._ordered_he
+                if ordered is not None:
+                    ordered.fallback_load = None
+                    ordered.loaded = None
                 self.attack_policy.load_started(gun.shot_index)
             self._record_shell('manual', name, gun.pending_index if name == 'NEXT_SHELLS'
                                else gun.shot_index, True, 'manual_input', force=True)

@@ -1,5 +1,7 @@
 """One mounted shell and one target at a time for ordinary automatic fire."""
 
+from .ammunition_validation import penetration_round
+
 def shell_order(shell):
     return (float(shell['piercing']), float(shell.get('nominal_damage', 0.)),
             int(shell['index']))
@@ -7,7 +9,8 @@ def shell_order(shell):
 
 def stocked(frame, explosive):
     return sorted((shell for shell in frame['shells']
-                   if shell['is_he'] == explosive and not shell.get('unavailable')
+                   if (shell['is_he'] if explosive else penetration_round(shell))
+                   and not shell.get('unavailable')
                    and frame['ammo'][shell['index']] > 0),
                    key=shell_order)
 
@@ -18,10 +21,14 @@ class OrderedAttack(object):
         self.target = None
         self.loaded = None
         self.loaded_he = False
+        self.loaded_primary = False
+        self.fallback_load = None
+        self.completed_fallback = False
         self.engagement = None
         self.sample = None
         self.he_sample = None
         self.he_identity = None
+        self.he_execution_line = None
         self.covered = set()
         self.checked_lanes = set()
         self.blocked_targets = set()
@@ -38,8 +45,11 @@ class OrderedAttack(object):
         if self.committed_shell != shell_index:
             self.committed_shell, self.committed_rounds = shell_index, 0
             self.he_fallback_rounds = 0
+            self.completed_fallback = False
             new_load = True
         if new_load:
+            if self.he_clip_return and self.loaded_primary and self.fallback_load == shell_index:
+                self.completed_fallback = True
             self.he_clip_return = False
 
     def shot_committed(self, shell_index, mode=None, magazine=False):
@@ -65,17 +75,21 @@ class OrderedAttack(object):
             self.blocked_revisit = False
             self.blocked_points.clear()
         if self.loaded != shell['index']:
-            if self.loaded is not None and not self.loaded_he and not shell['is_he']:
+            if shell['index'] != self.fallback_load:
+                self.fallback_load = None
+            current_he = not penetration_round(shell) or self.fallback_load == shell['index']
+            if self.loaded is not None and not self.loaded_he and not current_he:
                 # Obstruction demotion belongs to this mounted-shell pass.
                 # A new load starts its own current-distance target order.
                 self.order = list(live)
-            if self.loaded_he and not shell['is_he'] and self.target in self.order:
+            if self.loaded_he and not current_he and self.target in self.order:
                 self.order.remove(self.target)
                 self.order.insert(0, self.target)
-            if not shell['is_he']:
+            if not current_he:
                 self.target = None
                 self.sample = None
-            self.loaded, self.loaded_he = shell['index'], shell['is_he']
+            self.loaded, self.loaded_he = shell['index'], current_he
+            self.loaded_primary = penetration_round(shell)
             self.he_sample = None
             self.he_identity = None
             self.covered.clear()
@@ -96,7 +110,8 @@ class OrderedAttack(object):
             return None, 'shell_descriptor_pending'
         penetration = stocked(frame, False)
         lowest = penetration[0] if penetration else None
-        higher = (lowest is not None and not shell['is_he'] and
+        current_he = not penetration_round(shell) or self.fallback_load == loaded
+        higher = (lowest is not None and not current_he and
                   shell_order(lowest)[:2] < shell_order(shell)[:2])
         magazine = frame['clip_size'] > 1 or frame.get('burst_count', 1) > 1
         remaining = min(frame['clip'], frame['ammo'][loaded])
@@ -107,16 +122,16 @@ class OrderedAttack(object):
             return None, 'keep_mounted_shell'
         if frame['ammo'][loaded] <= frame['clip']:
             reserve = [row for row in penetration if row['index'] != loaded]
-            if not reserve and not shell['is_he']:
+            if not reserve and not current_he:
                 reserve = stocked(frame, True)
             if reserve:
                 return reserve[0]['index'], 'mounted_stock_exhausted'
-        if lowest is None or not (shell['is_he'] or higher):
+        if lowest is None or not (current_he or higher):
             return None, 'keep_mounted_shell'
         # The native gun promotes NEXT at the reload boundary. The final
         # trigger's shot mode is available before its cartridge is consumed.
         same_shell = self.committed_shell == loaded
-        if shell['is_he']:
+        if current_he:
             if not (same_shell and self.he_clip_return):
                 if (trigger is None or trigger.get('mode') != 'he_fallback' or
                         trigger.get('shell_index') != loaded):
@@ -129,7 +144,7 @@ class OrderedAttack(object):
             return None, 'keep_mounted_shell'
         if self._still_failed(policy, lowest['index']):
             return None, 'ordered_lowest_penetration_still_failed'
-        reason = 'he_finished_lowest_penetration' if shell['is_he'] else 'higher_penetration_cycle_finished'
+        reason = 'he_finished_lowest_penetration' if current_he else 'higher_penetration_cycle_finished'
         return lowest['index'], reason
 
     def _still_failed(self, policy, index):
@@ -142,6 +157,7 @@ class OrderedAttack(object):
         return clear_failure
 
     def _switch(self, policy, shell, reason):
+        self.fallback_load = shell['index'] if reason == 'ordered_he_fallback_load' else None
         action = 'reload_clip' if policy.frame['clip_size'] > 1 else 'switch_shell'
         return policy._choose(action, reason, shell_index=shell['index'],
                               early_reload=policy.frame['clip'] > 0 and policy.frame['ammo'][self.loaded] > 0)
@@ -164,6 +180,9 @@ class OrderedAttack(object):
         self.blocked_origin = None
         self.blocked_revisit = False
         self.blocked_points.clear()
+        if row['mode'] == 'he_fallback':
+            self.he_execution_line = policy.frame.get('scene')
+            return policy._choose_current_he(reason, row)
         return policy._choose('aim', reason, row)
 
     def _retain_target(self, row):
@@ -179,7 +198,9 @@ class OrderedAttack(object):
         # restart the first enemy's whole point review on every callback.
         def attackable(row):
             return (policy._executable_current(row) or
-                    (combat._route_attackable(row) and combat._route_lay_can_retry(row)))
+                    (row is not None and (row.get('armor') == 'passed' or
+                     policy._plannable(row, 'penetration')) and
+                     combat._route_attackable(row) and combat._route_lay_can_retry(row)))
 
         row = policy._frontier(now, jobs, attackable)
         if row is None:
@@ -197,6 +218,13 @@ class OrderedAttack(object):
             preferred = policy.selected[1] if policy.selected is not None else held
             self.target = preferred if preferred in self.order else self.order[0]
         target = next(row for row in policy.frame['targets'] if row['key'] == self.target)
+        if self.he_execution_line != policy.frame.get('scene'):
+            policy._current_he_execution = None
+        if (policy._current_he_execution is not None and
+                policy._current_he_execution[0][1] == self.target):
+            continued = policy._continue_current_he(now)
+            if continued is not None:
+                return continued
         identity = target.get('sample_identity')
         if identity != self.he_identity:
             self.he_sample = None
@@ -242,54 +270,62 @@ class OrderedAttack(object):
 
     def _rank_he_fallback(self, policy, now, jobs, impact, penetration_jobs):
         mode = 'he_fallback'
-
-        def complete(row):
-            return (policy._reviewed(row, mode) or policy._he_contact_failed(row) or
-                    policy._obstructed_lane(row) is not None)
-
-        def ranking_row(job):
-            row = policy._current(job, require_line=True)
-            return row if complete(row) else policy._next_row(job)
-
-        def ready(row):
-            return policy._executable(row, mode) or self._can_lay(policy, row, mode)
-
-        pending = [job for job in jobs if not complete(ranking_row(job))]
+        identities = dict((job[0], policy._he_observation_identity(job)) for job in jobs)
+        observations = dict((key, value) for key, value in policy._current_he_observations.items()
+            if key in identities and value['identity'] == identities[key])
+        policy._collect_current_he_observations(jobs, observations)
+        if observations and len(observations) == len(jobs) and not any(
+                value['damage'] is not None for value in observations.values()):
+            observations.clear()
+        pending = [job for job in jobs if job[0] not in observations]
         for job in pending:
             if policy._used['foreground'] >= policy.foreground_budget:
                 break
             policy._evaluate(job, now, 'foreground')
-        for unused in policy._ordered_point_slice(tuple(job for job in pending
-                if not complete(ranking_row(job))), now):
+            policy._collect_current_he_observations((job,), observations)
+        remaining = tuple(job for job in pending if job[0] not in observations)
+        for unused in policy._ordered_point_slice(remaining, now):
             pass
-        rows = [ranking_row(job) for job in jobs]
-        options = [(row, job) for row, job in zip(rows, jobs) if ready(row)]
-        if options:
-            best, job = min(options, key=lambda option: policy._he_order(option[0]))
-            current = policy._current(job, require_line=True)
-            if current is not best and policy._used['foreground'] < policy.foreground_budget:
-                policy._evaluate(job, now, 'foreground')
-                rows = [ranking_row(job) for job in jobs]
-                options = [(row, job) for row, job in zip(rows, jobs) if ready(row)]
+        policy._collect_current_he_observations(remaining, observations)
+        # Retain measured scores across ordinary movement, never a firing
+        # row. Once this car's finite comparison finishes, reprove its winner.
+        ranked = policy._ranked_current_he_jobs(jobs, observations)
+        if len(observations) == len(jobs) and ranked:
+            winner = ranked[0]
+            current = policy._current(winner, require_line=True)
+            if not policy._he_observed(current):
+                if policy._used['foreground'] < policy.foreground_budget:
+                    policy._evaluate(winner, now, 'foreground')
+                else:
+                    for unused in policy._ordered_point_slice((winner,), now):
+                        pass
+                policy._collect_current_he_observations((winner,), observations)
+        fence = getattr(policy.evaluator, 'fence', None)
+        if policy._frame_invalid or callable(fence) and not fence(policy.frame):
+            policy.rows.clear()
+            policy.selected = None
+            policy._current_he_execution = None
+            policy._frame_invalid = True
+            return policy._recover_incomplete(now, 'current_he_observation_changed')
+        policy._current_he_observations = observations
+        reviewed = len(observations)
+        policy.he_comparison = dict(total=len(jobs), observed=reviewed,
+                                    pending=len(jobs) - reviewed)
         reopened = next((row for job in jobs for row in (policy._current(job, require_line=True),)
                          if row is not None and row.get('line') == 'clear' and
                          row.get('armor') == 'passed'), None)
         if reopened is not None:
-            # A fresh observation can reopen a plate whose failed ranking
-            # had survived a small change in geometry.
             key = reopened['key'][:3] + ('penetration',)
             policy._next_rows.pop(key, None)
             policy.rows.pop(key, None)
             return policy._recover_incomplete(now, 'ordered_he_penetration_pending')
-        reviewed = sum(complete(row) for row in rows)
-        policy.he_comparison = dict(total=len(rows), observed=reviewed,
-                                    pending=len(rows) - reviewed)
-        best, job = min(options, key=lambda option: policy._he_order(option[0])) if options else (None, None)
-        if reviewed < len(rows) or best is not None and best is not policy._current(job, require_line=True):
-            # A proved contact can qualify the route stop while the remaining
-            # contacts are being compared. Only the completed ranking can fire.
-            fresh = [row for row, job in options if row is policy._current(job, require_line=True)
-                     and (policy._executable(row, mode) or row.get('he_route_review'))]
+        ranked = policy._ranked_current_he_jobs(jobs, observations)
+        best = policy._current(ranked[0], require_line=True) if ranked else None
+        ready = best is not None and (policy._executable(best, mode) or self._can_lay(policy, best, mode))
+        if reviewed < len(jobs) or ranked and not ready:
+            fresh = [policy._current(job, require_line=True) for job in jobs]
+            fresh = [row for row in fresh if row is not None and
+                     (policy._executable(row, mode) or row.get('he_route_review'))]
             if fresh:
                 impact = min(fresh, key=policy._he_order)
             if impact is not None:
@@ -301,7 +337,7 @@ class OrderedAttack(object):
                                           'ordered_he_no_clear_contact')
         self.he_sample = best['sample']
         if policy._executable(best, mode):
-            return self._aim(policy, now, best, 'current_he_fallback_contact', tuple(rows))
+            return self._aim(policy, now, best, 'current_he_fallback_contact')
         return policy._choose('firing_position', 'ordered_he_hull_lay', best)
 
     def _no_clear_contact(self, policy, now, jobs, rows, reason):
@@ -517,10 +553,25 @@ class OrderedAttack(object):
         if shell is None or shell.get('unavailable'):
             return policy._choose('wait', 'ordered_shell_descriptor_pending')
         self._sync(frame, shell)
+        magazine = frame['clip_size'] > 1 or frame.get('burst_count', 1) > 1
+        completed_he = (self.completed_fallback or not magazine and self.he_fallback_rounds >= 2 or
+                        magazine and self.he_clip_return and frame['clip'] <= 0)
+        if (self.loaded_he and self.loaded_primary and completed_he and
+                stocked(frame, False) and stocked(frame, False)[0]['index'] == shell['index'] and
+                not self._still_failed(policy, shell['index'])):
+            # A reviewed HE primary is already the requested lowest round.
+            # Reenter its penetration role at the actual shot/clip boundary;
+            # no redundant native same-shell load can perform this handoff.
+            self.fallback_load = None
+            self.loaded_he = False
+            self.completed_fallback = False
+            self.he_fallback_rounds = 0
+            self.covered.clear()
+            policy._current_he_execution = None
         combat = getattr(policy.runtime, 'combat_stop', None)
         receipt = combat.receipt if combat is not None and combat.combat_owned else {}
         episode, held = receipt.get('episode'), receipt.get('selected')
-        if (shell['is_he'] and episode is not None and episode != self.engagement and
+        if (self.loaded_he and episode is not None and episode != self.engagement and
                 held in self.order and self.target != held):
             # A confirmed route admission owns its new contact after the
             # native mode echo. The previous HE target may still be visible.
@@ -541,7 +592,7 @@ class OrderedAttack(object):
         if not self.order:
             return policy._choose('wait', 'no_relevant_enemy')
         jobs = policy._jobs(shell_index=shell['index'])
-        if shell['is_he']:
+        if self.loaded_he:
             return self._current_he(policy, now, shell, jobs)
         # Reuse one accepted target for the current shot. A complete sweep
         # rewinds only when the load changes or a later sweep starts.
@@ -566,9 +617,24 @@ class OrderedAttack(object):
         navigation_owned = False
         for key in review_order:
             target_jobs = groups[key]
+            phase = getattr(combat, '_physical_recovery', None)
+            if phase is not None and phase.get('target') == key and phase.get('shell_index') == shell['index']:
+                retained = next((job for job in target_jobs if job[0] == phase.get('key')), None)
+                if (retained is not None and policy._current(retained, require_line=True) is None and
+                        policy._used['foreground'] < policy.foreground_budget):
+                    policy._evaluate(retained, now, 'foreground')
+            inspected = self._blocked_pass(policy, target_jobs)
+            for job in target_jobs:
+                self._record_blocked_point(policy, inspected, job,
+                                           policy._current(job, require_line=True))
             if key in self.covered and (self._blocked_pass_complete(policy, target_jobs) or
                     all(self._negative_evidence(policy, job, policy._current(job, require_line=True))
                         for job in target_jobs)):
+                # Completed work does not erase a still-current obstruction
+                # while its existing checked-position probe is pending.
+                current_block = next((policy._current(job, require_line=True) for job in target_jobs
+                    if policy._obstructed_lane(policy._current(job, require_line=True)) is not None), None)
+                obstructed = obstructed or current_block
                 continue
             self.covered.discard(key)
             self.checked_lanes.discard(key)
@@ -618,6 +684,13 @@ class OrderedAttack(object):
             return policy._choose('firing_position', reason, recovery,
                                   movement_reason=recovery.get('reason'))
         if not self.checked_lanes:
+            phase = getattr(combat, '_physical_recovery', None)
+            if (phase is not None and phase.get('shell_index') == shell['index'] and
+                    phase.get('target') in groups):
+                # This already admitted task owns its finite native probe.
+                # Inspection history cannot cancel it, grant a new goal or
+                # renew its clock while exact rows are being refreshed.
+                return policy._recover_incomplete(now, 'stationary_domain_review_pending')
             self.covered.clear()
             self.blocked_points.clear()
             if obstructed is not None:
@@ -639,6 +712,10 @@ class OrderedAttack(object):
             return self._switch(policy, higher[0], 'ordered_penetration_exhausted')
         explosive = stocked(frame, True)
         if explosive:
+            if explosive[0]['index'] == shell['index']:
+                self.fallback_load = shell['index']
+                self.loaded_he = True
+                return self._current_he(policy, now, shell, jobs)
             if frame['clip_size'] > 1 and frame['clip'] > 0 and policy.reload_authority is None:
                 policy._grant_early_reload(now, 'ordered_he_fallback_load')
             return self._switch(policy, explosive[0], 'ordered_he_fallback_load')

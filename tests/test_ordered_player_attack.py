@@ -9,9 +9,19 @@ from gui.mods.offline_lan_0922.vehicle_control.ordered_attack import OrderedAtta
 
 class OrderedPlayerAttackTests(unittest.TestCase):
     def scene(self, **options):
+        options.setdefault('he_validation', 'single_point')
         scene = Observations(**options)
         scene.policy.ordered = OrderedAttack()
         return scene
+
+    def test_completed_blocked_pass_keeps_only_current_recovery_evidence(self):
+        scene=self.scene(targets=1,points=2)
+        for sample in range(2):scene.value(0,sample=sample,line='world_blocked',armor='unknown')
+        first=scene.tick(0.)
+        self.assertEqual('firing_position',first['action'])
+        second=scene.tick(.1)
+        self.assertEqual('firing_position',second['action'])
+        self.assertIs(second['candidate'],scene.policy.current_row(second['candidate']))
 
     def siege_he(self, points, movable=True):
         scene = Observations(targets=2, points=points, he_validation='single_point')
@@ -37,6 +47,7 @@ class OrderedPlayerAttackTests(unittest.TestCase):
         self.assertEqual({('bot', 1)}, {row[3] for row in scene.calls})
         self.assertFalse(any(row[4:] == (0, 'he_fallback') for row in scene.calls))
         scene.frame['line_revision'] += 1
+        scene.frame['scene'] += 1
         scene.passed(2)
         decision = scene.tick(.2)
         self.assertEqual(('aim', 0, 'penetration'), (decision['action'],

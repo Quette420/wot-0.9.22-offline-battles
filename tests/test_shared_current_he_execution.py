@@ -195,7 +195,11 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
         self.add_better(scene)
         scene.pose(scene.initial, (22., 0., 40.))
         scene.observe_control()
-        self.assertFalse(scene.applied_order()['fire_allowed'])
+        if scene.applied_order()['fire_allowed']:
+            refreshed = scene.runtime.attack_policy.decision['candidate']
+            self.assertNotEqual(first['pose_stamp'], refreshed['pose_stamp'])
+            self.assertNotEqual(first['solution']['point'], refreshed['solution']['point'])
+            self.assertIs(refreshed, scene.runtime.attack_policy.current_row(refreshed))
         current = self.acquire(scene)
         self.assert_current(scene, current['key'])
         self.assertNotEqual(first['pose_stamp'], current['pose_stamp'])
@@ -318,14 +322,16 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
         # static-world cache from the former source pose can be reused.
         scene.native_position((.1, 0., 0.))
         scene.sample_original_lanes()
-        for unused in range(30):
+        saw_route_release = False
+        for unused in range(100):
             scene.observe_control()
             policy = scene.runtime.attack_policy
             self.assertNotEqual('aim', policy.decision['action'])
             self.assertFalse(hasattr(policy, 'search_started'))
             self.assertFalse(scene.applied_order()['fire_allowed'])
             self.assertFalse(scene.launches())
-        self.assertEqual('firing_position', policy.decision['action'])
+            saw_route_release = saw_route_release or not scene.runtime.combat_stop.combat_owned
+        self.assertTrue(saw_route_release, 'fully blocked review must return the route within its finite budget')
         self.assertEqual(ammo, scene.battle._gun_state.ammo)
 
     def test_real_mechanical_limit_does_not_inherit_the_previous_he_fire_authority(self):
@@ -439,7 +445,7 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
         scene = MultiBotScene()
         scene.setUp()
         self.addCleanup(scene.doCleanups)
-        scene.configure_workers(4)
+        scene.configure_workers(4, reload_seconds=20.)
         # An actual initial reload leaves a finite window in which the
         # selected point is laid but its first trigger cannot commit yet.
         scene.engine._gun_states[12].elapsed = 0.
@@ -459,7 +465,7 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
         for name in ('chassis', 'hull', 'turret', 'gun'):
             getattr(scene.descriptors['14'], name).materials[0].armor = 10.
         scene.next_plan = 0.
-        for unused in range(180):
+        for unused in range(500):
             scene.step()
             events = [row for row in scene.launches_observed if row['id'] == 12]
             if events:

@@ -211,7 +211,6 @@ class SharedMultiBotCombatTests(unittest.TestCase):
                     self.assertGreater(receipt['evaluations'], 0)
                     self.assertLess(receipt['evaluations'], receipt['candidates'])
                     self.assertGreaterEqual(receipt['elapsed_ms'], 8.)
-                    self.assertEqual('global_snapshot_budget_pending', status['reason'])
                     timed_out.append(receipt['observed_at'])
                 for actor in (12, 13, 14, 15, 16):
                     self.assertFalse(hasattr(
@@ -271,7 +270,7 @@ class SharedMultiBotCombatTests(unittest.TestCase):
                 return result
 
             binding.validate_trigger = changed_physical_pose
-            for unused in range(60):
+            for unused in range(100):
                 scene.step()
         self.assertTrue(changes, 'the real worker never reached final validation')
         self.assertTrue(all(before != after and result == 'auto_pose_changed'

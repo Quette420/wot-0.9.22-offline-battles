@@ -3066,9 +3066,13 @@ class BattleState:
         from gui.mods.offline_lan_0922.bot_fitting_data import CLASSES
 
         def available_slots(participant, team):
+            vehicle = participant.vehicle
+            if self.mobile_test:
+                from gui.mods.offline_lan_0922 import mobile_combat_test
+                vehicle = mobile_combat_test.player_slot_vehicle(vehicle)
             return [slot for slot in self._team_slots(team) if slot not in occupied[team]
                     and (not self.mobile_test or
-                         self._lineup_pins_vehicle(team, slot, participant.vehicle,
+                         self._lineup_pins_vehicle(team, slot, vehicle,
                                                    CLASSES.get(participant.vehicle)))]
         for participant in players:
             requested = self._requested_team_for_player(participant)

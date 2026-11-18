@@ -1913,14 +1913,20 @@ class AttackPolicy(object):
             if not self.evaluator.begin_atomic(self.frame, jobs, now):
                 return
             self._atomic_frame = self.frame
+        evaluated = 0
         try:
             for job in jobs:
                 if self.atomic_clock() >= self._atomic_deadline or self._used['atomic'] >= ATOMIC_CANDIDATES:
                     break
+                evaluated += 1
                 yield self._evaluate(job, now, 'atomic')
         finally:
+            expired = evaluated < len(jobs) and self.atomic_clock() >= self._atomic_deadline
             self._atomic_receipt = dict(self.evaluator.atomic_receipt,
-                status='ordered_target_review', evaluations=self._used['atomic'],
+                status='incomplete' if expired else 'ordered_target_review',
+                reason='atomic_frame_budget_exhausted' if expired else 'ordered_target_review',
+                observed_at=now, candidates=self._used['atomic'] - evaluated + len(jobs),
+                evaluations=self._used['atomic'],
                 elapsed_ms=(self.atomic_clock() - self._atomic_started) * 1000.)
 
     def _grant_early_reload(self, now, reason):

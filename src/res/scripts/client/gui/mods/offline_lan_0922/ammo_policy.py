@@ -66,10 +66,17 @@ def ordered(profile, remaining=None):
         return shells
     shells = list(profile.get('shells') or ())
     manual = 'ammo_ratios' in profile
-    roles = None if manual else profile_roles(profile)
+    from .vehicle_control import ammunition_validation
+    nation = str(profile.get('vehicle_name', '')).split(':')[0]
+    gun_identity = nation + ':' + str(profile.get('gun_name', ''))
+    reviewed_primary = any((gun_identity, nation + ':' + str(s.get('name', '')))
+                           in ammunition_validation.FULL_VALIDATION_HE for s in shells)
+    roles = profile_roles(profile) if not manual or reviewed_primary else None
     if roles is not None:
-        shells = [s for s in shells if int(s['index']) in roles]
-        shells.sort(key=lambda s: ('standard', 'premium', 'he').index(roles[int(s['index'])]))
+        if not manual:
+            shells = [s for s in shells if int(s['index']) in roles]
+        shells.sort(key=lambda s: ('standard', 'premium', 'he').index(
+            roles.get(int(s['index']), 'he')))
     else:
         kinds = {'ARMOR_PIERCING': 0, 'ARMOR_PIERCING_CR': 1,
                  'HOLLOW_CHARGE': 2, 'HIGH_EXPLOSIVE': 3}

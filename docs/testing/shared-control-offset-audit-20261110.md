@@ -79,6 +79,20 @@ native plate result, friendly lane and scattered launch proof remains required.
 An intervening wall still refuses the trigger; moving inset plates can be proved;
 an out-of-range plate cannot acquire permission. Native retesting is pending.
 
+The `7597e37c` full-UDES round ended normally by team elimination at 06:54:01,
+but the player still committed no shot. Review found an admitted-point conflict:
+the active pivot retained sample 5 while global review supplied another sample
+of the same target to the native actuator; the pivot then rejected the mismatch.
+The real evaluator/actuator regression reproduces both the wrong sample and
+the loss of its first bounded refresh after target motion. Shared evaluation
+now prioritizes that admitted pivot's loaded-shell point before remaining work,
+and hydraulic input uses its fresh row before another global sample. An already
+executable point still fires immediately. Blocked points retain their demotion,
+remaining work retains its budget, and no stale pose/line/armour/turn proof gains
+permission. The existing mismatched-observation negative still rejects native
+input. These regressions and all 69 player/shared control files pass; native
+retesting of the point-priority correction is required.
+
 This is the latest authorized scope and supersedes the continuous hydraulic-Bot
 policy in the historical section below. Every player vehicle stays on complete
 support. Ordinary Bots retain their existing basic/edge switch. Hydraulic Bots

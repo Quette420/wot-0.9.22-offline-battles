@@ -68,7 +68,15 @@ class ActualSiegeAim(object):
     def _selected(self, frame, preferred):
         policy = self.runtime.attack_policy
         held = self.runtime.combat_stop.receipt.get('selected')
+        pivot = getattr(self.runtime.combat_stop, 'pivot', None) or {}
         preferred_key = (preferred or {}).get('key')
+        pivot_key = policy.laying_key()
+        if pivot_key is not None and pivot_key != preferred_key:
+            current = policy.current_row(pivot.get('candidate'), require_line=True)
+            if (current is not None and current.get('key') == pivot_key and
+                    (held is None or current.get('target_key') == held) and
+                    current.get('armor') != 'failed' and self._has_laying_lane(policy, current)):
+                return current
         if preferred_key is not None:
             current = policy.current_row(preferred, require_line=True)
             if (current is not None and current.get('pose_stamp') == preferred.get('pose_stamp') and

@@ -857,6 +857,21 @@ class AttackPolicy(object):
         self._used[channel] += 1
         return row
 
+    def laying_key(self):
+        """Prioritize the admitted actuator's point, without donating proof."""
+        owner = getattr(self.runtime, 'combat_stop', None)
+        pivot = getattr(owner, 'pivot', None)
+        if (self.frame is None or not getattr(owner, 'combat_owned', False) or
+                not isinstance(pivot, dict) or pivot.get('gun') is not self.runtime.gun or
+                pivot.get('shell') != self.frame['loaded']):
+            return None
+        key = pivot.get('key')
+        if (not isinstance(key, tuple) or len(key) != 4 or key[0] != self.frame['loaded'] or
+                key[1] != pivot.get('target_key') or
+                not any(target['key'] == key[1] for target in self.frame['targets'])):
+            return None
+        return key
+
     def _frontier(self, now, jobs=None, accepts=None):
         if jobs is None:
             jobs = self._jobs(shell_index=self.frame['loaded'])
@@ -866,7 +881,7 @@ class AttackPolicy(object):
             accepts = self._executable_current
         # A background NEXT plan cannot take over the currently loaded gun.
         # Only a current intention or the load which actually began may lead.
-        plan_key = self.selected or (self.loading_plan or {}).get('key')
+        plan_key = self.laying_key() or self.selected or (self.loading_plan or {}).get('key')
         # A retained aim is a target/sample intention, not an ammunition or
         # armour proof. In particular, the same HE point may alternate
         # between penetration and fallback without losing its aim priority.

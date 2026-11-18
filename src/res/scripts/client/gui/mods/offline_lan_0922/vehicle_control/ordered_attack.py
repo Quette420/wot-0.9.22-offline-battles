@@ -472,7 +472,7 @@ class OrderedAttack(object):
                 return 'aim', row
         # A cached armour failure can finish the penetration sweep. The
         # previously clear contact still needs its own fresh lane check.
-        priority = refresh or policy.selected
+        priority = policy.laying_key() or refresh or policy.selected
         pending = [index for index, (job, row) in enumerate(zip(jobs, current))
                    if not self._can_lay(policy, row, 'penetration') and
                    not policy._executable(row) and
@@ -502,7 +502,7 @@ class OrderedAttack(object):
                 self.cursor = index + 1
                 if policy._executable_current(row):
                     return 'aim', row
-        for row in current:
+        for row in sorted(current, key=lambda value: value is None or value.get('key') != priority):
             if self._can_lay(policy, row, 'penetration'):
                 return 'firing_position', row
         if any(policy._executable(row) for row in current):

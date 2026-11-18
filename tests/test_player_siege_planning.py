@@ -54,6 +54,41 @@ class ActualSiegeAimTests(unittest.TestCase):
         for name in ('SiegePrecheck', 'project_solution', 'PRECHECK_CANDIDATES'):
             self.assertFalse(hasattr(siege_planning, name))
 
+    def test_owned_pivot_point_precedes_another_pending_global_sample(self):
+        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
+        first = scene.evaluated_row(sample=0)
+        held = scene.evaluated_row(sample=5)
+        policy, combat = scene.runtime.attack_policy, scene.runtime.combat_stop
+        combat.pivot = dict(key=held['key'], candidate=held, gun=scene.runtime.gun,
+                            shell=policy.frame['loaded'], target_key=held['target_key'])
+        combat.receipt['selected'] = held['target_key']
+        result = scene.runtime.siege_aim.candidate(policy.frame, scene.now, first)
+        self.assertIsNotNone(result, scene.runtime.siege_aim.status())
+        self.assertEqual(held['key'], result['key'])
+        self.assertFalse(policy._executable(result))
+
+    def test_owned_pivot_point_gets_first_bounded_refresh_after_target_moves(self):
+        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
+        first = scene.evaluated_row(sample=0)
+        held = scene.evaluated_row(sample=5)
+        policy, combat = scene.runtime.attack_policy, scene.runtime.combat_stop
+        combat.pivot = dict(key=held['key'], candidate=held, gun=scene.runtime.gun,
+                            shell=policy.frame['loaded'], target_key=held['target_key'])
+        combat.receipt['selected'] = held['target_key']
+        policy.selected = first['key']
+        scene.fixture.now += .11
+        scene.pose(scene.target, (1., 12., 100.))
+        scene.observe()
+        policy.frame = policy.evaluator.snapshot(scene.now)
+        policy.foreground_budget = 1
+        policy.atomic_time_budget = 0.
+        policy._used['foreground'] = 0
+        jobs = policy._jobs(shell_index=policy.frame['loaded'])
+        policy.ordered_load()._inspect(policy, scene.now, jobs)
+        self.assertEqual(scene.now, policy.rows[held['key']]['observed_at'])
+        self.assertLess(policy.rows[first['key']]['observed_at'], scene.now)
+        self.assertEqual(1, policy._used['foreground'])
+
     def test_disabled_mode_never_inspects_targets_or_native_sources(self):
         scene = self.scene(enabled=False)
         frame = scene.runtime.attack_policy.evaluator.snapshot(scene.now)

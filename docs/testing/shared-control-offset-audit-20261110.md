@@ -31,7 +31,7 @@ traces the full player control surface into each Bot consumer:
 | Point and vehicle order, blocked-point skip/reopen, bounded moving-source work | `AttackPolicy`, `NativeAttackEvaluator`, `OrderedAttack` | Finite frontier and target-handoff tests. Native all-blocked and newly clear outcomes remain independently checked. |
 | Penetration/damage ordering, primary premium HE, current-car HE and blast ranking | Common ammunition validation and ordered policy | Gun/shell whitelist, actual inventory identities and full current-car point tests; primary HESH is not ordinary fallback. |
 | NEXT/CURRENT inputs, magazines, trigger groups, actual-shot return counters | `CombatControl` over native gun/ammo observations | Readiness, exact stock, queued-vs-loaded and committed-shot/clip tests; no simulated debit. |
-| Aim continuity, actual barrel readiness and capture gun handoff | `SharedEngineControl`, native aim adapters, common combat owner | Moving native feedback and exact unchanged parking-control regressions; circle handoff still needs native coverage in the replacement round. |
+| Aim continuity, actual barrel readiness and capture gun handoff | `SharedEngineControl`, native aim adapters, common combat owner | Moving native feedback and exact unchanged parking-control regressions; replacement native Bot #20 consumed the new post-movement circle handoff. The player died before circle entry. |
 | Siege transition, hydraulic pose and stationary turn certificates | Common siege helpers and `StationaryPlanner` over actor observations | Missing Bot support input and direct rendered-mode reads found and corrected; uneven five-column Bot projection regression fails before the correction and passes after. |
 | First-edge proof, frozen dispersion/penetration draw and trigger tail | `TriggerAdmission`, common preparation; native physical weapon owns commits | Shared material/obstruction/scatter/pose tests and worker commit/publish tests. A Bot-specific scatter-reopen omission was found and corrected. |
 | Projectile send/retry, hit and terminal receipt, artillery shell cycle | Native actor transports, common projectile protocol and `ShotPolicy` | Frozen publication/retry and artillery receipt tests; server terminal records are required in native acceptance. |
@@ -79,8 +79,65 @@ contract, rather than a five-method sample. The complete client reference
 suite passed 533 isolated files / 10,829 cases. Four affected files were
 rerun after the final interface/diagnostic assertions and passed. CPython
 2.7.18 compiled all 264 client modules. These are engine-free reference
-checks, not native acceptance. The replacement native 15 vs 15 results and
-package must be appended before this follow-up is delivered.
+checks, not native acceptance.
+
+### Replacement native results and package
+
+Runtime `29c33dea21a7bbbb1863941297a95d1c0e0123cc` was packaged and extracted
+again before starting the actual Chinese HD #1513 client. The original
+Redshire 15 vs 15 lineup was retained, with the player's large-TD slot using
+Conway BL 5.5 inch. A completed test-channel receipt confirms actual HESH
+32602, one ready round and AP/HESH/HE 10/10/10 before automatic inputs resume.
+This setup remains an explicit test input, not an automatic policy switch.
+
+Final report `wot-error-report-20261119-004053-6dfc12f3418f.zip` contains every
+expected launcher/server/visible-client/hidden-worker role. Both client logs
+contain no traceback, hydraulic body disagreement or missing-input diagnostic.
+All four UDES Bots have actual server projectile impact receipts: #9 has six,
+#10 two, #24 six and #25 ten. Enemy #9 and #10 selected the human and actually
+hit Conway; this replaces the former zero-shot observation. The player was
+destroyed during the fight. This is not evidence that the player reached or
+fired from the capture circle.
+
+Native Bot #20 reproduced the circle movement/gun boundary: the pre-movement
+handoff refused its original parking turn, and four post-movement callbacks
+accepted the same fresh reachable point on Bat.-Chatillon 155 #15. The original
+turn/throttle remained in force. There is no subsequent #20 projectile commit
+in that brief target window, so this proves native handoff consumption only.
+The complete player capture regression independently proves a real commit
+after the recorded small parking correction and forbids a stale cached fire
+edge. Native player circle firing remains a coverage boundary for user testing.
+
+The observed road shell changes were also audited and accepted by the user.
+At 00:28:13, HESH had four obstructed and five armour-failed points on the only
+then-admitted target, O-Ho #13. AP was requested during route observation.
+Actual AP shots committed at 00:28:24 and 00:28:35. The second edge queued
+HESH as the return shell; actual HESH fired at 00:28:54. Final stock is AP 8 /
+HESH 9 / basic HE 10. No basic HE fallback shot was fired in this round.
+
+The discussion did not authorize a new ammunition rule. Whitelisted HESH
+remains a penetration primary followed by AP, then available HE fallback.
+Ordinary HE tests only its current vehicle, skips obstruction and ranks blast
+damage if it cannot penetrate. Consecutive fallback commits control return;
+valid whole-round low-penetration failure can defer it. The existing zero-
+expected-damage fallback boundary is recorded, not silently changed.
+
+Exact-runtime [CI run 44346628708](https://github.com/colorfulmeans/wot-0.9.22-offline-battles/actions/runs/44346628708)
+passed every job: behavior, navigation, native geometry, Windows server/editor,
+complete client/launcher tests, native exception trail and Windows launcher.
+
+Windows candidate: `C:/Users/USER/Downloads/wot_PR119_29c33dea_Windows_2026-11-19.zip`.
+Size: 68,189,940 bytes; 1,298 members.
+SHA-256: `e400292a13b9ddeb27615778adf10cb9a8af3ca6b629fb55f2815e75a306ea0e`.
+Build identity: `local-pr119-29c33dea-actor-observations`.
+The native round used this ZIP's fresh extraction, not a different development
+directory. Independent package verification matches 45 frozen launcher modules,
+267 paired server sources and all 264 Python 2.7 client modules; 306 wotmod
+members validate. Native math/starter match current sources, the embedded
+recorder executes, and the packaged editor smoke test passes. Existing CI
+native/UI/recorder assets were preserved. `ai/` search/driver sources and
+`vehicle_physics.py` are unchanged relative to the reviewed starting head.
+PR #119 remains open and unmerged.
 
 ## November 18 follow-up — Actor parity, finite blocked review and hydraulic pose
 
@@ -183,8 +240,9 @@ history. The original driver, support proof and trigger admission are unchanged.
 The next native player is Conway `uk:GB81_FV4004` with `_5_5inch_AT_Gun`,
 capacity 30 and a 10/10/10 AP/HESH/HE rack. Its 120 mm alternative is rejected
 by the test entrance. It replaces the human's large-TD slot only; the other
-29 Bots retain the original lineup. Native follow-up and final package details
-will be appended after execution. PR #119 remains open and unmerged.
+29 Bots retain the original lineup. The following intermediate rounds and
+November 19 section record native follow-up and the replacement package.
+PR #119 remains open and unmerged.
 
 ### Native Conway round and remaining hydraulic consumers
 

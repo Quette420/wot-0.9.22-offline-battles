@@ -64,6 +64,21 @@ changes still retire it. Further invalidations include before/after support
 observations only through the checked detailed-diagnostics entrance. Native
 player/full-support retesting is still required.
 
+Report `wot-error-report-20261119-063509-fb5d99538f67.zip` ran `46df4df7`.
+Player full-support turn proofs now completed, but the player still fired no
+round before death. A native refusal at 06:27:09 reached the selected interior
+sample within micrometres, with passed armour and native alignment, yet reported
+no target contact. The scan traces beyond that virtual sample to find real BSP
+plates, while first-trigger centre proof stopped at the sample's aiming plane.
+Real component bounding boxes can contain empty space before the plate. New AP
+and HE regressions reproduce that discrepancy without replacing policy or
+trigger verdicts. Centre proof now continues through the selected target's
+observed native envelope in its relative-motion frame, using the physical
+projectile chords and range cap. Every intervening world/vehicle collision,
+native plate result, friendly lane and scattered launch proof remains required.
+An intervening wall still refuses the trigger; moving inset plates can be proved;
+an out-of-range plate cannot acquire permission. Native retesting is pending.
+
 This is the latest authorized scope and supersedes the continuous hydraulic-Bot
 policy in the historical section below. Every player vehicle stays on complete
 support. Ordinary Bots retain their existing basic/edge switch. Hydraulic Bots

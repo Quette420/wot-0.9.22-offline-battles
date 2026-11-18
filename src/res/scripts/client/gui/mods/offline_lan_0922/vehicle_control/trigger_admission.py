@@ -384,7 +384,7 @@ class TriggerAdmission(object):
         return self._lane(proof['path'], splash)
 
     @staticmethod
-    def _launch_path(origin, velocity, gravity, maximum, near_limit=None):
+    def _launch_path(origin, velocity, gravity, maximum, near_limit=None, flight_limit=None):
         try:
             origin, velocity = _point(origin), _point(velocity)
             gravity, maximum = float(gravity), float(maximum)
@@ -394,10 +394,12 @@ class TriggerAdmission(object):
                 return (), ()
         except (TypeError, ValueError, IndexError, KeyError):
             return (), ()
+        limit = (ballistics.PROJECTILE_MAX_FLIGHT_SECONDS if flight_limit is None else
+                 min(ballistics.PROJECTILE_MAX_FLIGHT_SECONDS, flight_limit))
         path, times, travelled = [origin], [0.], 0.
-        count = int(math.ceil(ballistics.PROJECTILE_MAX_FLIGHT_SECONDS / .12))
+        count = int(math.ceil(limit / .12))
         for index in range(1, count + 1):
-            end = min(ballistics.PROJECTILE_MAX_FLIGHT_SECONDS, index * .12)
+            end = min(limit, index * .12)
             first, last, actual, terminal = projectile_runtime.prepare_chord(
                 origin, velocity, (0., -gravity, 0.), 0., times[-1], end, maximum, travelled)
             travelled += math.sqrt(_distance_sq(first, last))
@@ -406,6 +408,35 @@ class TriggerAdmission(object):
             if terminal or near_limit is not None and _distance_sq(origin, last) > near_limit ** 2:
                 break
         return tuple(path), tuple(times)
+
+    def _centre_path(self, raw_ray, shot, solution, target, roster):
+        """Prove through the observed target, not merely to an interior sample.
+
+        A component's aiming sample can be in empty space before its BSP.
+        Horizontal relative motion bounds the last possible contact with the
+        entire native envelope; vertical motion, plates, intervening vehicles
+        and world geometry still require the normal chord proofs.
+        """
+        row = next((item for item in roster if item['target'] is target), None)
+        if row is None:
+            return (), ()
+        origin, direction = raw_ray
+        length = math.sqrt(sum(value * value for value in direction))
+        velocity = tuple(value * float(shot['speed']) / length for value in direction)
+        enter, leave = 0., ballistics.PROJECTILE_MAX_FLIGHT_SECONDS
+        for axis in (0, 2):
+            low, high = row['bounds'][0][axis], row['bounds'][1][axis]
+            relative = velocity[axis] - row['velocity'][axis]
+            if relative == 0.:
+                if not low <= origin[axis] <= high:
+                    return solution['raw_path'], solution['raw_times']
+                continue
+            first, last = (low - origin[axis]) / relative, (high - origin[axis]) / relative
+            enter, leave = max(enter, min(first, last)), min(leave, max(first, last))
+            if leave < enter:
+                return solution['raw_path'], solution['raw_times']
+        return self._launch_path(origin, velocity, abs(float(shot['gravity'])),
+            float(shot['maxDistance']), flight_limit=max(solution['flight_time'], leave))
 
     def _shot_draw(self, gun):
         key = (self.owner._generation, self.control.control_generation,
@@ -516,12 +547,13 @@ class TriggerAdmission(object):
                 if proof is not None and (proof['cursor'] or proof['stage']):
                     candidate['restarts'] += 1
                 path, times = self._launch_path(origin, velocity, gravity, maximum)
-                if len(path) < 2:
+                raw_path, raw_times = self._centre_path(raw_ray, source_shot, solution, target, roster)
+                if len(path) < 2 or len(raw_path) < 2:
                     return self._result('pending', 'auto_actual_barrel_unavailable')
-                if len(path) + len(solution['raw_path']) - 2 > MAX_PROOF_CHORDS:
+                if len(path) + len(raw_path) - 2 > MAX_PROOF_CHORDS:
                     return self._result('pending', 'auto_path_budget_exceeded')
                 proof = dict(geometry=geometry, raw_ray=raw_ray,
-                    raw_path=solution['raw_path'], raw_times=solution['raw_times'],
+                    raw_path=raw_path, raw_times=raw_times,
                     path=path, times=times, origin=origin, velocity=velocity,
                     gravity=gravity, maximum=maximum, range_origin=range_origin,
                     stage=0, cursor=0, done=False, refusal=None, completed=None,

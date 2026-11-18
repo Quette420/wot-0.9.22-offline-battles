@@ -559,6 +559,59 @@ class AutomaticArtilleryAdmissionTests(ArtilleryFireScene):
 
 
 class AutomaticFireAdmissionTests(AutomaticFireScene):
+    def inset_plate(self, distance, expected_armor='passed'):
+        # A native component box encloses empty space as well as its BSP.
+        # Keep the normal aiming samples/broad bounds, with the actual plate
+        # behind their centre. No policy or trigger verdict is replaced.
+        for name in ('chassis', 'hull', 'turret', 'gun'):
+            component = getattr(self.target.typeDescriptor, name)
+            tester = BoxTester(*component.hitTester.bbox[:2])
+            tester.localHitTest = lambda first, last: ()
+            component.hitTester = tester
+        tester = self.target.typeDescriptor.hull.hitTester
+        def hit(first, last):
+            entry = shot_geometry.segment_box_entry_distance(tuple(first), tuple(last),
+                ((-1.7, -.2, distance), (1.7, 1.4, distance + .1)))
+            return () if entry is None else ((entry, f._Vector(0., 0., -1.), 1., 0),)
+        tester.localHitTest = hit
+        self.lay()
+        self.assertEqual('clear', self.candidate['line'])
+        self.assertEqual(expected_armor, self.candidate['armor'])
+
+    def test_ap_centre_proof_reaches_the_plate_behind_the_aim_sample(self):
+        self.inset_plate(.2)
+        self.assertTrue(self.fire(), self.admission.receipt)
+        self.assertEqual([19, 10], self.battle._gun_state.ammo)
+
+    def test_he_centre_proof_reaches_the_plate_behind_the_aim_sample(self):
+        self.set_he(piercing=1000.)
+        self.inset_plate(2.)
+        self.assertTrue(self.fire(), self.admission.receipt)
+        self.assertEqual([19, 10], self.battle._gun_state.ammo)
+
+    def test_moving_inset_plate_uses_the_observed_relative_envelope(self):
+        self.set_he(piercing=1000.)
+        self.inset_plate(2.)
+        self.lay(target_velocity=(60., 0., 20.))
+        self.assertEqual('passed', self.candidate['armor'])
+        self.assertTrue(self.fire(), self.admission.receipt)
+        self.assertEqual([19, 10], self.battle._gun_state.ammo)
+
+    def test_centre_continuation_does_not_exceed_the_real_shell_range(self):
+        self.set_he(piercing=1000.)
+        self.battle._gun_state.shots[0].maxDistance = 101.
+        self.inset_plate(2., expected_armor='failed')
+        self.assertFalse(self.fire())
+        self.assert_unspent()
+
+    def test_wall_between_sample_and_actual_plate_still_blocks_first_trigger(self):
+        self.set_he(piercing=1000.)
+        self.inset_plate(2.)
+        self.world = [((-10., -10., 100.5), (10., 10., 100.6))]
+        self.assertFalse(self.fire())
+        self.assertEqual('auto_world_blocked', self.control.last_fire_failure)
+        self.assert_unspent()
+
     def test_external_native_source_takeover_revokes_only_the_next_trigger(self):
         rotator = self.battle._avatar.gunRotator
         external = lambda: f._Vector(10., 5., 30.)

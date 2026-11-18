@@ -1,5 +1,30 @@
 # PR119 control-offset correction — November 10, 2026
 
+## November 19 — Sideways hydraulic handoff follow-up (native retest pending)
+
+Report `wot-error-report-20261119-073812-f87a99d370fd.zip` ran `2a90535f`
+through a full all-UDES Mines round. The player survived, committed nine real
+launches with nine terminal receipts, completed 11 stationary-turn proofs and
+dealt 2,167 damage. The first two HE launches were penetration, the next two
+were fallback, and the following launch used low-penetration APCR. Workers
+completed 117 turn proofs and 84 physical launches. This is positive firing and
+return evidence, but not full acceptance: at 07:33:45 a proved turn toward #27
+still received `hydraulic_pitch_limit` before native input and never started.
+The actuator was checking an almost sideways ray against the current heading,
+although its checked stationary endpoint was reachable after turning.
+
+Shared hydraulic input now preserves the certificate's sequence: if current
+pitch is unavailable but a fresh complete stationary turn and attackable
+endpoint are proved, turn at the current correction first. The endpoint's
+hydraulic correction is applied after current-heading geometry can consume it.
+No unproved arc, blocked lane or stale observation gains motion or fire
+permission. A real evaluator/native-input regression fails before the change;
+removing its stationary proof still prevents native input. Pitch refusals and
+this staged turn have additional inputs only with detailed diagnostics checked.
+The normal native map picker also adopted the requested Mittengard map after
+explicit window activation; the earlier ignored clicks do not establish a map
+selection defect. This follow-up still needs native acceptance.
+
 ## November 19 — Physical SPG preparation and adaptive hydraulic Bots
 
 Follow-up report `wot-error-report-20261119-052258-3a16d8e04a1a.zip`, runtime

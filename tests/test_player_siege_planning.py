@@ -110,6 +110,58 @@ class ActualSiegeAimTests(unittest.TestCase):
         angles.assert_not_called()
         self.assertEqual('inactive', scene.runtime.siege_aim.status()['status'])
 
+    def test_proved_sideways_turn_precedes_current_heading_hydraulic_pitch_limit(self):
+        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
+        scene.pose(scene.target, (100., 12., 0.))
+        row = None
+        for unused in range(30):
+            row = scene.evaluated_row()
+            if (row.get('stationary_plan') or {}).get('status') == 'proved':
+                break
+            scene.fixture.now += .11
+        policy = scene.runtime.attack_policy
+        planned = policy._planned_evidence(row)
+        self.assertIsNotNone(planned, row)
+        self.assertTrue(planned['solution']['needs_hull'])
+        hydraulic = active_hydraulic_pose(scene.runtime, policy.frame)
+        reach = hydraulic_reach(policy.frame['descriptor'],
+            planned['solution']['direction'], hydraulic['body'], hydraulic)
+        self.assertEqual('hydraulic_pitch_limit', reach['reason'])
+        before_world = len(scene.world_queries)
+        result = scene.runtime.siege_aim.candidate(policy.frame, scene.now, row)
+        self.assertIsNotNone(result, scene.runtime.siege_aim.status())
+        self.assertTrue(result['solution']['needs_hull'])
+        self.assertEqual(hydraulic['correction'], result['solution']['hydraulic_pitch'])
+        self.assertFalse(result['solution']['needs_hydraulic'])
+        self.assertFalse(policy._executable(result))
+        self.assertEqual(before_world, len(scene.world_queries))
+        # Removing the checked arc must not authorize this sideways input.
+        unproved = dict(row, stationary_plan=None)
+        policy.rows[row['key']] = unproved
+        self.assertIsNone(scene.runtime.siege_aim.candidate(policy.frame, scene.now, unproved))
+        self.assertEqual(0, scene.runtime.siege_aim.status()['native_calls'])
+
+    def test_current_heading_pitch_refusal_logs_only_with_detailed_diagnostics(self):
+        scene = self.scene(enabled_pitch=(0., 0.))
+        scene.pose(scene.target, (100., 12., 0.))
+        row = scene.evaluated_row()
+        policy, helper = scene.runtime.attack_policy, scene.runtime.siege_aim
+        row = dict(row, line='clear', stationary_plan=None)
+        policy.rows[row['key']] = row
+        for enabled in ('0', '1'):
+            output = StringIO()
+            with self.subTest(enabled=enabled), mock.patch.dict(os.environ,
+                    {'WOT_OFFLINE_DIAGNOSTICS': '1',
+                     'WOT_OFFLINE_COMBAT_DIAGNOSTICS': enabled}), redirect_stdout(output):
+                self.assertIsNone(helper.candidate(policy.frame, scene.now, row))
+            self.assertEqual(0, helper.status()['native_calls'])
+            records = [json.loads(line.split('BATTLE REVIEW ', 1)[1])
+                       for line in output.getvalue().splitlines()
+                       if 'BATTLE REVIEW ' in line and 'siege_hydraulic_reach' in line]
+            self.assertEqual(int(enabled), len(records))
+            if records:
+                self.assertEqual('hydraulic_pitch_limit', records[0]['reach']['reason'])
+
     def test_actual_selected_point_is_motion_only_and_adds_no_world_armour_work(self):
         scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
         row = scene.evaluated_row()

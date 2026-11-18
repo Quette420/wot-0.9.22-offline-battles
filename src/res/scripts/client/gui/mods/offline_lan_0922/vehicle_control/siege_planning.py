@@ -222,11 +222,24 @@ class ActualSiegeAim(object):
                 solution = dict(planned['solution'])
             direction = _point(solution['direction'])
             reach = hydraulic_reach(frame['descriptor'], direction, hydraulic['body'], hydraulic)
+            turn_first = False
             if not reach.get('reachable') and not reach.get('needs_hull'):
-                self.receipt.update(reason=reach['reason'])
-                return None
-            correction = (float(solution['hydraulic_pitch']) if solution.get('stationary_plan')
-                          and 'hydraulic_pitch' in solution else reach['hydraulic_pitch'])
+                # A longitudinal actuator cannot lay a sideways ray before
+                # the chassis turns. The completed stationary certificate
+                # proves that turn at the current correction, then the
+                # endpoint correction. Keep that ordering instead of asking
+                # the starting heading to satisfy the endpoint's pitch.
+                turn_first = bool(solution.get('stationary_plan') and
+                    solution.get('needs_hull') and
+                    policy._plannable(row, row.get('mode', 'penetration')))
+                if not turn_first:
+                    self.receipt.update(reason=reach['reason'])
+                    if combat_detail_enabled():
+                        self._report_aim('siege_hydraulic_reach', now, row, solution, hydraulic, reach)
+                    return None
+            correction = (hydraulic['correction'] if turn_first else
+                float(solution['hydraulic_pitch']) if solution.get('stationary_plan')
+                and 'hydraulic_pitch' in solution else reach['hydraulic_pitch'])
             needs_hull = bool(solution.get('needs_hull') or reach.get('needs_hull'))
             if (needs_hull and frame.get('ordered') and shell.get('is_he') and
                     not policy._executable(planned, row.get('mode', 'penetration'))):
@@ -271,6 +284,8 @@ class ActualSiegeAim(object):
             self.receipt.update(status='ready', reason='actual_enabled_hydraulic_input', candidates=1,
                 target=target['key'], sample=row['sample'], shell=shell['index'],
                 needs_hull=needs_hull, needs_hydraulic=solution['needs_hydraulic'])
+            if turn_first and combat_detail_enabled():
+                self._report_aim('siege_hydraulic_turn', now, row, solution, hydraulic, reach)
             if inverse is not None:
                 if inverse.get('accepted_with_pitch_tolerance'):
                     self._report_aim('siege_hydraulic_pitch_tolerance', now, row, solution,

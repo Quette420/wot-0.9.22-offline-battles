@@ -50,9 +50,9 @@ class CaptureFireHandoffTests(unittest.TestCase):
     def trace_handoffs(self, scene):
         traces = []
         consume = scene.runtime.consume_gun_handoff
-        def observe(source, command, target, now):
+        def observe(source, command, target, now, **kwargs):
             original = copy.deepcopy(command)
-            result, selected = consume(source, command, target, now)
+            result, selected = consume(source, command, target, now, **kwargs)
             if (selected is not None and selected['network_id'] == 2 and
                     (target is None or target['network_id'] == 5)):
                 for field in ('move_position', 'face_position', 'throttle', 'turn',
@@ -160,6 +160,51 @@ class CaptureFireHandoffTests(unittest.TestCase):
         self.assertEqual(0., scene.battle._sender.turn)
         self.assertEqual(0., scene.battle._sender.forward)
         self.assertFalse(scene.runtime.state['hull_aiming'])
+        self.assertEqual(29, sum(scene.battle._gun_state.ammo))
+
+    def test_capture_gun_can_track_while_the_original_hold_finishes_a_small_correction(self):
+        scene = self.scene(limited=True)
+        scene.runtime.set_mission('capture_base', {})
+        runtime = scene.runtime
+        for unused in range(20):
+            scene.tick()
+            candidate = runtime.attack_policy.decision.get('candidate')
+            if candidate is not None and candidate['target']['network_id'] == 2:
+                break
+        self.assertIsNotNone(candidate)
+        self.assertEqual(2, candidate['target']['network_id'])
+        # Native capture record 23:33:19 retained this small original parking
+        # correction. The copied finite-turret law would zero it if donated
+        # a new target before movement, so that early donation must fail.
+        command = dict(runtime._last_order, turn=-.0006790279131036106,
+            target_id=None, target_kind=None, aim_position=None,
+            fire_allowed=False, _ballistic_solution=None)
+        self.assertFalse(runtime._gun_handoff_preserves_controls(candidate, command))
+        result, target = runtime.engine._shared_gun_aim_input(
+            runtime.state, command, None, runtime.now)
+        for key in ('move_position', 'face_position', 'throttle', 'turn',
+                    'movement_intent', 'combat_mode', 'recovery_mode', 'brake'):
+            self.assertEqual(command.get(key), result.get(key), key)
+        self.assertEqual(2, target['network_id'])
+        self.assertTrue(result['fire_allowed'])
+        self.assertTrue(result.get('_shared_weapon_handoff'))
+        cached, selected = runtime.engine._shared_gun_aim_input(
+            runtime.state, command, None, runtime.now + .01)
+        self.assertEqual(2, selected['network_id'])
+        self.assertFalse(cached['fire_allowed'])
+        self.assertEqual([20, 10], scene.battle._gun_state.ammo)
+
+    def test_moving_current_point_reaches_native_trigger_with_a_one_frame_gun_echo(self):
+        scene = self.scene(features=('fire',))
+        target = scene.battle._runtime.bigworld.entities[2]
+        for step in range(160):
+            scene.pose(target, (65. + step * .02, 0., 85.))
+            scene.battle._advance_local_gun_to(scene.entity, scene.now)
+            scene.tick(.05)
+            if scene.launches():
+                break
+        self.assertTrue(scene.launches(), scene.runtime.status())
+        self.assertEqual(1, scene.control.shot_commits)
         self.assertEqual(29, sum(scene.battle._gun_state.ammo))
 
     def test_limited_gun_outside_arc_does_not_gain_turn_then_recovers_inside_arc(self):

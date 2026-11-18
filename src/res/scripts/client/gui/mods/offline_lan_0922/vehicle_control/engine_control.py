@@ -46,6 +46,17 @@ class SharedEngineControl(SharedOrderPlanning):
                 not runtime._live() or policy.decision.get('action') == 'unchanged'):
             runtime._shared_aim_intention = None
             return command, target
+        if owner.capture_hold() and getattr(runtime, '_gun_handoff', None) is not None:
+            command, target = runtime.consume_gun_handoff(
+                state, command, target, now, after_movement=True)
+            if command.get('_shared_weapon_handoff'):
+                command, target = policy.select_command(state, command, target, now)
+                solution, unused_ready = self._cadenced_ballistic_solution(
+                    state, target, self._descriptors.get(state['id'], {}),
+                    runtime.gun.shot_index, now, True)
+                command = dict(command, _ballistic_solution=solution)
+                if command.get('_shared_aim_pending'):
+                    command['fire_allowed'] = False
         if isinstance(target, dict):
             # A cached physical command can outlive the entity that its
             # strategic observation named. Do not slew toward a dead or

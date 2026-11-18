@@ -374,6 +374,39 @@ class _NativeAimInput(object):
         point = self.source_point or self.motion_point
         return self.runtime.owner._vector(point) if point is not None else None
 
+    def tracking_aligned(self, state, target):
+        """Observe the real barrel at the current point, not inverse precision.
+
+        The native rotator consumes its source asynchronously. A moving point
+        can remain a fraction of a frame ahead of that feedback even though
+        the current barrel already reaches the existing first-edge window.
+        The first-edge owner still repeats its complete physical proof.
+        """
+        runtime = self.runtime
+        if target is None or not self.verified or not self.owned():
+            return False
+        if self.point is None:
+            return False
+        from .trigger_admission import barrel_path
+        try:
+            point = _point(self.point)
+            origin, direction = runtime.owner._mutable_shot_ray()
+            mounted = runtime.gun.shots[runtime.gun.shot_index]
+            shot = dict((name, float(_field(mounted, name)))
+                        for name in ('speed', 'gravity', 'maxDistance'))
+            path, unused_times, unused_flight = barrel_path(
+                _point(origin), _point(direction), shot, point)
+            error = sum((path[-1][axis] - point[axis]) ** 2 for axis in range(3)) if path else None
+            aligned = error is not None and error <= .30 ** 2
+        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, ArithmeticError):
+            error, aligned = None, False
+        if combat_detail_enabled():
+            key = (runtime.attack_policy.decision.get('candidate') or {}).get('key')
+            combat_detail(runtime, 'native_tracking_alignment', runtime.actor_id, runtime.now,
+                (key, aligned), lambda: dict(candidate=key,
+                    aligned=aligned, point_error_sq=error, point_window_m=.30))
+        return aligned
+
     def owned(self):
         if self.saved is None or self.bound_source is None or self._release is None:
             return False
@@ -831,10 +864,15 @@ class _PlayerBehaviorEngine(shared_runtime.BotRuntime):
         state['gun_pitch'] = float(rotator.gunPitch)
         state['aim_yaw'] = _angle(state['yaw'] + state['turret_yaw'])
         desired_yaw, desired_pitch = intention.get('turret_yaw'), intention.get('gun_pitch')
-        state['gun_aligned'] = bool(not tail_active and target is not None and runtime.weapon.verified and
-            desired_yaw is not None and desired_pitch is not None and
-            abs(_angle(state['turret_yaw'] - desired_yaw)) <= NATIVE_ANGLE_TOLERANCE and
-            abs(state['gun_pitch'] - desired_pitch) <= NATIVE_ANGLE_TOLERANCE)
+        artillery = 'SPG' in (getattr(getattr(runtime.entity.typeDescriptor, 'type', None), 'tags', ()) or ())
+        if artillery:
+            aligned = bool(target is not None and runtime.weapon.verified and
+                desired_yaw is not None and desired_pitch is not None and
+                abs(_angle(state['turret_yaw'] - desired_yaw)) <= NATIVE_ANGLE_TOLERANCE and
+                abs(state['gun_pitch'] - desired_pitch) <= NATIVE_ANGLE_TOLERANCE)
+        else:
+            aligned = runtime.weapon.tracking_aligned(state, target)
+        state['gun_aligned'] = bool(not tail_active and aligned)
         runtime._observe_attack_lay(state, target, intention, self.player_runtime.now)
         return result
 

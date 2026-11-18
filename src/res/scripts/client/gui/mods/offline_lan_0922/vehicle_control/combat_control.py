@@ -290,7 +290,7 @@ class CombatControl(object):
                         _player_stationary_motion=True)
         return row
 
-    def _gun_handoff_preserves_controls(self, candidate, command):
+    def _gun_handoff_preserves_controls(self, candidate, command, after_movement=False):
         """Prove a gun-only target cannot change the already solved BOT input.
 
         Capture/parking and fire-only control may keep a different admitted
@@ -318,6 +318,11 @@ class CombatControl(object):
                     '_rear_aim_episode', '_rear_hull_aim', '_rear_motion_lease')) or
                 owner.physical_recovery_active()):
             return False
+        if after_movement and capture_hold:
+            # Only the gun and first-edge consumers remain at this boundary.
+            # A reachable current point cannot change already applied chassis
+            # inputs, including a small original parking correction.
+            return True
         descriptor = self.engine._descriptors.get(self.actor_id, {})
         limits = self.engine._gun_yaw_limits.get(self.actor_id)
         if limits is None:
@@ -376,7 +381,7 @@ class CombatControl(object):
                 episode=owner._episode, weapon=tuple(observation(self).weapon_identity()),
                 original=original, candidate=candidate['key'])
 
-    def consume_gun_handoff(self, source, command, target, now):
+    def consume_gun_handoff(self, source, command, target, now, after_movement=False):
         """Refine only the gun after proving the original movement is unchanged."""
         lease = getattr(self, '_gun_handoff', None)
         candidate = self.attack_policy.decision.get('candidate')
@@ -400,28 +405,38 @@ class CombatControl(object):
             # Keep the decision's target so the shared aim-intention holder
             # can refresh its motion, but never borrow a stale fire edge.
             return dict(command, fire_allowed=False), target
-        preserves_controls = self._gun_handoff_preserves_controls(current, command)
+        preserves_controls = self._gun_handoff_preserves_controls(current, command, after_movement)
         if combat_detail_enabled():
             combat_detail(self, 'gun_handoff_review', self.actor_id, now,
                 (current.get('key'), preserves_controls), lambda: dict(
                     candidate=current.get('key'), accepted=preserves_controls,
+                    after_movement=after_movement,
                     capture_hold=getattr(owner, 'capture_hold', lambda: False)(),
                     position=tuple(self.state['position']),
                     task_destination=owner.task_order.get('move_position'),
                     movement_intent=command.get('movement_intent'),
                     throttle=command.get('throttle'), turn=command.get('turn')))
         if not preserves_controls:
+            if (not after_movement and
+                    self._gun_handoff_preserves_controls(current, command, True)):
+                # Keep this same-frame gun lease for the weapon-only boundary.
+                # Its target must not reach the intervening chassis law.
+                return dict(command, fire_allowed=False), target
             # A genuine movement conflict closes this gun-only lease. It
             # does not erase the policy's observed enemy or armour evidence.
             self._gun_handoff = None
             return dict(command, fire_allowed=False), target
         refined = dict(command, target_id=selected.get('network_id', selected.get('id')),
                        target_kind=selected.get('kind'), stable_hull_face=True)
+        if after_movement:
+            refined['_shared_weapon_handoff'] = True
         if lease['at'] != now:
             # A cached physical substep may retain this target for turret
             # motion, but cannot inherit fire permission from an earlier
             # policy frame. The next real control callback must re-prove it.
             refined['fire_allowed'] = False
+            if after_movement:
+                refined['_shared_aim_pending'] = True
         return refined, selected
 
     def _observe_attack_lay(self, state, target, intention, now):

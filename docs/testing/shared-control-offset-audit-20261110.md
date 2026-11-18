@@ -138,6 +138,42 @@ They retain exact stock counts, elapsed-clock checks and explicit CURRENT-input
 coverage. Unreviewed HE cannot displace the already stocked fallback using a
 bare policy reason. The native follow-up below uses the resulting payload.
 
+### Native green-point and capture-gun regressions
+
+All CI jobs passed at runtime `914c9bc3`, including 533 client test files and
+49 launcher files. The native Conway round still exposed two real faults,
+reported by the user while watching. Report `233445-069a04553412` preserves
+both; green CI is not acceptance of these native behaviors.
+
+Before entering the circle, Type 4 Heavy #12 had clear, passed native points
+with AP ready. At 23:32:42-46, the extra gun-aligned predicate continued to
+reject normal asynchronous tracking lag. At 23:32:47 it became
+`native_lay_stalled` and released the route. The input-inversion precision
+constant (0.00001 radians) had also been used as a tracking completion test.
+It is now retained for its actual inverse/ABI purpose. Ordinary foreground
+tracking observes the current real barrel at the selected point using the
+existing first-edge 0.30 m point window. The original first-edge owner still
+repeats mechanical, actual-path, material, scatter, obstruction and freshness
+proofs; none of its predicates or constants was changed. A complete moving
+target regression reproduced the former permanent unaligned state with a
+one-frame native rotator echo, then reached a real committed shot after the fix.
+
+Inside the circle, Object 261 #14 was selected from 23:33:13 onward. Gun
+handoff repeatedly failed while the native input stayed on hull-forward rest.
+The original parking correction was small but nonzero (for example
+-0.0006790279131036106). Donating a limited-turret target before the chassis
+law would zero that original correction, so the early guard correctly refused
+the movement change. The missing operation was a gun-only handoff after the
+original movement had already executed. That existing weapon boundary now
+consumes the same current reachable candidate for aiming and first-edge fire,
+without changing any movement field or rerunning the driver. The regression
+uses the recorded correction and compares all navigation/control fields.
+Hull-laying points still require the original support/rotation owner.
+
+Detailed diagnostics add current-barrel point error and the handoff boundary;
+the payload builders run only when detailed combat logging is selected.
+The final replacement package and native verification are recorded below.
+
 ## November 12 follow-up — Finish obstructed HE engagements
 
 The `214138-c65b14d3ce9e` report showed UDES 03 holding Type 4 Heavy #12

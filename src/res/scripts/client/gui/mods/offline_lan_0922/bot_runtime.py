@@ -18173,6 +18173,11 @@ class BotRuntime(SharedEngineControl):
             command['_ballistic_solution'] = ballistic_solution
             aim_command, aim_target = self._shared_gun_aim_input(
                 state, command, target, now)
+            if aim_command.get('_shared_weapon_handoff'):
+                # Movement is already committed. Donate only this callback's
+                # gun/fire target; the navigation order and chassis stay put.
+                command, target = aim_command, aim_target
+                ballistic_solution = command.get('_ballistic_solution')
             previous_turret_yaw = state.get('turret_yaw', 0.0)
             weapon_tick = {} if self._native_simulation is not None else None
             if weapon_tick is None:

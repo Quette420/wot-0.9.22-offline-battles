@@ -733,7 +733,7 @@ def _suspension_wheel_radius(chassis, config, spring_spacing):
 
 
 def has_hydraulic_suspension(descriptor):
-	'''Identify the hydraulic actuator independently of its current mode.'''
+	'''Read the active #1513 hydraulic-pitch flag, not a mode-pair identity.'''
 	return bool(_value(
 		descriptor, 'isPitchHullAimingAvailable', False))
 

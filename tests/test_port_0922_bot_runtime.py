@@ -6089,10 +6089,15 @@ class BotRuntimeTests(unittest.TestCase):
 
     def test_hydraulic_bot_uses_full_support_without_basic_mode_switching(self):
         runtime, state, calls = self._suspension_case(lambda x, z: 0.)
-        runtime._descriptors[11].isPitchHullAimingAvailable = True
+        travel = runtime._descriptors[11]
+        travel.isPitchHullAimingAvailable = False
+        enabled = copy.deepcopy(travel)
+        enabled.isPitchHullAimingAvailable = True
+        runtime._descriptor_pairs[11] = (travel, enabled)
         with mock.patch.object(self.module, 'BOT_FULL_SUPPORT_ENABLED', False):
             for mode in (0, 1, 2, 3):
                 state['siege_state'] = mode
+                runtime._descriptors[11] = enabled if mode == 2 else travel
                 self.assertIsNotNone(runtime._suspension_params_for(11))
                 self.assertFalse(runtime._update_vertical_motion(state, .1))
                 self.assertFalse(runtime._release_detailed_support(state))
@@ -6103,6 +6108,24 @@ class BotRuntimeTests(unittest.TestCase):
             self.assertFalse(runtime._update_slope_pose(state))
         basic.assert_not_called()
         self.assertEqual('detailed_solver_owns_pose', state['_slope_pose_refresh']['reason'])
+
+    def test_continuous_hydraulic_support_records_contacts_only_when_requested(self):
+        from gui.mods.offline_lan_0922 import native_input_diagnostics
+        for enabled in (False, True):
+            with self.subTest(detailed=enabled):
+                runtime, state, columns = self._suspension_case(lambda x, z: 0.)
+                runtime._descriptors[11].isPitchHullAimingAvailable = True
+                with mock.patch.object(self.module, 'BOT_FULL_SUPPORT_ENABLED', False), \
+                        mock.patch.object(self.module, 'combat_detail_enabled', return_value=enabled), \
+                        mock.patch.object(native_input_diagnostics, 'write_json_record') as recorded:
+                    self.assertFalse(runtime._update_vertical_motion(state, .1))
+                self.assertIsNotNone(runtime._suspension_params[11])
+                self.assertGreaterEqual(len(columns), 22)
+                contacts=[call for call in recorded.call_args_list if call[0][0]=='BOT EDGE DYNAMICS']
+                self.assertEqual(enabled,bool(contacts))
+                if contacts:
+                    self.assertEqual(10,len(contacts[0][0][1]['springs']))
+                    self.assertEqual(12,len(contacts[0][0][1]['pseudo_ground']))
 
     def test_hydraulic_full_support_does_not_enable_ordinary_bots(self):
         runtime, state, unused = self._suspension_case(lambda x, z: 0.)

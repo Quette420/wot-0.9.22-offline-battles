@@ -2943,7 +2943,12 @@ class BotRuntime(SharedEngineControl):
         return True
 
     def _full_support_required(self, state):
+        # Native active child descriptors need not retain the composite's
+        # hydraulic flag. Physical ownership follows the installed pair,
+        # including travel and both transition edges.
+        pair = self._descriptor_pairs.get(int(state['id']))
         return bool(BOT_FULL_SUPPORT_ENABLED or
+                    pair is not None and pair[1] is not None or
                     vehicle_physics.has_hydraulic_suspension(
                         self._descriptors.get(int(state['id']))))
 
@@ -9373,7 +9378,8 @@ class BotRuntime(SharedEngineControl):
             support_vertical_speed)
         moment = float(getattr(self, '_contact_now', None) or 0.0)
         abnormal = vehicle_physics.suspension_abnormal_step(physics_state, solved)
-        if ((state.get('_edge_support_active') or self._full_support_required(state)) and
+        if ((state.get('_edge_support_active') or
+                self._full_support_required(state) and combat_detail_enabled()) and
                 (moment >= state.get('_next_edge_support_log', -1.e30) or
                  (abnormal and moment >= state.get('_next_abnormal_support_log', -1.e30)))):
             state['_next_edge_support_log'] = moment + 2.0

@@ -5837,8 +5837,8 @@ class BattleRuntime(SharedBattleGeometry):
         """Observe the same descriptor contacts as suspension, without stepping it."""
         descriptor = entity.typeDescriptor
         if vehicle_physics.has_hydraulic_suspension(descriptor):
-            # Hydraulic tanks retain their existing native owner and the
-            # pre-existing five-point observer, not the ordinary spring trial.
+            # This read-only pressure observer retains its five witnesses.
+            # It neither selects nor replaces the complete vertical solver.
             shape, yaw = actor['collision_shape'], actor.get('yaw', 0.)
             primary = None
             for side, forward in ((0.,0.),(-shape[0],0.),(shape[0],0.),

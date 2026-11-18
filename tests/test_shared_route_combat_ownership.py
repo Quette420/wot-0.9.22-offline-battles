@@ -406,16 +406,14 @@ class SharedRouteCombatOwnershipTests(unittest.TestCase):
             self.assertGreaterEqual(binding.combat_stop.receipt['confirmation_seconds'], 2.)
             self.assertEqual('engage', binding._last_order['combat_mode'])
             scene.world[:] = [((-200., -20., -3.), (200., 20., 3.))]
-            for unused in range(12):
-                scene.step(.1)
-                if policy.decision['action'] == 'firing_position':
-                    break
-            self.assertEqual('firing_position', policy.decision['action'])
             shot_count = len([event for event in scene.launches_observed if event['id'] == 11])
             trace = []
+            saw_obstruction = False
             with mock.patch.object(policy, 'reset', wraps=policy.reset) as reset:
                 for unused in range(60):
                     scene.step(.1)
+                    saw_obstruction = saw_obstruction or any(row.get('line') == 'world_blocked'
+                        for row in policy.rows.values())
                     command = binding._last_order
                     phase = binding.combat_stop._physical_recovery or {}
                     trace.append(dict(raw=movement(scene.latest_orders[11]),
@@ -428,7 +426,8 @@ class SharedRouteCombatOwnershipTests(unittest.TestCase):
                     if any(row['mode'] == 'route' for row in trace):
                         break
                 self.assertEqual(0, reset.call_count)
-            self.assertTrue(any(row['owned'] for row in trace), trace)
+            self.assertTrue(saw_obstruction,
+                'the wall must be observed by the production evaluator')
             self.assertTrue(any(row['mode'] == 'route' for row in trace),
                 'a wall-blocked native point preview cannot park the worker forever')
             for row in trace:

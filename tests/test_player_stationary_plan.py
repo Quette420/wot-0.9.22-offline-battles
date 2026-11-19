@@ -118,6 +118,27 @@ class NativePlanScene(TraverseScene):
 
 
 class StationaryPlanTests(unittest.TestCase):
+    def test_slow_dependency_reads_cannot_starve_every_native_turn_slice(self):
+        scene = self.scene(bearing=2.8)
+        clock = [0.]
+        scene.planner.clock = lambda: clock[0]
+        dependencies = scene.planner._dependencies
+        def slow_dependencies(frame):
+            clock[0] += .01
+            return dependencies(frame)
+        scene.planner._dependencies = slow_dependencies
+        for attempt in range(100):
+            frame, shell, target, raw = scene.plan_frame()
+            result = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+            if attempt == 0:
+                self.assertGreater(result['verified_arcs'], 0, result)
+            if result['status'] == 'proved':
+                break
+            scene.fixture.now += .11
+            clock[0] += .1
+        self.assertEqual('proved', result['status'], result)
+        self.assertFalse(result['proof']['fire_permission'])
+
     def test_late_physics_slices_keep_one_future_turn_work_quantum(self):
         from gui.mods.offline_lan_0922.vehicle_control import stationary_plan
         scene = self.scene(bearing=2.8)

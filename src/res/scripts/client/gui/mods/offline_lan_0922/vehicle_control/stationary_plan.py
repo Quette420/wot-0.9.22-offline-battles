@@ -700,9 +700,13 @@ class StationaryPlanner(object):
             self._work_frame = budget.frame if budget is not None else None
             if budget is not None and not budget.stationary(self.runtime.actor_id):
                 raise _Deferred('stationary_shared_budget_pending')
-            # Include dependency gathering in the existing wall quantum.
-            # Late physical substeps cannot multiply a callback's work cap.
-            self._budget(now, deadline)
+            # An expired callback cannot gather the same dependencies again.
+            # Open a fresh native-work quantum after gathering them below:
+            # otherwise a slow dependency read can prevent the first native
+            # slice on every callback, rather than merely bounding its work.
+            work_frame = now if self._work_frame is None else self._work_frame
+            if self._budget_at == work_frame:
+                self._budget(now, deadline)
             dependencies, pivot, peers, cap = self._dependencies(frame)
             if costs is not None:
                 costs['dependencies_ms'] = (self.clock()-started)*1000.

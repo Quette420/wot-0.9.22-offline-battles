@@ -215,6 +215,15 @@ class StationaryPlanner(object):
                 not state.get('grounded_once') or
                 state.get('_foreground_support_blocked') or
                 observation(runtime).support_rise_blocked()):
+            if combat_detail_enabled():
+                combat_detail(runtime, 'stationary_motion_pending', runtime.actor_id,
+                    runtime.now, 'stationary_native_support_unsettled', lambda: dict(
+                        airborne=motion[1], speed=motion[2], turn_speed=motion[3],
+                        vertical_speed=motion[4], siege_state=motion[5],
+                        grounded_once=bool(state.get('grounded_once')),
+                        foreground_blocked=bool(state.get('_foreground_support_blocked')),
+                        rise_blocked=observation(runtime).support_rise_blocked(),
+                        position=frame['position'], body=frame['body']))
             raise _Deferred('stationary_native_support_unsettled')
         if any('engine' in value.lower() or 'track' in value.lower() or
                'chassis' in value.lower() for value in motion[0]):

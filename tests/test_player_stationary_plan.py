@@ -126,6 +126,28 @@ class StationaryPlanTests(unittest.TestCase):
         scene.plan_receipts = []
         return scene
 
+    def test_unsettled_motion_detail_is_opted_in_and_does_not_prove_a_turn(self):
+        from gui.mods.offline_lan_0922.vehicle_control import stationary_plan
+        scene = self.scene()
+        scene.battle._local_vertical_speed = .00002
+        frame, shell, target, raw = scene.plan_frame()
+        for enabled in (False, True):
+            with mock.patch.object(stationary_plan, 'combat_detail_enabled', return_value=enabled), \
+                    mock.patch.object(stationary_plan, 'combat_detail') as detail:
+                result = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+                self.assertEqual('stationary_native_support_unsettled', result['reason'])
+                self.assertFalse(result['proved'])
+                if enabled:
+                    self.assertEqual('stationary_motion_pending', detail.call_args[0][1])
+                    evidence = detail.call_args[0][5]()
+                    self.assertEqual(.00002, evidence['vertical_speed'])
+                    self.assertEqual(0., evidence['speed'])
+                    self.assertEqual(0., evidence['turn_speed'])
+                    self.assertTrue(evidence['grounded_once'])
+                    self.assertFalse(evidence['airborne'])
+                else:
+                    detail.assert_not_called()
+
     def test_partial_progress_counts_only_finished_native_arc_receipts(self):
         from gui.mods.offline_lan_0922.vehicle_control import stationary_plan
         scene = self.scene(bearing=2.8)

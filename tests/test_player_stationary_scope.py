@@ -300,9 +300,7 @@ class NativeStationaryScopeIntegrationTests(unittest.TestCase):
         self.assertEqual(('excluded', 'unknown', 'clear'),
                          (row.get('scope'), row['armor'], row['line']))
         policy = scene.runtime.attack_policy
-        current = policy._current(job, require_line=True)
-        self.assertEqual(row['scope_proof'], current['scope_proof'])
-        self.assertEqual(row['solution']['point'], current['solution']['point'])
+        self.assertIs(row, policy._current(job, require_line=True))
         # Canonical repair arrives before the next copied observation. It
         # must still invalidate the old engine-immobile exclusion immediately.
         scene.battle._records['player:1']['state']['critical']['destroyed'] = []

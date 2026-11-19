@@ -225,7 +225,7 @@ class AttackModeIntentTests(unittest.TestCase):
 
 
 class NativeModeIntentTests(unittest.TestCase):
-    def test_actual_mode_descriptor_echo_keeps_armour_and_refreshes_mechanics(self):
+    def test_actual_mode_descriptor_echo_preserves_target_but_expires_all_old_rows(self):
         scene = SiegeScene()
         scene.setUp()
         self.addCleanup(scene.doCleanups)
@@ -259,7 +259,7 @@ class NativeModeIntentTests(unittest.TestCase):
         refreshed = policy.current_row(first)
         if refreshed is not None:
             self.assertIsNot(first, refreshed)
-            self.assertEqual(first['pose_stamp'], refreshed['pose_stamp'])
+            self.assertNotEqual(first['pose_stamp'], refreshed['pose_stamp'])
         scene.echo_mode(siege_mechanics.DISABLED, 1)
         scene.step(.1)
         policy.update(scene.now)

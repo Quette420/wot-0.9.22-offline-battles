@@ -158,8 +158,6 @@ class OrderedAttack(object):
 
     def _switch(self, policy, shell, reason):
         self.fallback_load = shell['index'] if reason == 'ordered_he_fallback_load' else None
-        if policy.reload_authority is not None:
-            policy.reload_authority['ordered_shell'] = shell['index']
         action = 'reload_clip' if policy.frame['clip_size'] > 1 else 'switch_shell'
         return policy._choose(action, reason, shell_index=shell['index'],
                               early_reload=policy.frame['clip'] > 0 and policy.frame['ammo'][self.loaded] > 0)
@@ -168,15 +166,13 @@ class OrderedAttack(object):
         fence = getattr(policy.evaluator, 'fence_next', None)
         if ((row['observed_at'] == now or any(proof['observed_at'] == now for proof in ranking)) and
                 callable(fence) and not fence(policy.frame, ranking or (row,), False)):
-            policy._invalidate_observation()
-            if policy.frame.get('review_stamps') is None:
-                policy.selected = None
+            policy.rows.clear()
+            policy.selected = None
             policy._frame_invalid = True
-            if policy.frame.get('review_stamps') is None:
-                self.blocked_points.clear()
-                self.blocked_targets.clear()
-                self.blocked_origin = None
-                self.blocked_revisit = False
+            self.blocked_points.clear()
+            self.blocked_targets.clear()
+            self.blocked_origin = None
+            self.blocked_revisit = False
             return policy._recover_incomplete(now, 'ordered_point_observation_changed')
         policy.fallback = row['mode'] == 'he_fallback'
         policy.reload_authority = None
@@ -306,10 +302,9 @@ class OrderedAttack(object):
                 policy._collect_current_he_observations((winner,), observations)
         fence = getattr(policy.evaluator, 'fence', None)
         if policy._frame_invalid or callable(fence) and not fence(policy.frame):
-            policy._invalidate_observation()
-            if policy.frame.get('review_stamps') is None:
-                policy.selected = None
-                policy._current_he_execution = None
+            policy.rows.clear()
+            policy.selected = None
+            policy._current_he_execution = None
             policy._frame_invalid = True
             return policy._recover_incomplete(now, 'current_he_observation_changed')
         policy._current_he_observations = observations
@@ -374,12 +369,7 @@ class OrderedAttack(object):
                 # revisit must observe this target again, even at rest.
                 for job in jobs:
                     if job[0][1] == next_target:
-                        row = policy.rows.get(job[0])
-                        if row is not None and policy.frame.get('review_stamps') is not None:
-                            row.update(line='pending', review_path=())
-                            row.pop('stationary_plan', None)
-                        else:
-                            policy.rows.pop(job[0], None)
+                        policy.rows.pop(job[0], None)
                         invalidate = getattr(policy.evaluator, 'invalidate_line', None)
                         if callable(invalidate):
                             invalidate(job[0])
@@ -434,8 +424,6 @@ class OrderedAttack(object):
         combat = getattr(policy.runtime, 'combat_stop', None)
         if getattr(combat, 'stationary_hold', lambda: False)() and not combat.capture_can_lay(row):
             return False
-        if row.get('review_retained') and policy._plannable(row, mode):
-            return True
         planned = policy._executable(policy._planned_evidence(row), mode)
         if planned or getattr(policy.runtime, 'siege_capable', lambda: False)():
             return planned
@@ -543,7 +531,7 @@ class OrderedAttack(object):
             if getattr(policy.runtime, 'siege_capable', lambda: False)():
                 native = next((row for row in current if row is not None and
                     row.get('line') == 'clear' and row.get('mechanical') in
-                    ('hull_laying', 'hydraulic_laying', 'mechanical_limited') and
+                    ('hull_laying', 'mechanical_limited') and
                     isinstance(row.get('solution'), dict)), None)
                 if native is not None:
                     # This is only an actuator request. The existing siege

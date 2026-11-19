@@ -150,7 +150,7 @@ class ActualSiegeAimTests(unittest.TestCase):
         self.assertFalse(policy._executable(result))
         self.assertEqual(before_world, len(scene.world_queries))
         # Removing the checked arc must not authorize this sideways input.
-        unproved = dict(row, stationary_plan=None, review_lay_plan=None, review_result=None)
+        unproved = dict(row, stationary_plan=None)
         policy.rows[row['key']] = unproved
         self.assertIsNone(scene.runtime.siege_aim.candidate(policy.frame, scene.now, unproved))
         self.assertEqual(0, scene.runtime.siege_aim.status()['native_calls'])

@@ -313,9 +313,8 @@ class Report141918ControlRegressionTests(unittest.TestCase):
             self.assertEqual('route', row['executed']['combat_mode'])
             self.assertEqual(1, scene.battle._gun_state.clip)
             self.assertEqual(0., scene.battle._gun_state.reload_time)
-            self.assertIn((row['policy']['action'], row['policy']['reason']), (
-                ('wait', 'ordered_he_penetration_pending'),
-                ('navigate', 'ordered_he_no_clear_lane')))
+            self.assertEqual('wait', row['policy']['action'])
+            self.assertEqual('ordered_he_penetration_pending', row['policy']['reason'])
             self.assertIsNone(row['policy']['line'])
             # Ordinary HE may retain its already proved one-point plate
             # failure. The new wreck is known physical geometry, and must

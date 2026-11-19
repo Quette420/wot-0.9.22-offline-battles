@@ -6,7 +6,6 @@ than rounding planning poses or manufacturing an already-passed evaluation.
 These counts describe deterministic work, not native-client wall-clock time.
 """
 import struct
-import math
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -70,7 +69,7 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
             for material in getattr(self.target.typeDescriptor, name).materials.values():
                 material.armor = 10000.
 
-    def test_sub_native_ray_jitter_preserves_vehicle_armour_without_resolving_again(self):
+    def test_sub_native_ray_jitter_recomputes_proof_without_recurring_collision(self):
         self.harden()
         with mock.patch.object(combat_rules, 'resolve_armor_contact',
                                wraps=combat_rules.resolve_armor_contact) as resolve:
@@ -86,6 +85,7 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
                 self.origin = (0., 2., index * 1.e-9)
                 fresh = self.snapshot()
                 self.assertNotEqual(previous['pose_stamp'][1], fresh['planning_pose'])
+                self.assertIsNone(self.policy.current_row(previous))
                 current = self.evaluate_point()
                 self.assertEqual('failed', current['armor'])
                 current_job = self.evaluator.jobs[current['key'][:3]]
@@ -95,11 +95,12 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
                 previous, previous_job = current, current_job
             self.assertEqual(calls, self.native_hits)
             self.assertEqual(batches, self.evaluator.cache_observations['armour_batches'])
-            self.assertEqual(0, self.evaluator.cache_observations['armour_ray_reuses'])
-            self.assertEqual(1, resolve.call_count)
-            self.assertEqual(1, len(set(distances)))
+            self.assertEqual(8, self.evaluator.cache_observations['armour_ray_reuses'])
+            self.assertEqual(9, resolve.call_count)
+            self.assertGreater(len(set(distances)), 1,
+                               'range must be resolved again, not reused with the hit list')
 
-    def test_muzzle_shift_without_a_centre_angle_change_keeps_armour_result(self):
+    def test_real_source_ray_change_requeries_collision_and_retires_negative(self):
         self.harden()
         old = self.evaluate_point()
         calls = self.native_hits
@@ -108,25 +109,23 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
         self.assertIsNone(self.policy.current_row(old))
         current = self.evaluate_point()
         self.assertEqual('failed', current['armor'])
-        self.assertEqual(self.native_hits, calls)
-        self.assertEqual(old['pose_stamp'], current['pose_stamp'])
+        self.assertGreater(self.native_hits, calls)
+        self.assertNotEqual(old['pose_stamp'], current['pose_stamp'])
         self.assertEqual(0, self.evaluator.cache_observations['armour_ray_reuses'])
 
-    def test_native_target_turret_change_keeps_the_vehicle_armour_result(self):
+    def test_native_target_turret_change_requeries_collision(self):
         self.harden()
         old = self.evaluate_point()
         calls = self.native_hits
         self.target.appearance.turretMatrix.setRotateY(.2)
         self.snapshot()
-        # Live aim refresh belongs to the bounded frontier, not a cache read.
-        # Its armour result survives that refresh without another collider hit.
         self.assertIsNone(self.policy.current_row(old))
         current = self.evaluate_point()
         self.assertEqual('failed', current['armor'])
-        self.assertEqual(self.native_hits, calls)
-        self.assertEqual(old['pose_stamp'], current['pose_stamp'])
+        self.assertGreater(self.native_hits, calls)
+        self.assertNotEqual(old['pose_stamp'][2], current['pose_stamp'][2])
 
-    def test_thirty_degree_heading_review_replaces_the_prior_negative(self):
+    def test_armor_revision_cannot_retain_a_now_false_negative(self):
         self.harden()
         old = self.evaluate_point()
         self.assertEqual('failed', old['armor'])
@@ -135,8 +134,6 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
             for material in getattr(self.target.typeDescriptor, name).materials.values():
                 material.armor = 10.
         self.battle._records['bot:%s' % self.target.id]['armor_revision'] = 1
-        self.target.matrix.setRotateY(math.radians(30.))
-        self.target.matrix.translation = tuple(self.target.position)
         self.snapshot()
         self.assertIsNone(self.policy.current_row(old))
         current = self.evaluate_point()
@@ -152,7 +149,7 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
             self.observed_runtime.combat_stop.signature = ('admitted', index)
             self.assertFalse(self.evaluator.fence(frame))
             self.snapshot()
-            self.assertIsNotNone(self.policy.current_row(old))
+            self.assertIsNone(self.policy.current_row(old))
             current = self.evaluate_point()
             self.assertEqual('passed', current['armor'])
             self.assertIs(cached, self.evaluator.jobs[current['key'][:3]])
@@ -184,18 +181,6 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
         self.assertFalse(self.evaluator.armour_rays)
         self.evaluate_point()
         self.assertGreater(self.native_hits, calls)
-
-    def test_known_negative_ranks_during_lane_churn_without_becoming_a_firing_row(self):
-        self.harden()
-        failed = self.evaluate_point()
-        friend = self.vehicle(71, (0., 0., 45.), 1)
-        self.snapshot()
-        job = next(job for job in self.policy._jobs(shell_index=0) if job[0] == failed['key'])
-        self.assertIsNone(self.policy._current(job, require_line=True))
-        ranked = self.policy._next_row(job)
-        self.assertTrue(ranked['review_rank_only'])
-        self.assertEqual('failed', ranked['armor'])
-        self.assertFalse(self.policy._executable(ranked))
 
     def test_real_snapshot_atomic_interval_survives_admission_churn(self):
         self.harden()

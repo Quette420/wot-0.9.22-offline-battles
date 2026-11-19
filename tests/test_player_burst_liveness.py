@@ -162,15 +162,12 @@ class PlayerBurstLivenessTests(unittest.TestCase):
         self.assertTrue(path)
         self.assertGreater(sum((path[-1][i] - solution['point'][i]) ** 2 for i in range(3)), .30 ** 2)
 
-    def test_armor_changes_after_head_do_not_add_another_prelaunch_armour_gate(self):
+    def test_armor_changes_after_head_tails_continue_next_trigger_rechecks(self):
         self._head()
         for name in ('chassis', 'hull', 'turret', 'gun'):
             getattr(self.fixture.target.typeDescriptor, name).materials[0].armor = 10000.
         self._tail()
-        self.fixture.advance(.6)
-        self.assertTrue(self.fixture.fire(), self.admission.receipt)
-        self.assertEqual([16, 10], self.owner._gun_state.ammo)
-        self.assertEqual(4, len(self.fixture.launches()))
+        self._next_denied('auto_actual_barrel_armour')
 
     def test_stop_detaches_controller_but_cannot_cancel_committed_trigger(self):
         burst = self._head()

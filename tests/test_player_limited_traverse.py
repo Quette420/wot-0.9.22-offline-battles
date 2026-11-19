@@ -277,7 +277,7 @@ class LimitedTraverseGeometryTests(TraverseHarness, unittest.TestCase):
         before = scene.evaluate()
         scene.set_hull(.58)
         after = scene.lay_current()
-        self.assertEqual(before['pose_stamp'], after['pose_stamp'])
+        self.assertNotEqual(before['pose_stamp'], after['pose_stamp'])
         self.assertEqual('reachable', after['mechanical'])
         self.assertEqual(before['solution']['point'], after['solution']['point'])
         self.assertTrue(scene.runtime.weapon.verified)
@@ -676,7 +676,7 @@ class MovingTraverseConsumerTests(TraverseHarness, unittest.TestCase):
         self.assertEqual(0, scene.control.automatic_commits)
         self.assertFalse(scene.battle._projectile_meta)
 
-    def test_native_arc_and_physical_gun_replacement_still_guard_launch(self):
+    def test_descriptor_or_gun_replacement_retires_old_penetration_evidence(self):
         for changed in ('descriptor', 'gun'):
             with self.subTest(changed=changed):
                 scene = self.scene(limits=(-.8, .8))
@@ -692,7 +692,7 @@ class MovingTraverseConsumerTests(TraverseHarness, unittest.TestCase):
                 self.assertFalse(scene.fire())
                 self.assertFalse(scene.battle._projectile_meta)
                 if changed == 'descriptor':
-                    self.assertEqual(before, scene.evaluate()['pose_stamp'])
+                    self.assertNotEqual(before, scene.evaluate()['pose_stamp'])
 
 
 if __name__ == '__main__':

@@ -272,19 +272,12 @@ class CombatControl(object):
         planned = (policy._planned_evidence(row) if for_aim and
                    row.get('mechanical') in ('hull_laying', 'mechanical_limited') and
                    policy._plannable(row, mode) else None)
-        retained_motion = (for_aim and row.get('review_retained') and
-            row.get('review_lay_plan') is not None and policy._plannable(row, mode) and
-            policy._attack_result(row.get('review_result') or row, mode) and row.get('mechanical') in
-                ('hull_laying', 'hydraulic_laying', 'mechanical_limited'))
-        if retained_motion:
-            return dict(row, solution=dict(row['solution'], _player_motion_only=True),
-                        _player_stationary_motion=True)
         if planned is not None and not (planned.get('solution') or {}).get('needs_hull'):
             planned = None
         intention = planned or row
         if ((not for_aim and not policy._executable(row, mode)) or
                 (for_aim and (not isinstance(intention.get('solution'), dict) or
-                    (row.get('mechanical') not in ('reachable', 'hull_laying', 'hydraulic_laying') and
+                    (row.get('mechanical') not in ('reachable', 'hull_laying') and
                      planned is None) or
                     intention.get('line') != 'clear' and policy.decision['action'] != 'preaim'))):
             return None
@@ -995,6 +988,5 @@ class CombatControl(object):
             costs['total_ms'] = (_COMMAND_CLOCK()-started)*1000.
             costs['policy'] = self.attack_policy.decision.get('reason')
             combat_detail(self, 'combat_command_cost', self.actor_id, now, 'sample',
-                lambda: dict(costs=costs, actor_kind=self.actor_kind,
-                    evaluation=(self.attack_policy.frame or {}).get('evaluation_counts')))
+                lambda: dict(costs=costs, actor_kind=self.actor_kind))
         return order

@@ -530,7 +530,7 @@ class AutomaticArtilleryAdmissionTests(ArtilleryFireScene):
         self.assertEqual([19, 10], self.battle._gun_state.ammo)
         self.assertEqual(1, launch['burst_count'])
 
-    def test_high_arc_target_motion_after_alignment_commits_the_frozen_launch(self):
+    def test_high_arc_target_pose_change_after_preinstall_cannot_use_old_proof(self):
         self.configure_artillery()
         original, changed = self.battle._preinstall_player_projectile, []
         def native_target_moves(*args):
@@ -545,10 +545,17 @@ class AutomaticArtilleryAdmissionTests(ArtilleryFireScene):
             if changed:
                 break
         self.assertTrue(changed)
-        self.assertIsNone(self.control.last_fire_failure)
-        self.assertEqual(1, len(self.launches()))
+        self.assertIn(self.control.last_fire_failure,
+                      ('auto_target_changed', 'auto_target_pose_changed'))
+        self.assertFalse(self.launches())
+        self.assertEqual([20, 10], self.battle._gun_state.ammo)
+        self.assertEqual(1, self.battle._gun_state.clip)
+        self.assertIsNone(self.battle._local_player_burst)
+        self.battle._preinstall_player_projectile = original
+        launch = self.run_until_artillery_launch()
+        self.assertGreater(self.runtime.weapon.point[0], 10.)
         self.assertEqual([19, 10], self.battle._gun_state.ammo)
-        self.assertEqual(1, self.launches()[0]['burst_count'])
+        self.assertEqual(1, launch['burst_count'])
 
 
 class AutomaticFireAdmissionTests(AutomaticFireScene):
@@ -801,33 +808,32 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
         self.assertEqual('auto_friendly_lane', self.admission.receipt['reason'])
         self.assert_unspent()
 
-    def test_aligned_trigger_does_not_repeat_the_completed_armour_choice(self):
+    def test_first_trigger_rechecks_armor_not_only_candidate_boolean(self):
         for name in ('chassis', 'hull', 'turret', 'gun'):
             getattr(self.target.typeDescriptor, name).materials[0].armor = 10000.
         self.assertEqual('passed', self.candidate['armor'])
-        with mock.patch(ADMISSION+'.combat_rules.resolve_armor_contact',
-                        side_effect=AssertionError('late penetration check')):
-            self.assertTrue(self.fire(), self.admission.receipt)
-        self.assertEqual([19, 10], self.battle._gun_state.ammo)
-        self.assertEqual(1, len(self.launches()))
+        self.assertFalse(self.fire())
+        self.assertEqual('auto_actual_barrel_armour', self.admission.receipt['reason'])
+        self.assert_unspent()
 
     def test_actual_barrel_refusal_details_require_the_diagnostic_checkbox(self):
-        self.vehicle(43, (0., 0., 50.), 2)
+        for name in ('chassis', 'hull', 'turret', 'gun'):
+            getattr(self.target.typeDescriptor, name).materials[0].armor = 10000.
         for enabled in (False, True):
             with self.subTest(detailed=enabled):
                 self.admission.reset()
                 with mock.patch(ADMISSION+'.combat_detail_enabled', return_value=enabled), \
                         mock.patch(ADMISSION+'.combat_detail') as detail:
                     self.assertFalse(self.fire())
-                self.assertEqual('auto_front_vehicle', self.admission.receipt['reason'])
+                self.assertEqual('auto_actual_barrel_armour', self.admission.receipt['reason'])
                 self.assert_unspent()
                 self.assertEqual(enabled,detail.called)
                 if enabled:
                     self.assertEqual('actual_barrel_refusal',detail.call_args.args[1])
                     payload=detail.call_args.args[-1]()
                     self.assertEqual(self.target.id,payload['target_engine'])
-                    self.assertEqual('auto_front_vehicle',payload['refusal'])
-                    self.assertTrue(payload['contact']['geometry_only'])
+                    self.assertEqual('auto_actual_barrel_armour',payload['refusal'])
+                    self.assertNotEqual(2,payload['contact']['armor']['result'])
                     self.assertEqual(3,len(payload['barrel_direction']))
 
     def test_actual_world_refusal_records_the_blocking_chord_only_with_opt_in(self):
@@ -1112,27 +1118,28 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
         self.assertFalse(self.control.active)
         self.assert_unspent()
 
-    def test_target_turret_motion_does_not_cancel_an_aligned_shot(self):
+    def test_native_target_articulation_change_invalidates_terminal_proof(self):
         original = self.battle._preinstall_player_projectile
         def turn_turret_after_install(*args):
             result = original(*args)
             self.target.appearance.turretMatrix.setRotateY(.5)
             return result
         self.battle._preinstall_player_projectile = turn_turret_after_install
-        self.assertTrue(self.fire(), self.admission.receipt)
-        self.assertEqual([19, 10], self.battle._gun_state.ammo)
-        self.assertEqual(1, len(self.launches()))
+        self.assertFalse(self.fire())
+        self.assertIn(self.control.last_fire_failure,
+                      ('auto_target_changed', 'auto_target_pose_changed'))
+        self.assert_unspent()
 
-    def test_body_observation_without_a_changed_barrel_keeps_frozen_launch(self):
+    def test_native_hull_articulation_after_preinstall_invalidates_source_proof(self):
         original = self.battle._preinstall_player_projectile
         def change_body_after_install(*args):
             result = original(*args)
             self.body.setRotateYPR((0., -.1, 0.))
             return result
         self.battle._preinstall_player_projectile = change_body_after_install
-        self.assertTrue(self.fire(), self.admission.receipt)
-        self.assertEqual([19, 10], self.battle._gun_state.ammo)
-        self.assertEqual(1, len(self.launches()))
+        self.assertFalse(self.fire())
+        self.assertEqual('auto_source_pose_changed', self.control.last_fire_failure)
+        self.assert_unspent()
 
     def long_range(self):
         for shot in self.battle._gun_state.shots:
@@ -1275,14 +1282,14 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
                 self.assertEqual('failed' if caliber == 90. else 'passed', scored['armor'])
                 hit = self.admission._contact(proof, (0., 2., 90.), (0., 2., 100.), .09, .1,
                                               centre=True)
-                self.assertNotIn('contact', hit)
+                self.assertEqual(layer, (hit['contact'] or {}).get('layer'))
                 self.assertAlmostEqual(.2, hit['fraction'])
                 sampled = self.admission._contact(proof, (0., 2., 90.),
                                                    (0., 2., 100.), .09, .1)
                 if caliber == 90.:
                     self.assertIsNone(sampled)
                 else:
-                    self.assertIn(hull, sampled['hits'])
+                    self.assertEqual('structural', sampled['contact']['layer'])
 
     def test_he_spaced_external_contact_requires_a_real_blast_surface(self):
         module = 'gui.mods.offline_lan_0922.entities.remote_vehicle.collide_vehicle_at_matrix'
@@ -1324,8 +1331,7 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
             self.assertEqual(0., self.candidate['expected_damage'])
             self.step()
             self.assertTrue(self.fire(), self.admission.receipt)
-            self.assertEqual(1, blast.call_count,
-                             'The selected fallback surface is not rescored at the trigger')
+            self.assertGreater(blast.call_count, 1)
 
     def _hydraulic(self):
         desc = self.entity.typeDescriptor

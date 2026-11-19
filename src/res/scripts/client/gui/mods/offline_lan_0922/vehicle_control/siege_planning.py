@@ -220,9 +220,6 @@ class ActualSiegeAim(object):
                 return None
             policy = self.runtime.attack_policy
             planned = policy._planned_evidence(row) or {}
-            retained_motion = (row.get('review_retained') and
-                row.get('review_lay_plan') is not None and
-                policy._attack_result(row.get('review_result') or row, row.get('mode', 'penetration')))
             if (planned.get('status') == 'proved' and planned.get('line') == 'clear' and
                     (planned.get('armor') in ('passed', 'failed') or
                      row.get('mode') == 'he_fallback' and policy._executable(planned, 'he_fallback')) and
@@ -239,8 +236,7 @@ class ActualSiegeAim(object):
                 # the starting heading to satisfy the endpoint's pitch.
                 turn_first = bool(solution.get('stationary_plan') and
                     solution.get('needs_hull') and
-                    policy._plannable(row, row.get('mode', 'penetration')) or
-                    retained_motion and solution.get('review_turn_first'))
+                    policy._plannable(row, row.get('mode', 'penetration')))
                 if not turn_first:
                     self.receipt.update(reason=reach['reason'])
                     if combat_detail_enabled():
@@ -251,13 +247,13 @@ class ActualSiegeAim(object):
                 and 'hydraulic_pitch' in solution else reach['hydraulic_pitch'])
             needs_hull = bool(solution.get('needs_hull') or reach.get('needs_hull'))
             if (needs_hull and frame.get('ordered') and shell.get('is_he') and
-                    not retained_motion and not policy._executable(planned, row.get('mode', 'penetration'))):
+                    not policy._executable(planned, row.get('mode', 'penetration'))):
                 self.receipt.update(reason='stationary_hull_review_pending')
                 if combat_detail_enabled():
                     self._report_aim('siege_hull_review', now, row, solution, hydraulic, reach)
                 return None
             if (needs_hull and self.runtime.attack_policy.decision.get('reason') ==
-                    'stationary_domain_review_pending' and not retained_motion):
+                    'stationary_domain_review_pending'):
                 self.receipt.update(reason='stationary_hull_review_pending')
                 if combat_detail_enabled():
                     self._report_aim('siege_hull_review', now, row, solution, hydraulic, reach)
@@ -345,9 +341,6 @@ class ActualSiegeAim(object):
                 and target.get('alive', True)), None)
             if current is None or runtime.target_entity(current) is not lease['target']:
                 return None
-            # The native inverse is tied to these transforms, unlike the
-            # retained armour decision. Refreshing this cheap actuator input
-            # does not rescan plates or reset the accepted turn task.
             if native_target_pose(owner, lease['target'])[0] != lease['target_pose']:
                 return None
             velocity = tuple(current.get('velocity') or ())

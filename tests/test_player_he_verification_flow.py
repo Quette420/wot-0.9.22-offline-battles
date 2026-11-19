@@ -86,10 +86,6 @@ class HEVerificationFlowTests(unittest.TestCase):
         for name in ('chassis', 'hull', 'turret', 'gun'):
             getattr(target.typeDescriptor, name).materials[0].armor = armor
         scene.pose(target, (20. + offset, 0., 40.))
-        # A changed plate fixture needs an approved vehicle-level trigger.
-        # A few centimetres of translation no longer invalidates all plates.
-        target.matrix.setRotateY(math.radians(offset * 100.))
-        target.matrix.translation = (20. + offset, 0., 40.)
 
     def test_ordinary_he_first_point_success_launches_without_loading_another_shell(self):
         scene, target = self.scene()

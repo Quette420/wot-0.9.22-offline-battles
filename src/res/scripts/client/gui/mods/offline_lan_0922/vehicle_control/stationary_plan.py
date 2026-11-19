@@ -241,7 +241,7 @@ class StationaryPlanner(object):
         from .attack_policy import native_source_pose
         native_origin = _point(observation(runtime).mutable_shot_ray()[0])
         native_pose = native_source_pose(runtime, native_origin)
-        if (any(native_pose[index] != frame['pose'][index] for index in (1, 2, 4, 5, 6)) or
+        if (any(native_pose[index] != frame['pose'][index] for index in (0, 1, 2, 4, 5, 6)) or
                 frame['identity'] != tuple(observation(runtime).weapon_identity()) + (id(descriptor.gun),)):
             error = _Deferred('stationary_native_source_changed')
             if combat_detail_enabled():

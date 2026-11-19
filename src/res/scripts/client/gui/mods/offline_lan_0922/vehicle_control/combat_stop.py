@@ -227,7 +227,7 @@ class CombatStop(object):
             _key(candidate.get('target') or {}) == primary and not self.explicit_travel)
         hold_turn = bool(self.stationary_hold() and (
             candidate.get('mechanical') == 'siege_aim_deferred' and candidate.get('line') == 'clear' or
-            candidate.get('mechanical') in ('hull_laying', 'hydraulic_laying', 'mechanical_limited') and
+            candidate.get('mechanical') in ('hull_laying', 'mechanical_limited') and
                 self.capture_can_lay(candidate)))
         return bool(self.active and self.contains(candidate.get('target')) and
                     (self.can_request_movement or 'drive' not in self.runtime.features or
@@ -364,7 +364,7 @@ class CombatStop(object):
         runtime = self.runtime
         hydraulic = getattr(runtime, 'siege_aim', None)
         if (current.get('line') == 'clear' and
-                current.get('mechanical') in ('mechanical_limited', 'hydraulic_laying') and
+                current.get('mechanical') == 'mechanical_limited' and
                 current.get('shell_index') == runtime.gun.shot_index and
                 hydraulic is not None and runtime.siege_capable() and
                 observation(runtime).native_siege_state() == siege_mechanics.ENABLED and
@@ -382,9 +382,6 @@ class CombatStop(object):
         if candidate is None or candidate.get('shell_index') != self.runtime.gun.shot_index:
             return None
         solution = candidate.get('solution')
-        if (candidate.get('review_retained') and policy._plannable(candidate,
-                candidate.get('mode', 'penetration')) and isinstance(solution, dict)):
-            return solution
         if (candidate.get('line') == 'clear' and
                 candidate.get('mechanical') == 'hull_laying' and isinstance(solution, dict)):
             return solution
@@ -477,7 +474,7 @@ class CombatStop(object):
             failed['blocked'] = True
         if (line != 'clear' or not isinstance(row.get('solution'), dict) or
                 row.get('mechanical') not in (
-                    'reachable', 'hull_laying', 'hydraulic_laying', 'mechanical_limited', 'siege_aim_deferred') or
+                    'reachable', 'hull_laying', 'mechanical_limited', 'siege_aim_deferred') or
                 row.get('scope') == 'excluded' or
                 row.get('armor') == 'failed' and not row.get('route_he_contact') and
                 not runtime.attack_policy._attack_result(row, row.get('mode', 'penetration'))):

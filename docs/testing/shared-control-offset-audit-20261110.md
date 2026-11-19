@@ -1,84 +1,33 @@
 # PR119 control-offset correction — November 10, 2026
 
-## Current follow-up — November 20, 2026, vehicle-level armour review
+## Current status — November 20, 2026, complete follow-up rollback
 
-The user authorized the same correction for player and Bot control: review
-armour when either the direction between the two vehicle centres changes by
-30 degrees or the enemy chassis heading changes by 30 degrees; preserve real
-obstruction skipping/recovery and remove the repeated terminal penetration
-decision. Original navigation remains outside this change.
+At the user's request, commits `a527b668` and `34cc2f71` are reverted in full.
+Before this rollback note was added, the complete tracked tree matched
+`7ac52cc1507c8791efccab5a34cdb792fbc7fcb6` exactly (tree
+`63d365ef1b70c2bf509ec59fabf1ec6aef32cf5c`). Its runtime sources are identical
+to `380eaa151bed49c1452edc9deebce4c71c867383`; their intervening change is
+documentation only. No partial cache, trajectory, turn, pose-guard, reload,
+trigger-admission or test changes from the rejected follow-up remain.
 
-The reference is the last completed vehicle-level review snapshot, not the
-previous frame or the currently selected point. The centre-line measurement
-uses the world direction between chassis centres, including elevation. Enemy
-heading is a separate wrapped yaw comparison. Later crossings of either gate
-can reopen another review. Switching samples cannot move the reference.
-Own aiming turns, turret/gun animation, hydraulic slew and small ground/body
-settling keep the armour choice. Mounting a different current shell gets its
-own decision; a queued NEXT input does not invalidate the loaded round.
+Both failed candidates and their native reports remain in commit history and
+the local QA archive. Reports `wot-error-report-20261120-011212-2f2439e49895.zip`
+and `wot-error-report-20261120-012210-e2f21ecd41af.zip` preserve the first
+candidate and its unsuccessful performance follow-up. Local improvements or
+individual Bot impacts did not establish full native acceptance. The complete
+cause of the reported sustained 999 ms load has not been proved.
 
-Armour choice, live aiming geometry and physical movement proof now have
-separate lifetimes. Current intercepts and lanes refresh without rolling
-penetration again. A retained future turn is a motion intention, not an
-actual gun-alignment certificate. Existing native support, pivot, collision,
-readiness and ownership checks still execute. The exact-source guard no longer
-mistakes an unpublished raw physics-position update for a changed published
-body/muzzle; published transforms and the existing support proofs still apply.
+The installed #1513 client payload was restored from `local-pr119-34cc2f71`
+to the existing `local-pr119-380eaa15` package. Independent verification matches
+266 client modules and the frozen launcher/server/native payload to these
+restored sources. The existing Windows ZIP has 1300 members, passes integrity
+checks and matches the verified baseline application file for file. No new
+application build or battle was started for this rollback.
 
-Confirmed blocked points leave normal shooting immediately. One real clear
-geometry observation restores them to the normal candidate pool, without
-stealing an already usable aim. Blocked-target revisits keep valid plate
-results and finite traversal progress. A still-valid negative plate result can
-finish an ammunition sweep while lane observations are pending; that ranking
-evidence cannot fire, authorize movement or supply HE contact damage.
-
-The shared trigger admission checks geometric obstruction and the actual
-frozen launch, without re-running centre-ray penetration or HE blast yield.
-Unrelated off-lane vehicle animation cannot revoke that launch; a newly
-intervening actor still can. Already aligned shots can naturally miss, bounce
-or fail to penetrate. Real projectile material traversal, damage and blocked
-damage accounting are unchanged. HE fallback surface scoring also retains
-the same point's completed penetration choice instead of opening a third trial.
-
-Associated handoffs retain a same-shell aim through clip reload, finish an
-already qualified ordered reload, and retain work/aim intention when a native
-callback revokes only geometric observations. Siege entry remains the existing
-two-second clear-contact confirmation followed by actual native ENABLED echo
-before angle judgment. Ammunition ordering, whitelist roles, shot/clip return
-counts and cooldown rules are retained.
-
-The regression changes explicitly replace the old requirements for per-pose
-armour expiry, turret-animation expiry and a terminal armour veto. Real launch
-debits, frozen-ray integrity, manual takeover, burst-tail ownership, native
-support/pivot refusals, waiting/capture controls and complete navigation-command
-assertions remain tested. Added integration cases cover both actor bindings,
-both 30-degree gates, elevation, successive crossings, point independence,
-departure/reentry, HE surface scoring, obstruction recovery and diagnostic-off
-behavior. New detailed review records are emitted only through the checked
-detailed-diagnostic option.
-
-The first native candidate, `a527b668`, failed the original 15-versus-15
-Windstorm Strv S1 scene. The player committed five shots; the worker recorded
-no Bot native trigger acceptance. Report
-`wot-error-report-20261120-011212-2f2439e49895.zip` preserves the ended game.
-An earlier mid-game sample measured median worker frames of 1026.978 ms
-(maximum 1615.997 ms), while median server RTT was 16.159 ms. The resulting
-frame gaps repeatedly reset the existing 0.75-second observation-gap guard,
-preventing most Bots from accumulating the required two-second clear contact.
-This candidate is not approved for delivery.
-
-A reproduced calculation-budget defect refreshed every cached point's
-trajectory during row enumeration, outside the foreground/background limits.
-Both actor bindings reproduced nine extra trajectory requests for one cached
-enemy. Row reads now consume only already priced current trajectories; fresh
-intercepts remain in the existing bounded evaluation frontier. Armour results
-remain cached. Optional cost records include trajectory counts and native
-snapshot costs. The two-second confirmation and its gap guard are unchanged.
-
-Release verification and another native-client run are in progress. This
-section will be completed with the final runtime, package, exact CI and
-original-scene evidence. Original PR #119 stays open and unmerged; no tag or
-release is authorized.
+This restores the pre-follow-up behavior; it does not complete the requested
+30-degree armour-review change or claim that earlier issues are fixed. Further
+behavioral edits are paused pending discussion. Original PR #119 remains open
+and unmerged; no tag or release is authorized.
 
 ## Previous follow-up — November 19, 2026, opt-in turn-plan investigation
 

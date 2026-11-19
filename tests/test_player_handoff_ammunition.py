@@ -4,7 +4,6 @@ All cases run the original planner, native point evaluation, PlayerControl and
 actual battle.shoot/GunState accounting. Native geometry and actuator observations
 come from OwnershipScene; this is not a Windows physics or timing play test.
 """
-import math
 import unittest
 
 from test_player_combat_ownership import OwnershipScene
@@ -188,10 +187,8 @@ class HandoffAmmunitionTests(unittest.TestCase):
         self.assertIn('current_shot_navigation_owned', reasons)
         for component in ('chassis', 'hull', 'turret', 'gun'):
             getattr(original.typeDescriptor, component).materials[0].armor = 10.
-        # A chassis turn across the review threshold retires the old plate.
+        # A real new target pose invalidates its old plate observation.
         scene.pose(original, (45.1, 0., 85.))
-        original.matrix.setRotateY(math.radians(30.))
-        original.matrix.translation = (45.1, 0., 85.)
         for unused in range(100):
             scene.tick()
             if scene.launches():

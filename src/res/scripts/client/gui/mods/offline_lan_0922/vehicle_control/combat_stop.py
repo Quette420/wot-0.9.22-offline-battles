@@ -802,7 +802,7 @@ class CombatStop(object):
             position = tuple(self.runtime.state['position'])
             points = [self._siege_point, candidate]
             if reason in ('ordered_no_clear_lane', 'siege_stationary_review_stalled',
-                          'stationary_hold_review_stalled'):
+                          'stationary_hold_review_stalled', 'siege_pivot_contact_blocked'):
                 points.extend(self.runtime.attack_policy.rows.values())
             for point in points:
                 if (point and point.get('key') is not None and
@@ -1387,6 +1387,20 @@ class CombatStop(object):
             self.pivot['handoff'] = dict(reason=reason, at=float(now),
                 position=tuple(self.runtime.state['position']))
 
+    def observe_pivot_contact(self, target, position, yaw, now):
+        """The realised peer sweep denied all yaw on this owned siege turn."""
+        runtime, pivot = self.runtime, self.pivot
+        if (self.stop_allowed and pivot is not None and 'siege_turn' in pivot and
+                'handoff' not in pivot and target is not None and
+                _key(target) == pivot['target_key'] and pivot['gun'] is runtime.gun and
+                pivot['shell'] == runtime.gun.shot_index and
+                runtime.state.get('siege_state') == siege_mechanics.ENABLED):
+            pivot['contact_refusal'] = (tuple(position), yaw)
+            if combat_detail_enabled():
+                combat_detail(runtime, 'siege_pivot_contact', runtime.actor_id, now,
+                    'no_actual_turn', lambda: dict(point=pivot.get('key'),
+                        position=tuple(position), yaw=yaw, episode=self._episode))
+
     def _continue_laying(self, order, now):
         """Refresh one admitted point, independently of global comparisons."""
         runtime, pivot = self.runtime, self.pivot
@@ -1395,6 +1409,11 @@ class CombatStop(object):
         if (target is None or pivot['gun'] is not runtime.gun or
                 pivot['shell'] != runtime.gun.shot_index):
             return self._release_to_route(order, now, 'native_pivot_identity_changed')
+        contact = pivot.pop('contact_refusal', None)
+        if (contact is not None and
+                _distance(runtime.state['position'], contact[0]) < RECOVERY_REOPEN_DISTANCE and
+                abs(_angle(runtime.state['yaw'] - contact[1])) < NATIVE_ANGLE_TOLERANCE):
+            return self._release_to_route(order, now, 'siege_pivot_contact_blocked')
         # The physical watchdog must run even when no global decision or
         # native query completes. Never refresh it merely for a new receipt.
         if now < runtime.state.get('_native_rotation_refused_until', 0.):

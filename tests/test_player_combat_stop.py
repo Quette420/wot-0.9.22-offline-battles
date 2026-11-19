@@ -1043,6 +1043,40 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
         self.assertFalse(scene.owner.combat_owned)
         self.assertEqual('native_pivot_stalled', scene.owner._failed_recovery['reason'])
 
+    def test_realised_siege_contact_releases_the_saved_route(self):
+        for moved in (False, True):
+            with self.subTest(moved=moved):
+                scene = Scene(siege=siege_mechanics.ENABLED)
+                scene.raw_order.update(combat_mode='route', move_position=(0., 0., 60.),
+                                       route_index=3, throttle_override=None)
+                key = (0, ('bot', 2), 0, 'penetration')
+                scene.candidate.update(key=key, line='clear', mechanical='hull_laying')
+                self.motion(scene, pitch=0., yaw=-.2)
+                motion = scene.runtime._siege_aim_candidate
+                motion.update(key=key, line='clear')
+                motion['solution'].update(needs_hull=True, needs_hydraulic=False)
+                scene.apply(0.)
+                scene.owner.observe_pivot_contact(
+                    dict(scene.target, network_id=3), scene.state['position'], 0., .1)
+                self.assertNotIn('contact_refusal', scene.owner.pivot)
+                scene.owner.observe_pivot_contact(scene.target, scene.state['position'], 0., .1)
+                if moved:
+                    scene.state['yaw'] = -.04
+                order = scene.apply(.2)
+                self.assertFalse(order['fire_allowed'])
+                if moved:
+                    self.assertTrue(scene.owner.combat_owned)
+                    self.assertEqual('engage', order['combat_mode'])
+                    self.assertNotIn('contact_refusal', scene.owner.pivot)
+                else:
+                    self.assertFalse(scene.owner.combat_owned)
+                    self.assertEqual('siege_pivot_contact_blocked', scene.owner.receipt['reason'])
+                    self.assertEqual('route', order['combat_mode'])
+                    self.assertEqual(3, order['route_index'])
+                    self.assertEqual(scene.raw_order['move_position'], order['move_position'])
+                    self.assertFalse(self.desired(scene, order))
+                    self.assertFalse(scene.owner._siege_route_row(scene.candidate))
+
     def test_siege_pivot_does_not_renew_for_hull_jitter_away_from_a_clear_point(self):
         scene = Scene(siege=siege_mechanics.ENABLED)
         key = (0, ('bot', 2), 0, 'penetration')

@@ -305,6 +305,8 @@ class StationaryPlanner(object):
         if not callable(revision):
             raise _Deferred('stationary_native_scene_revision_unavailable')
         native_scene = (id(owner._avatar), owner._avatar.spaceID, revision())
+        scene = frame.get('scene')
+        collision = native_scene
         native_support = _support_stamp(observation(runtime))
         if old is not None and _same_support_stamp(old[_SUPPORT_DEPENDENCY], native_support):
             # Use the same existing native precision as the source-pose
@@ -327,6 +329,17 @@ class StationaryPlanner(object):
                                 for axis in range(3)))
         if not pivot['rotationIsAroundCenter']:
             radius += 2. * pivot['trackCenter']
+        scoped_revision = getattr(sensor, '_stationary_collision_revision_1513', None)
+        if callable(scoped_revision) and isinstance(scene, tuple) and scene[:2] == native_scene[:2]:
+            # Bound the axis-aligned envelopes used by the swept boxes, as
+            # well as the occupied hull and support columns. Ballistic
+            # receipts still use their own full scene and lane dependencies.
+            extent = math.sqrt(2.) * (max(radius, 1.6) + _POSITION_EPSILON)
+            local_revision = scoped_revision(position, extent)
+            if local_revision is None:
+                raise _Deferred('stationary_collision_region_pending', True)
+            scene = native_scene[:2]
+            collision = local_revision
         peers = self._peers(native_pose[0], radius)
         debris = getattr(owner, '_detached_turret_obstacles', None)
         debris_stamp = None
@@ -353,9 +366,9 @@ class StationaryPlanner(object):
         if cap <= 0.:
             raise _Deferred('stationary_rotation_actuator_unavailable')
         return (frame['identity'], planning_pose, position, mounted_position,
-                frame.get('scene'), motion,
+                scene, motion,
                 tuple(sorted(pivot.items())), mounted_box, bounds, shape, cap,
-                peer_stamp, id(sensor), native_scene, native_support, debris_stamp,
+                peer_stamp, id(sensor), collision, native_support, debris_stamp,
                 hydraulic_stamp), pivot, peers, cap
 
     def _budget(self, now, deadline):

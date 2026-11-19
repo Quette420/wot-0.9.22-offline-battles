@@ -17999,6 +17999,12 @@ class BotRuntime(SharedEngineControl):
                                 at=now, position=tuple(position), yaw=old_hull_yaw,
                                 identity=state['_rear_aim_episode']['identity'],
                                 fraction=allowed)
+                        if (recovery_owner is not None and hull_aiming and
+                                command.get('combat_mode') == 'engage' and
+                                abs(throttle) <= .01 and
+                                abs(_angle_delta(candidate_hull_yaw, old_hull_yaw)) <= 1.e-8):
+                            recovery_owner.observe_pivot_contact(
+                                target, position, old_hull_yaw, now)
                         state['_contact_motor_turn'] = steer_dir
                         state['rotation_dir'] = 0
                 rotation_blocked = (not self._boundary_rotation_clear(

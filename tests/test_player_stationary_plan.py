@@ -6,6 +6,7 @@ NativeAttackEvaluator are production code. Windows physics is not simulated.
 """
 import copy
 import math
+import sys
 import types
 import unittest
 from unittest import mock
@@ -251,6 +252,58 @@ class StationaryPlanTests(unittest.TestCase):
         self.assertFalse(blocked['progressing'])
         self.assertEqual(0, blocked['verified_arcs'])
         self.assertEqual('stationary_native_rotation_blocked', blocked['reason'])
+
+    def test_remote_registrations_keep_turn_progress_and_local_mutations_retire_it(self):
+        scene = self.scene(bearing=2.8)
+        scene.sensor._spatial_revision_1513 = destructibles_sensor._spatial_revision_1513
+        scene.sensor._stationary_collision_revision_1513 = (
+            destructibles_sensor._stationary_collision_revision_1513)
+        manager = types.SimpleNamespace(_DestructiblesManager__loadedChunkIDs={22: 14})
+        keys = set()
+        area = types.SimpleNamespace(g_destructiblesManager=manager)
+        authority = types.SimpleNamespace(destroyed_keys=lambda chunk: keys)
+        with mock.patch.dict(sys.modules, {'AreaDestructibles': area}), \
+                mock.patch.dict(destructibles_sensor.__dict__, {
+                    'xrange': range, 'g_offh_destr_spatial_revision': 0,
+                    'g_offh_destr_spatial_published_revision': 0,
+                    'g_offh_destr_spatial_global_generation': 0,
+                    'g_offh_destr_spatial_cell_generations': {},
+                    'g_offh_destr_spatial_chunk_generations': {},
+                    'g_offh_destr_spatial_mutation_batch': {}}), \
+                mock.patch.object(destructibles_sensor, '_tree_motion_required_chunks_1513',
+                                  return_value=('ready', (22,))), \
+                mock.patch.object(destructibles_sensor, '_get_destr_authority',
+                                  return_value=authority):
+            for tick in range(25):
+                destructibles_sensor._bump_spatial_revision_1513(
+                    bin_keys=((99, 99),), chunk_ids=(100,))
+                frame, shell, target, raw = scene.plan_frame()
+                result = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+                if result['status'] == 'proved':
+                    break
+                scene.fixture.now += .11
+            self.assertEqual('proved', result['status'], result)
+            self.assertGreater(tick, 0)
+            self.assertTrue(scene.planner.current(frame, result))
+
+            destructibles_sensor._begin_spatial_mutation_batch_1513()
+            try:
+                destructibles_sensor._bump_spatial_revision_1513(bin_keys=((0, 0),))
+                self.assertFalse(scene.planner.current(frame, result))
+            finally:
+                destructibles_sensor._end_spatial_mutation_batch_1513()
+            self.assertFalse(scene.planner.current(frame, result))
+
+            for mutate in (
+                    lambda: destructibles_sensor._bump_spatial_revision_1513(chunk_ids=(22,)),
+                    lambda: manager._DestructiblesManager__loadedChunkIDs.pop(22),
+                    lambda: keys.add((7, None)),
+                    lambda: destructibles_sensor._bump_spatial_revision_1513()):
+                frame, result = scene.plan()
+                self.assertEqual('proved', result['status'], result)
+                self.assertTrue(scene.planner.current(frame, result))
+                mutate()
+                self.assertFalse(scene.planner.current(frame, result))
 
     def test_support_observation_precision_keeps_anchor_but_not_cumulative_drift(self):
         from gui.mods.offline_lan_0922.vehicle_control.stationary_plan import NATIVE_ANGLE_TOLERANCE

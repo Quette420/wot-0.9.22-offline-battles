@@ -57,6 +57,8 @@ def reference_drive(module):
     baked_shallow_escape = False
     controlled_shallow = controlled_shallow_commit = None
     exact_motion_owns_collision = callable(self.motion_resolver)
+    # These throttle/turn inputs have no shared combat task.
+    recovery_owner = None
     passive_forwards = {}
     attempted_yaws = {}
     navigation_grid = getattr(self.navigator,'grid',None)

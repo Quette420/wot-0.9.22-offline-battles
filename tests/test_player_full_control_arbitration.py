@@ -8,6 +8,7 @@ consumer regressions, not Windows BigWorld physics acceptance.
 import unittest
 import math
 from unittest import mock
+from types import SimpleNamespace
 
 import test_player_limited_traverse as fixtures
 
@@ -267,6 +268,10 @@ class FullControlArbitrationTests(unittest.TestCase):
 
     def test_reopened_lane_retires_the_firing_position_navigation_receipt(self):
         scene = self.scene(distance=60., clip=1, burst=1)
+        # Model the native collision-revision notification for a new/removed
+        # static obstacle; an aiming turn no longer rescans armour or the map.
+        scene.battle._destructibles = SimpleNamespace(
+            _spatial_revision_1513=lambda: len(scene.world))
         # First acquire a shared target through passive native LOS, then
         # verify that actual reopening retires only its recovery receipt.
         scene.battle._gun_state.reload_time = 10.

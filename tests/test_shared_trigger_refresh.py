@@ -1,7 +1,7 @@
 """Final physical poses refresh one intention before the real trigger proof.
 
 Native transforms are observation fixtures. Both binding fire entrances,
-ballistics, exact armour/HE admission, scatter and ammunition debits are real.
+ballistics, geometric obstruction admission, scatter and ammunition debits are real.
 The selected sample is established before motion; no policy row is rewritten
 to make its old geometry match a later physical pose.
 """
@@ -104,7 +104,7 @@ class FinalPoseTriggerTests(unittest.TestCase):
         self.assertTrue(fixture.fire(), binding._admission().receipt)
         self.assertEqual([19, 10], binding.gun.ammo)
 
-    def test_changed_armour_is_reproved_instead_of_relabeling_old_success(self):
+    def test_worker_keeps_completed_armour_choice_through_aiming_motion(self):
         fixture = self.worker()
         self.turn_worker(fixture)
         self.assertEqual('passed', fixture.candidate['armor'])
@@ -113,11 +113,11 @@ class FinalPoseTriggerTests(unittest.TestCase):
             for material in component.materials.values():
                 material.armor = 5000.
         fixture.battle._records['bot:42']['armor_revision'] = 1
-        self.assertFalse(fixture.fire())
-        self.assertEqual('auto_actual_barrel_armour', fixture.binding._last_fire_failure)
-        self.assertEqual([20, 10], fixture.binding.gun.ammo)
-        self.assertFalse(fixture.engine._pending_launches)
-        self.assertFalse(fixture.engine._burst_states[11].active)
+        with mock.patch(native.ADMISSION+'.combat_rules.resolve_armor_contact',
+                        side_effect=AssertionError('late penetration check')):
+            self.assertTrue(fixture.fire(), fixture.binding._admission().receipt)
+        self.assertEqual([19, 10], fixture.binding.gun.ammo)
+        self.assertEqual(1, len(fixture.engine._pending_launches))
 
     def test_refresh_cannot_make_an_unlaid_native_barrel_fire(self):
         fixture = self.worker()
@@ -148,7 +148,7 @@ class FinalPoseTriggerTests(unittest.TestCase):
         self.assertFalse(fixture.engine._control_launch_proofs)
         self.assertFalse(fixture.engine._burst_states[11].active)
 
-    def test_player_preinstall_reentry_still_revokes_refreshed_proof(self):
+    def test_player_body_observation_keeps_the_unchanged_frozen_barrel(self):
         scene = self.player()
         self.turn_player(scene)
         install = scene.battle._preinstall_player_projectile
@@ -160,10 +160,11 @@ class FinalPoseTriggerTests(unittest.TestCase):
             return value
         with mock.patch.object(scene.battle, '_preinstall_player_projectile', move_after_install):
             with contextlib.redirect_stdout(io.StringIO()):
-                self.assertFalse(scene.fire())
+                self.assertTrue(scene.fire(), scene.admission.receipt)
         self.assertEqual(1, len(calls))
-        self.assertEqual('auto_source_pose_changed', scene.control.last_fire_failure)
-        scene.assert_unspent()
+        self.assertIsNone(scene.control.last_fire_failure)
+        self.assertEqual([19, 10], scene.runtime.gun.ammo)
+        self.assertEqual(1, len(scene.launches()))
 
     def test_refresh_has_one_prediction_and_preserves_policy_frontiers(self):
         fixture = self.worker()

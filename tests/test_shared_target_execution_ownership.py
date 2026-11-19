@@ -187,7 +187,7 @@ class SharedTargetExecutionOwnershipTests(unittest.TestCase):
                     candidate.get('target_key') == ('bot', 14)):
                 break
         current = scene.runtime.attack_policy.decision['candidate']
-        self.assertNotEqual(old['pose_stamp'], current['pose_stamp'])
+        self.assertEqual(old['pose_stamp'], current['pose_stamp'])
         self.assertNotEqual(old['solution']['point'], current['solution']['point'])
         self.assertEqual(35., current['target']['position'][0])
         sample = shot_geometry.ordered_vehicle_aim_samples(executable.typeDescriptor)[current['sample']]

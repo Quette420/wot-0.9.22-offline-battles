@@ -85,8 +85,8 @@ class SiegeLaunchBoundaryTests(unittest.TestCase):
                 self.assertEqual('siege_mode_not_ready', runtime.authorize_trigger(
                     context, runtime.entity, runtime.gun, None))
 
-    def test_native_gun_alignment_and_source_pose_still_required_after_mode_entry(self):
-        for mutation, reason in (('source', 'source_pose_changed'),
+    def test_live_alignment_owns_launch_instead_of_an_old_policy_source_stamp(self):
+        for mutation, reason in (('source', None),
                                  ('inverse', 'native_gun_not_aligned'),
                                  ('barrel', 'native_gun_not_aligned')):
             with self.subTest(mutation=mutation):

@@ -2096,8 +2096,6 @@ class FullPlayerRuntime(MissionControl, CombatControl):
             return 'siege_mode_not_ready'
         if not self.weapon.owned():
             return 'native_aim_owner_changed'
-        if context.get('source_pose') != self.pose_stamp():
-            return 'source_pose_changed'
         if not self.weapon.verified or not self.state.get('gun_aligned'):
             return 'native_gun_not_aligned'
         return None

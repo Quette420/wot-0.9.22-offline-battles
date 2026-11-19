@@ -197,12 +197,12 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
         scene.observe_control()
         if scene.applied_order()['fire_allowed']:
             refreshed = scene.runtime.attack_policy.decision['candidate']
-            self.assertNotEqual(first['pose_stamp'], refreshed['pose_stamp'])
+            self.assertEqual(first['pose_stamp'], refreshed['pose_stamp'])
             self.assertNotEqual(first['solution']['point'], refreshed['solution']['point'])
             self.assertIs(refreshed, scene.runtime.attack_policy.current_row(refreshed))
         current = self.acquire(scene)
         self.assert_current(scene, current['key'])
-        self.assertNotEqual(first['pose_stamp'], current['pose_stamp'])
+        self.assertEqual(first['pose_stamp'], current['pose_stamp'])
         self.assertNotEqual(first['solution']['point'], current['solution']['point'])
         self.assertEqual(22., current['target']['position'][0])
         self.assertFalse(scene.launches())
@@ -224,26 +224,24 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
         other = self.add_better(scene)
         scene.observe_control()
         self.assert_current(scene, first['key'])
-        # A new source pose requires an actual current-point query. During
-        # that query only the separate, off-line competitor moves; neither
-        # the source nor this trigger's target changes inside the callback.
+        # Translation refreshes the lane without another plate query. During
+        # that geometric query only the separate off-line competitor moves.
         scene.native_position((.1, 0., 0.))
-        tester = scene.initial.typeDescriptor.hull.hitTester
         callbacks = []
 
         def move_other_during_query():
-            tester.on_hit = None
+            scene.on_probe = None
             callbacks.append(True)
             scene.pose(other, (-32., 0., 40.))
 
-        tester.on_hit = move_other_during_query
+        scene.on_probe = move_other_during_query
         scene.observe_control()
         policy = scene.runtime.attack_policy
         self.assertEqual([True], callbacks)
         self.assertFalse(policy._frame_invalid)
         self.assert_current(scene, first['key'])
         self.assertEqual(first['sample'], policy.ordered.he_sample)
-        self.assertNotEqual(first['pose_stamp'], policy.decision['candidate']['pose_stamp'])
+        self.assertEqual(first['pose_stamp'], policy.decision['candidate']['pose_stamp'])
         self.assertFalse(scene.launches())
         for unused in range(15):
             scene.tick(.1)
@@ -256,14 +254,13 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
         for changed in ('source', 'target', 'friendly'):
             with self.subTest(changed=changed):
                 scene = self.scene()
-                self.acquire(scene)
+                first = self.acquire(scene)
                 friendly = scene.vehicle(9, (-30., 0., 20.), team=1)
                 scene.native_position((.1, 0., 0.))
-                tester = scene.initial.typeDescriptor.hull.hitTester
                 callbacks = []
 
                 def move_during_query():
-                    tester.on_hit = None
+                    scene.on_probe = None
                     callbacks.append(True)
                     if changed == 'source':
                         scene.native_position((.4, 0., 0.))
@@ -272,14 +269,14 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
                     else:
                         scene.pose(friendly, (10., 0., 20.))
 
-                tester.on_hit = move_during_query
+                scene.on_probe = move_during_query
                 scene.observe_control()
                 policy = scene.runtime.attack_policy
                 self.assertEqual([True], callbacks)
                 self.assertTrue(policy._frame_invalid)
-                self.assertEqual({}, policy.rows)
-                self.assertIsNone(policy.selected)
-                self.assertIsNone(policy._current_he_execution)
+                self.assertTrue(policy.rows)
+                self.assertTrue(all(row['line'] == 'pending' for row in policy.rows.values()))
+                self.assertEqual(first['key'], policy.selected)
                 self.assertNotEqual('aim', policy.decision['action'])
                 self.assertFalse(scene.applied_order()['fire_allowed'])
                 self.assertFalse(scene.launches())
@@ -470,9 +467,13 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
             events = [row for row in scene.launches_observed if row['id'] == 12]
             if events:
                 break
-            self.assertEqual('aim', policy.decision['action'], policy.status())
-            self.assertEqual(key, policy.decision['candidate']['key'])
-            self.assertTrue(policy._executable_current(policy.decision['candidate'], 'he_fallback'))
+            # The other tank cannot steal this target. The selected enemy
+            # itself can turn across 30 degrees during its real actuator
+            # loop, legitimately reopening that enemy's plate comparison.
+            self.assertEqual(key[1], policy.current_target_key(), policy.status())
+            if policy.decision['action'] == 'aim':
+                self.assertEqual('he_fallback', policy.decision['candidate']['mode'])
+                self.assertTrue(policy._executable_current(policy.decision['candidate'], 'he_fallback'))
             self.assertEqual({13, 14}, {row['network_id'] for row in binding.combat_targets()})
         self.assertTrue(events, policy.status())
         self.assertEqual(13, events[0]['evidence']['target'])

@@ -400,8 +400,15 @@ class StableRouteAttackTests(unittest.TestCase):
             saw_blocker = saw_blocker or any(
                 row.get('reason') == 'planned_front_vehicle' and
                 row['blocker']['actor_key'] == ('bot', 60) for row in policy.rows.values())
-            self.assertFalse(scene.launches())
+            if step < 16:
+                self.assertFalse(scene.launches())
+            elif scene.launches() and policy.decision['action'] == 'aim':
+                candidate = policy.decision['candidate']
+                self.assertTrue(policy._executable(candidate, candidate['mode']))
+                self.assertEqual('clear', candidate['line'])
+                break
         self.assertTrue(saw_blocker)
+        self.assertTrue(scene.launches(), 'A usable point must not wait for every old lane to be current')
 
         scene.battle._local_speed = 0.
         for unused in range(25):

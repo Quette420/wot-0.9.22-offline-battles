@@ -1,6 +1,68 @@
 # PR119 control-offset correction — November 10, 2026
 
-## Current follow-up — November 19, 2026, opt-in turn-plan investigation
+## Current follow-up — November 20, 2026, vehicle-level armour review
+
+The user authorized the same correction for player and Bot control: review
+armour when either the direction between the two vehicle centres changes by
+30 degrees or the enemy chassis heading changes by 30 degrees; preserve real
+obstruction skipping/recovery and remove the repeated terminal penetration
+decision. Original navigation remains outside this change.
+
+The reference is the last completed vehicle-level review snapshot, not the
+previous frame or the currently selected point. The centre-line measurement
+uses the world direction between chassis centres, including elevation. Enemy
+heading is a separate wrapped yaw comparison. Later crossings of either gate
+can reopen another review. Switching samples cannot move the reference.
+Own aiming turns, turret/gun animation, hydraulic slew and small ground/body
+settling keep the armour choice. Mounting a different current shell gets its
+own decision; a queued NEXT input does not invalidate the loaded round.
+
+Armour choice, live aiming geometry and physical movement proof now have
+separate lifetimes. Current intercepts and lanes refresh without rolling
+penetration again. A retained future turn is a motion intention, not an
+actual gun-alignment certificate. Existing native support, pivot, collision,
+readiness and ownership checks still execute. The exact-source guard no longer
+mistakes an unpublished raw physics-position update for a changed published
+body/muzzle; published transforms and the existing support proofs still apply.
+
+Confirmed blocked points leave normal shooting immediately. One real clear
+geometry observation restores them to the normal candidate pool, without
+stealing an already usable aim. Blocked-target revisits keep valid plate
+results and finite traversal progress. A still-valid negative plate result can
+finish an ammunition sweep while lane observations are pending; that ranking
+evidence cannot fire, authorize movement or supply HE contact damage.
+
+The shared trigger admission checks geometric obstruction and the actual
+frozen launch, without re-running centre-ray penetration or HE blast yield.
+Unrelated off-lane vehicle animation cannot revoke that launch; a newly
+intervening actor still can. Already aligned shots can naturally miss, bounce
+or fail to penetrate. Real projectile material traversal, damage and blocked
+damage accounting are unchanged. HE fallback surface scoring also retains
+the same point's completed penetration choice instead of opening a third trial.
+
+Associated handoffs retain a same-shell aim through clip reload, finish an
+already qualified ordered reload, and retain work/aim intention when a native
+callback revokes only geometric observations. Siege entry remains the existing
+two-second clear-contact confirmation followed by actual native ENABLED echo
+before angle judgment. Ammunition ordering, whitelist roles, shot/clip return
+counts and cooldown rules are retained.
+
+The regression changes explicitly replace the old requirements for per-pose
+armour expiry, turret-animation expiry and a terminal armour veto. Real launch
+debits, frozen-ray integrity, manual takeover, burst-tail ownership, native
+support/pivot refusals, waiting/capture controls and complete navigation-command
+assertions remain tested. Added integration cases cover both actor bindings,
+both 30-degree gates, elevation, successive crossings, point independence,
+departure/reentry, HE surface scoring, obstruction recovery and diagnostic-off
+behavior. New detailed review records are emitted only through the checked
+detailed-diagnostic option.
+
+Release verification and native-client receipts are being collected before
+delivery. This section will be completed with the frozen runtime, package,
+exact CI and original-scene report evidence. Original PR #119 stays open and
+unmerged; no tag or release is authorized.
+
+## Previous follow-up — November 19, 2026, opt-in turn-plan investigation
 
 Runtime `380eaa151bed49c1452edc9deebce4c71c867383`, build
 `local-pr119-380eaa15`, adds diagnostics only. The user requested shell, point,

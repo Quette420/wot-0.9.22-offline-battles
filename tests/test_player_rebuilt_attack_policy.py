@@ -1757,7 +1757,7 @@ class NativeAtomicClosureTests(native_fire.AutomaticFireScene):
         self.pose(friend, (100., 0., 45.))
         self.step(.1)
         policy.frame = policy.evaluator.snapshot(self.now)
-        self.assertIs(proof, policy.current_row(proof))
+        self.assertEqual(proof['pose_stamp'], policy.current_row(proof)['pose_stamp'])
         self.pose(friend, (0., 0., 45.))
         self.step(.1)
         policy.frame = policy.evaluator.snapshot(self.now)
@@ -1817,17 +1817,17 @@ class NativeAtomicClosureTests(native_fire.AutomaticFireScene):
             self.assertFalse(hasattr(policy, 'search_started'))
             policy.background(self.now)
 
-    def test_world_callback_native_pose_change_cannot_publish_global_failure(self):
+    def test_turret_animation_during_world_callback_does_not_restart_armour_review(self):
         policy = self.hardened_target()
         def move_during_query():
             self.target.appearance.turretMatrix.setRotateY(.3)
         self.on_probe = move_during_query
         self.step(.1)
         result = policy.update(self.now)
-        self.assertEqual('wait', result['action'])
+        self.assertEqual('navigate', result['action'])
         self.assertFalse(hasattr(policy, 'search_started'))
-        self.assertEqual('pose_changed', policy.status()['atomic']['status'])
-        self.assertFalse(policy.rows)
+        self.assertEqual('all_failed', policy.status()['atomic']['status'])
+        self.assertTrue(policy.rows)
 
     def test_native_source_turret_angle_expires_pose_even_with_same_muzzle(self):
         original = native_source_pose(self.runtime)
@@ -1940,7 +1940,7 @@ class NativeAtomicClosureTests(native_fire.AutomaticFireScene):
         self.assertEqual(405, len(policy._jobs()))
         self.assertGreater(step, 0)
 
-    def test_last_native_lane_probe_cannot_change_target_pose_and_still_launch(self):
+    def test_target_turret_animation_in_the_last_lane_probe_does_not_cancel_launch(self):
         geometry = self.runtime.geometry
         original = geometry._bot_friendly_path_verdict
         calls = []
@@ -1953,10 +1953,11 @@ class NativeAtomicClosureTests(native_fire.AutomaticFireScene):
                 self.target.appearance.turretMatrix.setRotateY(.2)
             return result
         geometry._bot_friendly_path_verdict = native_probe_with_reentry
-        self.assertFalse(self.fire())
+        self.assertTrue(self.fire())
         self.assertGreaterEqual(len(calls), 8)
-        self.assertEqual('auto_target_changed', self.control.last_fire_failure)
-        self.assert_unspent()
+        self.assertIsNone(self.control.last_fire_failure)
+        self.assertEqual([19, 10], self.battle._gun_state.ammo)
+        self.assertEqual(1, len(self.launches()))
 
 
 if __name__ == '__main__':

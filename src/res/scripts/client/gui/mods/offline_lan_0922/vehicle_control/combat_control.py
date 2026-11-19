@@ -272,12 +272,19 @@ class CombatControl(object):
         planned = (policy._planned_evidence(row) if for_aim and
                    row.get('mechanical') in ('hull_laying', 'mechanical_limited') and
                    policy._plannable(row, mode) else None)
+        retained_motion = (for_aim and row.get('review_retained') and
+            row.get('review_lay_plan') is not None and policy._plannable(row, mode) and
+            policy._attack_result(row.get('review_result') or row, mode) and row.get('mechanical') in
+                ('hull_laying', 'hydraulic_laying', 'mechanical_limited'))
+        if retained_motion:
+            return dict(row, solution=dict(row['solution'], _player_motion_only=True),
+                        _player_stationary_motion=True)
         if planned is not None and not (planned.get('solution') or {}).get('needs_hull'):
             planned = None
         intention = planned or row
         if ((not for_aim and not policy._executable(row, mode)) or
                 (for_aim and (not isinstance(intention.get('solution'), dict) or
-                    (row.get('mechanical') not in ('reachable', 'hull_laying') and
+                    (row.get('mechanical') not in ('reachable', 'hull_laying', 'hydraulic_laying') and
                      planned is None) or
                     intention.get('line') != 'clear' and policy.decision['action'] != 'preaim'))):
             return None

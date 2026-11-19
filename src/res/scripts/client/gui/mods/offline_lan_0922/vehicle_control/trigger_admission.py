@@ -12,7 +12,7 @@ import random
 
 from .. import ballistics, combat_rules, projectile_runtime, shot_geometry
 from ..projectile_wire import round_scalar
-from .attack_policy import (PENETRATION_FACTOR_65, _distance_sq, _mechanical,
+from .attack_policy import (_distance_sq, _mechanical,
                             _point, native_source_pose, native_target_pose,
                             native_geometry_complete, native_lane_geometry_complete,
                             native_chord_candidates, native_hostile_roster)
@@ -105,8 +105,7 @@ class TriggerAdmission(object):
         if not combat_detail_enabled():
             return
         reason = reason or proof.get('refusal')
-        if reason not in ('auto_actual_barrel_armour', 'auto_actual_barrel_miss',
-                          'auto_world_blocked', 'auto_friendly_lane',
+        if reason not in ('auto_front_vehicle', 'auto_world_blocked', 'auto_friendly_lane',
                           'auto_friendly_splash', 'auto_lane_geometry_unknown'):
             return
         runtime = self.control.runtime
@@ -180,14 +179,10 @@ class TriggerAdmission(object):
         solution['point'] = _point(solution.get('point', solution.get('aim_position')))
         solution['velocity'] = _point(solution.get('velocity', (0., 0., 0.)))
         signature = native_target_pose(owner, target)[0]
-        if solution.get('target_pose') is not None and solution['target_pose'] != signature:
-            return 'auto_target_pose_changed', target, solution
         candidate = context.get('candidate')
         descriptor = self.physical.source_descriptor()
         artillery = 'SPG' in (descriptor.type.tags or ())
         if not artillery:
-            if solution.get('source_pose') != native_source_pose(control.runtime, raw_ray[0]):
-                return 'auto_source_pose_changed', target, solution
             if not isinstance(candidate, dict) or candidate.get('shell_index') != gun.shot_index:
                 return 'auto_candidate_unavailable', target, solution
             if candidate.get('mode') == 'he_fallback':
@@ -214,8 +209,24 @@ class TriggerAdmission(object):
     def _collision_roster(self, target, velocity, now):
         return native_hostile_roster(self.control.runtime, now, target, velocity)
 
+    @staticmethod
+    def _blocking_signature(roster, target, paths):
+        """Only actors intersecting this shot can revoke an obstruction proof.
+
+        Selected-target animation is not an obstacle or another armour gate.
+        New or moving intervening actors still invalidate geometric work.
+        """
+        relevant = set()
+        others = tuple(row for row in roster if row['target'] is not target)
+        for path, times in paths:
+            for index in range(len(path) - 1):
+                for unused, row, start, end, length in native_chord_candidates(
+                        others, path[index], path[index + 1], times[index], times[index + 1]):
+                    relevant.add(id(row['target']))
+        return tuple(row['signature'] for row in others if id(row['target']) in relevant)
+
     def _contact(self, proof, first, last, first_time, last_time, centre=False):
-        """Find the first native collision, preserving material traversal."""
+        """Find geometric obstruction without another armour/damage decision."""
         from ..entities.remote_vehicle import collide_vehicle_at_matrix
         owner, best = self.owner, None
         candidates = native_chord_candidates(proof['roster'], first, last, first_time, last_time)
@@ -245,18 +256,16 @@ class TriggerAdmission(object):
             if not 0. <= fraction <= 1.:
                 raise ValueError('native entry lies outside its queried chord')
             point = tuple(first[index] + fraction * (last[index] - first[index]) for index in range(3))
-            distance = math.sqrt(_distance_sq(proof['range_origin'], point))
-            factor = PENETRATION_FACTOR_65 if centre else proof['penetration_factor']
-            contact = combat_rules.resolve_armor_contact(proof['shot'], distance, retained,
-                                                         penetration_factor=factor)
-            if not centre and contact is None and not combat_rules.is_he(proof['shot']):
-                # Traversing only penetrated external plates is not a
-                # terminal hit. Continue this sampled ray to the next vehicle,
-                # world obstacle or range boundary before friendly checks.
+            structural = any(float(getattr(hit.matInfo, 'vehicleDamageFactor')) > 0.
+                             for hit in retained)
+            if not centre and not structural and not combat_rules.is_he(proof['shot']):
+                # External-only geometry cannot certify that a solid shell
+                # stops before a friendly vehicle. Actual material traversal
+                # and all penetration rolls belong to the launched projectile.
                 continue
-            item = dict(fraction=fraction, point=point, row=row, contact=contact,
+            item = dict(fraction=fraction, point=point, row=row,
                         start=owner._vector(start), end=owner._vector(material_end),
-                        hits=hits, distance=distance)
+                        hits=hits)
             if best is None or fraction < best['fraction']:
                 best = item
         return best
@@ -264,36 +273,7 @@ class TriggerAdmission(object):
     def _centre_verdict(self, proof, contact):
         if contact['row']['target'] is not proof['target']:
             return 'auto_front_vehicle'
-        solution, candidate = proof['solution'], proof.get('candidate') or {}
-        if solution['artillery']:
-            return None
-        armor = contact['contact']
-        if candidate.get('mode') != 'he_fallback':
-            return (None if armor is not None and armor['layer'] == 'structural' and
-                    armor['result'] == 2 else 'auto_actual_barrel_armour')
-        if armor is not None and armor['layer'] == 'structural' and armor['result'] == 2:
-            return None
-        row = contact['row']
-        # Map the observed local chord back to the target's currently visible
-        # frame. The native HE surface search must not mix an observed body
-        # with the predicted future impact point.
-        direction = contact['end'] - contact['start']
-        length = float(direction.length)
-        if length <= 1.e-9:
-            return 'auto_he_contact_unknown'
-        direction.normalise()
-        hit_distance = (float(armor['distance']) if armor is not None else
-                        min(float(hit.dist) for hit in contact['hits']))
-        impact = tuple(float(contact['start'][index]) + float(direction[index]) * hit_distance
-                       for index in range(3))
-        kind = getattr(self.control.runtime, 'actor_kind', 'human')
-        blast = self.owner._projectile_he_blast_contact(
-            dict(shooter_kind='player' if kind == 'human' else kind),
-            row['record'], row['target'], proof['shot'], impact,
-            combat_rules.shell_nominal_damage(proof['shot']),
-            state=dict(velocity=_point(direction), gravity=(0., 0., 0.), elapsed=0.),
-            seed=(contact['start'], contact['end'], contact['hits']))
-        return None if blast is not None else 'auto_he_contact_unknown'
+        return None
 
     def _probe(self, first, last):
         hit = self.owner._runtime.bigworld.wg_collideSegment(
@@ -309,7 +289,10 @@ class TriggerAdmission(object):
             index = proof['cursor']
             if index >= len(path) - 1:
                 if centre:
-                    proof['refusal'] = 'auto_actual_barrel_miss'
+                    # Alignment is already proved. A naturally missed armour
+                    # surface is a real shot outcome, not a rescan request.
+                    proof['stage'], proof['cursor'] = 1, 0
+                    continue
                 else:
                     proof['done'] = True
                 break
@@ -332,11 +315,8 @@ class TriggerAdmission(object):
                     proof['centre_path'] = tuple(path[:index + 1]) + (target['point'],)
                     proof['refusal'] = self._centre_verdict(proof, target)
                     if combat_detail_enabled():
-                        armor = target.get('contact') or {}
                         proof['centre_observation'] = dict(actor=target['row']['actor_key'],
-                            point=target['point'], armor=dict((key, armor.get(key)) for key in (
-                                'result', 'layer', 'distance', 'effective_armor',
-                                'piercing', 'angle_cos', 'component')))
+                            point=target['point'], geometry_only=True)
                     if proof['refusal'] == 'auto_front_vehicle':
                         row = target['row']
                         # Native entity ids and tactical actor ids are not
@@ -537,7 +517,6 @@ class TriggerAdmission(object):
             roster = self._collision_roster(target, solution['velocity'], now)
             if roster is None:
                 return self._result('pending', 'auto_collision_geometry_unknown')
-            roster_signature = tuple(row['signature'] for row in roster)
             if artillery_launch is not None and solution['artillery']:
                 # The worker has already proved this dispersed artillery arc.
                 # Review the same launch that its physical gun will commit.
@@ -552,8 +531,12 @@ class TriggerAdmission(object):
             maximum = round_scalar(float(source_shot['maxDistance']))
             range_origin = tuple(round_scalar(value) for value in (
                 self.physical.source_pose()[0] if range_origin is None else range_origin))
+            # Bound actor changes to the current firing lane. The world and
+            # friendly probes below retain their own current geometry checks.
+            roster_signature = self._blocking_signature(roster, target,
+                ((solution['raw_path'], solution['raw_times']),))
             geometry = (raw_ray, float(dispersion), perfect, solution['point'],
-                        solution['target_pose'], solution['velocity'], roster_signature,
+                        roster_signature,
                         range_origin, velocity, gravity, maximum,
                         (context.get('candidate') or {}).get('mode'), id(target))
             scene = self._scene()
@@ -599,6 +582,9 @@ class TriggerAdmission(object):
                 if not proof['done']:
                     return self._result('pending', 'auto_proof_pending', candidate, world_chords=used)
                 proof['completed'] = float(self.owner._clock())
+                proof['blocking_signature'] = self._blocking_signature(roster, target,
+                    ((proof.get('centre_path', proof['raw_path']), proof['raw_times']),
+                     (proof['path'], proof['times'])))
             reason, blocker = self._dynamic(proof)
             if reason is not None:
                 self._feedback(context, reason, blocker)
@@ -639,10 +625,14 @@ class TriggerAdmission(object):
             roster = self._collision_roster(target, solution['velocity'], now)
             if (target is not token['target'] or entity is not token['entity'] or gun is not token['gun'] or
                     tuple(gun.ammo) != token['weapon_key'][4] or gun.clip != token['weapon_key'][5] or
-                    solution['point'] != token['solution']['point'] or
-                    roster is None or tuple(row['signature'] for row in roster) != proof['roster_signature']):
+                    solution['point'] != token['solution']['point'] or roster is None):
                 token['proof'] = None
                 return 'auto_target_changed'
+            paths = ((proof.get('centre_path', proof['raw_path']), proof['raw_times']),
+                     (proof['path'], proof['times']))
+            if self._blocking_signature(roster, target, paths) != proof['blocking_signature']:
+                token['proof'] = None
+                return 'auto_obstruction_changed'
             if launch is not None and (
                     tuple(launch['origin']) != proof['origin'] or
                     tuple(launch['velocity']) != proof['velocity'] or
@@ -656,23 +646,19 @@ class TriggerAdmission(object):
                 self._feedback(context, reason, blocker)
                 return reason
             # Friendly/native component probes can re-enter game callbacks.
-            # Fence the exact source and whole collision roster again after
-            # the final native probe, not merely before that callback window.
+            # Fence the frozen launch and relevant obstruction observations
+            # after native probes, without repeating tactical armour checks.
             latest = self.physical.mutable_shot_ray()
             if ((_point(latest[0]), _point(latest[1])) != proof['raw_ray'] or
                     self.physical.native_dispersion_angle() != proof['geometry'][1] or
                     not 0. <= float(self.owner._clock()) - proof['completed'] <= COMPLETED_PROOF_TTL):
                 token['proof'] = None
                 return 'auto_pose_changed'
-            if (not solution['artillery'] and
-                    solution.get('source_pose') != native_source_pose(self.control.runtime, latest[0])):
-                token['proof'] = None
-                return 'auto_source_pose_changed'
             final_roster = self._collision_roster(target, solution['velocity'], now)
             if (final_roster is None or
-                    tuple(row['signature'] for row in final_roster) != proof['roster_signature']):
+                    self._blocking_signature(final_roster, target, paths) != proof['blocking_signature']):
                 token['proof'] = None
-                return 'auto_target_changed'
+                return 'auto_obstruction_changed'
             if (token is not self.pending or self._scene() != proof['scene'] or
                     not self.control.active or self.control.closed or
                     self.control.control_generation != context.get('generation') or

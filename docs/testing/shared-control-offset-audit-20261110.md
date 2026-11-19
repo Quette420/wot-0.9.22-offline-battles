@@ -1,6 +1,113 @@
 # PR119 control-offset correction — November 10, 2026
 
-## Current follow-up — November 19, 2026, bridge navigation lifecycle
+## Current follow-up — November 19, 2026, opt-in turn-plan investigation
+
+Runtime `380eaa151bed49c1452edc9deebce4c71c867383`, build
+`local-pr119-380eaa15`, adds diagnostics only. The user requested shell, point,
+plan identity and invalidation evidence, repeated Strv S1 tests, and an audit
+of planning versus actual execution. Ammunition selection, support/turn proof
+predicates, thresholds, firing admission and navigation are unchanged by
+this follow-up. This is a diagnostic package, not a claimed aiming repair.
+
+The existing checked detailed-diagnostic option gates all new plan metadata
+and records. A completed plan carries its planner/id/epoch, producer key,
+mounted gun/shell, sample, source and projected pose. Current checks identify
+changed dependencies or the original refusal; a source guard also records
+both exact observations. Row rejection, siege selection, accepted controls
+and final native input carry the consumer/selected/pivot identities. Different
+producer and consumer modes remain distinguishable when physical geometry is
+reused. No diagnostic field supplies physical or firing permission.
+
+Four native #1513 Windstorm (`84_winter`) games used the same player Strv S1,
+29 elite Strv S1 Bots, standard authored routes and isolated `g8` career.
+The scene's existing 20/20/10 mounted ammunition was retained. Reports are
+archived locally under `qa-pr119-parity-20261118/artillery-adaptive-20261119/`
+`report-archive/`; logs and saves were not uploaded to GitHub.
+
+| Game | Runtime / archived report | Bounded observation |
+| --- | --- | --- |
+| 1 | `c0d0a1b7` / `201928-7035f0b93e36` | Manual CURRENT HE accepted at 20:11:31.690; automatic HE commits at 20:11:42.060 and 20:11:58.422, then APCR commits at 20:12:06.735. Completed plans, rejections and nonzero native turns are recorded. Natural team-1 capture win at 20:17:43. |
+| 2 | `380eaa15` / `202641-20d8b31758aa` | The user disabled control at the congested bridge and drove another route. After re-enabling control, the user's CURRENT HE at 20:24:41.144 fires automatically at 20:24:49.378, about 8.234 seconds later. Death precedes the following reload completion. Client closed after player death; this is not a natural full-round or uninterrupted-navigation acceptance. |
+| 3 | `380eaa15` / `203436-6bc92bc4cb0a` | Computer-use key attempts have no native manual-shell receipt. Five APCR shots commit; this game is not an HE-switch pass. Natural team-1 elimination win at 20:33:42. |
+| 4 | `380eaa15` / `205024-6bc92bc4cb0a` | With computer-use input not taking effect in-game, the user explicitly agreed to start and switch HE. CURRENT HE at 20:37:45.043 is manual user input. Automatic HE commits at 20:37:55.527 and 20:38:03.869. The following ready round encounters repeated turn/review interruption. Natural team-2 capture win at 20:42:47. This report contains games 3 and 4 as session rounds 1 and 2. |
+
+The report proves three distinct boundaries, which must not be collapsed into
+a single network-latency explanation:
+
+- **Worker load and observation queues are real.** At 20:38:23.682, displayed
+  ping is 489 ms, worker-frame time 489.3075 ms, server RTT 11.9232 ms and
+  dispatch delay 30.2291 ms. The display uses worker-frame time. A retained
+  slow frame costs 807.527 ms, including 768.381 ms in Bot update. In a
+  30-second capture the `shot_lane_identity` queue's retained completed
+  observations have median 2.300 s, p95 4.665 s and maximum 5.445 s; selected
+  completed observations have p95 0.958 s and maximum 2.727 s. These are
+  observed lane-queue waits, not a new global HE timer or a measurement of
+  every armour/turn query. Two detailed sampled frames attribute 465.997 ms
+  inclusive / 247.660 ms self to `bot.command`, versus 76.049 ms inclusive
+  ground-probe work. Nested costs must not be added. The data does not blame
+  full support alone.
+- **Foreground turn/review ownership also alternates.** The player continues
+  checking and sending input during the delayed interval. At 20:38:28.632
+  `unverified_points_obstructed` yields `stationary_domain_review_pending`
+  with turn 0. At .685 `ordered_he_route_contact` returns the retained combat
+  task and the original physically checked driver sends turn +1. At .725
+  it stops again and at .772 sends +1 again. Siege remains enabled. Both
+  branches still report hull review pending and no selected siege-motion
+  certificate. Actual yaw changes from 0.172489 to 0.190853, so this is a
+  stop/start handoff conflict, not a turn command waiting unseen in a worker
+  queue. In `CombatStop.apply_order`, the unfinished `firing_position` path
+  freezes the hold, whereas `preaim` without `stationary_review_wait()` can
+  return the ordinary order. That repeated partial turn changes the next
+  stationary planning inputs. The conflict is confirmed; no bypass or fix
+  was applied during this investigation.
+- **A completed plan can fail its next exact source check.** In game 2,
+  HE fallback plans 44/45 for Bot 22 sample 0 are rejected at
+  20:24:50.219/.345. Only raw chassis-position Y differs; body, muzzle,
+  mounted translation and weapon observations match. One difference is
+  about 0.00000036 m. The source guard compares raw pose components exactly,
+  before the planning support anchor is considered. This is positive evidence
+  of pose settling invalidation, not proof that the ground support failed or
+  permission to relax a physical predicate. It does not by itself establish
+  that this was the sole cause of the older `194534` report's finite stall.
+
+Nearby enemy Bots are not assumed to have identical target ownership. In
+game 4, Bot 18's retained records progress from budget/support waits to actual
+trigger submissions at 20:38:18.555 and 20:38:27.998 against the player.
+Bot 27 instead retains allied Bot 13 as its target; its current point remains
+line-clear but armour-unknown, with `stationary_shared_budget_pending`,
+`stationary_probe_budget_pending`, hydraulic pitch limits and later
+`native_pivot_geometry_pending`. It has no completed turn certificate in the
+20:37:40–20:38:32 retained window. That corroborates delayed preparation;
+it does not prove that this Bot had already passed a usable player-fire check.
+
+The next repair should reconcile current physical observations and ownership
+between preaim, unfinished review and actual turn execution, and reduce
+duplicated work within the existing budgets. Fresh support, collision, turn
+and first-trigger checks remain required. Increasing an arbitrary wait or
+calling these observations a fixed HE bug is unsupported. Bridge congestion
+reported during the user's manual route change remains a separate navigation
+observation, not corrected here.
+
+Validation: all eight jobs pass on exact runtime head in
+[Tests run 44522589915](https://github.com/colorfulmeans/wot-0.9.22-offline-battles/actions/runs/44522589915).
+The final focused source run passes 35 cases across the actual stationary
+planner and diagnostic tests, including checkbox-off behavior and exact guard
+refusal. CPython 2.7 bytecode matches all 266 current client modules; independent
+inspection verifies 46 frozen launcher modules, 269 paired sources, native
+inputs, replay execution and packaged-editor smoke. The first two game reports
+have no Python tracebacks. The combined games-3/4 session has one stock
+Scaleform damage-panel `as_updateDeviceState` presentation exception at
+20:31:15.136; it is recorded separately and not an aiming or native-crash fix.
+Both final native exception trails are header-only. No new shutdown acceptance
+is inferred from a live report.
+
+Delivery: `C:/Users/USER/Downloads/wot_PR119_380eaa15_Windows_2026-11-19.zip`
+(68,365,656 bytes / 1,300 files). All delivered files match the native-tested
+application; ZIP integrity and file inventory pass. No QA logs, saves or
+settlement journals are included. Original PR #119 stays open and unmerged;
+the following documentation-only commit does not alter this tested runtime.
+
+## Previous follow-up — November 19, 2026, bridge navigation lifecycle
 
 This follow-up changes navigation for both player automatic control and Bots.
 Temporary passage and occupied-endpoint targets are part of navigation. The

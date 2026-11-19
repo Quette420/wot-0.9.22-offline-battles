@@ -7,6 +7,9 @@ advances a gun, moves an entity or delegates to a retired player/BOT policy.
 from __future__ import print_function
 
 import math
+import time
+
+_COMMAND_CLOCK = getattr(time, 'perf_counter', time.clock if hasattr(time, 'clock') else time.time)
 
 from .actor_observation import observation
 
@@ -913,6 +916,9 @@ class CombatControl(object):
 
     def _accept_combat_order(self, order, now):
         """Apply the same combat owner after the shared strategic order."""
+        trace_cost = combat_detail_enabled()
+        costs = {} if trace_cost else None
+        started = _COMMAND_CLOCK() if trace_cost else None
         artillery = (self.state.get('profile') or {}).get('class_tag') == 'SPG'
         if artillery and 'fire' in self.features:
             from .artillery_selection import ArtillerySelection
@@ -929,6 +935,9 @@ class CombatControl(object):
                         targets=tuple((key, row.get('status'), row.get('reason'),
                                        row.get('exception')) for key, row in sorted(selection.rows.items()))))
         order = self.combat_stop.accept(order)
+        if trace_cost:
+            phase = _COMMAND_CLOCK()
+            costs['selection_and_accept_ms'] = (phase-started)*1000.
         self._gun_handoff = None
         if 'fire' in self.features:
             if self.combat_stop.active or artillery:
@@ -937,9 +946,21 @@ class CombatControl(object):
                         reason='engagement_waits_native_siege', candidate=None)
                 else:
                     self.attack_policy.update(now)
+                if trace_cost:
+                    following = _COMMAND_CLOCK()
+                    costs['attack_policy_ms'] = (following-phase)*1000.
+                    phase = following
                 order = self.combat_stop.resolve(order, now)
                 self.prepare_gun_handoff(now)
+                if trace_cost:
+                    following = _COMMAND_CLOCK()
+                    costs['stop_and_handoff_ms'] = (following-phase)*1000.
+                    phase = following
                 self._refresh_siege_aim(now)
+                if trace_cost:
+                    following = _COMMAND_CLOCK()
+                    costs['siege_aim_ms'] = (following-phase)*1000.
+                    phase = following
                 order = self.attack_policy.apply_order(order, now)
                 order = self.combat_stop.apply_order(order, now)
             else:
@@ -952,4 +973,9 @@ class CombatControl(object):
             # gun law may still publish its own hull-forward resting source.
             self._siege_aim_candidate = None
             self.siege_aim.reset()
+        if trace_cost:
+            costs['total_ms'] = (_COMMAND_CLOCK()-started)*1000.
+            costs['policy'] = self.attack_policy.decision.get('reason')
+            combat_detail(self, 'combat_command_cost', self.actor_id, now, 'sample',
+                lambda: dict(costs=costs, actor_kind=self.actor_kind))
         return order

@@ -9,6 +9,7 @@ import time
 
 from gui.mods.offline_lan_0922.personal_rating import personal_rating
 from gui.mods.offline_lan_0922.game_calendar import first_win_factor
+from gui.mods.offline_lan_0922.account_rpc.economy import SANDBOX_TANKMAN_COSTS
 
 
 VEHICLE_ITEM_TYPE = 1
@@ -60,20 +61,7 @@ PERSONAL_MISSION_REGULAR_MAX_ID = (
     PERSONAL_MISSION_REGULAR_OPERATIONS)
 
 
-DEFAULT_TANKMAN_COSTS = (
-    {
-        'credits': 0, 'gold': 0, 'roleLevel': 50,
-        'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0, 'isPremium': False,
-    },
-    {
-        'credits': 0, 'gold': 0, 'roleLevel': 75,
-        'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0, 'isPremium': False,
-    },
-    {
-        'credits': 0, 'gold': 0, 'roleLevel': 100,
-        'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0, 'isPremium': True,
-    },
-)
+DEFAULT_TANKMAN_COSTS = SANDBOX_TANKMAN_COSTS
 
 
 def personal_mission_regular_chain_id(mission_id):

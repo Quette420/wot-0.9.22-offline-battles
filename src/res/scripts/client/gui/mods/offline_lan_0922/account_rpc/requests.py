@@ -631,7 +631,7 @@ def _apply_outfit(context, args):
     if len(ints) != 3 or len(strings) != 1:
         return Result(commands.RES_FAILURE, 'INVALID_OUTFIT_REQUEST')
     return _fitting(context, lambda state: state.apply_outfit(
-        ints[1], ints[2], strings[0]))
+        ints[1], ints[2], strings[0]), require_persistence=True)
 
 
 def _sync_data(context, args):

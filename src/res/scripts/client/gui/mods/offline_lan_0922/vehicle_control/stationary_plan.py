@@ -162,6 +162,7 @@ class StationaryPlanner(object):
         self._epoch = None
         self._epoch_serial = 0
         self._supports, self._arcs, self._plans = {}, {}, {}
+        self._paths = {}
         self._budget_at = None
         self._slices, self._support_left = 0, 0
         self._deadline = 0.
@@ -653,11 +654,48 @@ class StationaryPlanner(object):
         self._arcs[key] = receipt
         return receipt
 
+    def _path_support(self, frame, source, yaw, offset, peers, cap, now,
+                      deadline, hydraulic, chassis, receipts):
+        """One checked support history for endpoint aiming and turn admission.
+
+        Prefixes only survive identical scene/peer/source dependencies. Every
+        new segment still uses the original complete support/collision slice.
+        Unfinished work resumes at its first missing segment, not segment zero.
+        """
+        delta = _angle(yaw - frame['body'][0])
+        sign = 1. if delta >= 0. else -1.
+        step = DESTRUCTIBLE_POSE_MAX_ANGLE_STEP
+        count = int(math.floor(abs(delta) / step))
+        key = float(offset), sign
+        path = self._paths.setdefault(key, dict(poses=[source], arcs=[]))
+        receipts[:] = path['arcs'][:count]
+        while len(path['arcs']) < count:
+            index = len(path['arcs'])
+            first = frame['body'][0] + sign * step * index
+            last = frame['body'][0] + sign * step * (index + 1)
+            receipt = self._slice(frame, source, first, last, offset,
+                peers, cap, now, deadline, hydraulic, chassis, path['poses'][-1])
+            path['arcs'].append(receipt)
+            path['poses'].append(receipt['support'][-1])
+            receipts.append(receipt)
+        endpoint = path['poses'][count]
+        if abs(delta) - count * step > 1.e-9:
+            first = frame['body'][0] + sign * step * count
+            receipt = self._slice(frame, source, first, frame['body'][0] + delta,
+                offset, peers, cap, now, deadline, hydraulic, chassis, endpoint)
+            receipts.append(receipt)
+            endpoint = receipt['support'][-1]
+        return endpoint
+
     def project(self, frame, shell, target, raw_prediction, now, channel,
                 deadline=None):
         receipts = []
+        costs = {} if combat_detail_enabled() else None
+        started = self.clock() if costs is not None else None
         try:
             dependencies, pivot, peers, cap = self._dependencies(frame)
+            if costs is not None:
+                costs['dependencies_ms'] = (self.clock()-started)*1000.
             if dependencies != self._epoch:
                 if self._epoch is not None and combat_detail_enabled():
                     names = ('weapon', 'planning_pose', 'position', 'native_position',
@@ -682,6 +720,7 @@ class StationaryPlanner(object):
                 self._epoch = dependencies
                 self._epoch_serial += 1
                 self._plans = {}
+                self._paths = {}
             key = (shell['signature'], target['key'], target['pose'], target['velocity'],
                    tuple(raw_prediction['sample_point']))
             # Far moving targets no longer restart static arc work. Their
@@ -718,10 +757,15 @@ class StationaryPlanner(object):
 
             if chassis is not None:
                 def support_at(position, yaw):
-                    return self._support(support_frame, position, yaw, now, deadline, chassis)
+                    delta = _angle(yaw - support_body[0])
+                    offset = vehicle_physics.track_pivot_offset(pivot, 0., delta)
+                    return self._path_support(support_frame, source, yaw, offset,
+                        peers, cap, now, deadline, hydraulic, chassis, receipts)
 
                 proposal = self._project_point(planned, shell, target, raw_prediction,
                                                pivot, hydraulic, support_at)
+            if costs is not None:
+                costs['aim_and_support_ms'] = (self.clock()-started)*1000.-costs['dependencies_ms']
             delta = _angle(proposal['flat_body'][0] - support_body[0])
             sign = 1. if delta >= 0. else -1.
             count = int(math.floor(abs(delta) / DESTRUCTIBLE_POSE_MAX_ANGLE_STEP))
@@ -729,14 +773,16 @@ class StationaryPlanner(object):
                       for index in range(count + 1)]
             if abs(delta) - count * DESTRUCTIBLE_POSE_MAX_ANGLE_STEP > 1.e-9:
                 angles.append(support_body[0] + delta)
-            receipts = []
             preceding = source if chassis is not None else None
-            for first, last in zip(angles, angles[1:]):
-                receipt = self._slice(support_frame, source, first, last, proposal['pivot_offset'],
-                                      peers, cap, now, deadline, hydraulic, chassis, preceding)
-                receipts.append(receipt)
-                if chassis is not None:
-                    preceding = receipt['support'][-1]
+            if chassis is not None:
+                preceding = self._path_support(support_frame, source, proposal['flat_body'][0],
+                    proposal['pivot_offset'], peers, cap, now, deadline, hydraulic, chassis, receipts)
+            else:
+                receipts = []
+                for first, last in zip(angles, angles[1:]):
+                    receipt = self._slice(support_frame, source, first, last, proposal['pivot_offset'],
+                                          peers, cap, now, deadline, hydraulic)
+                    receipts.append(receipt)
             if (preceding is not None and
                     (not _same_point(preceding['position'], proposal['projected_frame']['position'],
                                      _POSITION_EPSILON) or
@@ -788,6 +834,14 @@ class StationaryPlanner(object):
                     type(error).__name__, lambda: dict(shell=shell['index'], target=target['key'],
                         channel=channel, error=str(error)[:200]))
             return _pending('stationary_native_projection_unavailable')
+        finally:
+            if costs is not None:
+                costs['total_ms'] = (self.clock()-started)*1000.
+                if costs['total_ms'] > 0.:
+                    combat_detail(self.runtime, 'stationary_work_cost', self.runtime.actor_id,
+                        now, channel, lambda: dict(costs=costs, target=target.get('key'),
+                            cached_supports=len(self._supports), cached_arcs=len(self._arcs),
+                            cached_plans=len(self._plans), checked_prefix=len(receipts)))
 
     def current(self, frame, proof):
         if isinstance(proof, dict) and isinstance(proof.get('proof'), dict):

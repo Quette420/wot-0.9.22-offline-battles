@@ -354,6 +354,18 @@ class BattleRadioAdapterTests(unittest.TestCase):
         self.assertFalse(self.adapter.close_team_chat())
         self.assertEqual((20, 0), self.avatar.chat2[-1][:2])
 
+    def test_late_close_after_stock_protocol_retirement_only_retires_local_channel(self):
+        from unittest import mock
+        self.assertTrue(self.adapter.start_team_chat())
+        before = list(self.avatar.chat2)
+        retired = types.SimpleNamespace(MessengerEntry=types.SimpleNamespace(
+            g_instance=types.SimpleNamespace(protos=types.SimpleNamespace(BW_CHAT2=None))))
+        with mock.patch.dict(sys.modules,{'messenger':retired}):
+            self.assertFalse(self.adapter.close_team_chat())
+        self.assertEqual(before,self.avatar.chat2)
+        self.assertFalse(self.adapter._team_chat_started)
+        self.assertTrue(self.adapter.close())
+
     def test_partial_stock_init_retains_deinit_ownership(self):
         avatar = _FailingAvatar()
         avatar.fail_once.add(19)

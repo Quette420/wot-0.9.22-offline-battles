@@ -7320,6 +7320,8 @@ class BootstrapContractTests(unittest.TestCase):
             'gui.mods.offline_lan_0922.config': config,
             'gui.mods.offline_lan_0922.engine_audio': types.SimpleNamespace(install=lambda: None, uninstall=lambda: None),
             'gui.mods.offline_lan_0922.runtime_diagnostics': types.SimpleNamespace(install_exit_trace=lambda: None),
+            'game': types.SimpleNamespace(fini=lambda:None),
+            'gui.mods.offline_lan_0922.native_shutdown': types.SimpleNamespace(install=lambda game,cleanup:None),
             'gui.mods.offline_lan_0922.depot_styles': types.SimpleNamespace(install=lambda: None),
             'gui.mods.offline_lan_0922.offline_replay': types.SimpleNamespace(replay_request=lambda: None),
             'gui.mods.offline_lan_0922.instance_guard': instance_guard,

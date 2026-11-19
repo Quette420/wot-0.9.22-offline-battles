@@ -623,6 +623,7 @@ class BootstrapLifecycleTests(unittest.TestCase):
         modules = {
             'AccountCommands': account_commands,
             'BigWorld': bigworld,
+            'game': types.SimpleNamespace(fini=lambda:None),
             'gui': _package('gui'),
             'gui.mods': _package('gui.mods'),
             'gui.mods.offline_lan_0922': _package(
@@ -637,6 +638,7 @@ class BootstrapLifecycleTests(unittest.TestCase):
             'gui.mods.offline_lan_0922.config': config_module,
             'gui.mods.offline_lan_0922.engine_audio': types.SimpleNamespace(install=lambda: None, uninstall=lambda: None),
             'gui.mods.offline_lan_0922.runtime_diagnostics': types.SimpleNamespace(install_exit_trace=lambda: None),
+            'gui.mods.offline_lan_0922.native_shutdown': types.SimpleNamespace(install=lambda game,cleanup:None),
             'gui.mods.offline_lan_0922.instance_guard': (
                 instance_guard_module),
             'gui.mods.offline_lan_0922.lan_session': lan_session_module,

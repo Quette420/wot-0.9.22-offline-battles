@@ -1,6 +1,36 @@
 # PR119 control-offset correction — November 10, 2026
 
-## Current handoff — November 19, 2026
+## Current follow-up — November 19, 2026, garage/rear-turn/retirement
+
+Implementation is under verification; no native acceptance or new delivery is
+claimed yet. The original PR119 remains open and unmerged. Original navigation,
+route data, search and driving owners have no changes in this follow-up.
+
+- CMD 119 now implements the pinned buy-and-equip contract: purchase only
+  missing exterior copies, transfer inventory and persist atomically.
+- Shared school coefficients restore free .2/.2, credits .1/.1 and gold 0/0
+  base/cross-class losses; the exact client still calculates role levels and
+  unused XP. Historical evidence/confidence is in COMPATIBILITY_REVIEW.md.
+- Lineup and save vehicle filters share full Chinese/English class labels.
+- Hydraulic angle inversion reads both actual edge responses; a rear ray no
+  longer assumes the nose-up pitch response has the forward sign.
+- Endpoint aim and full turn proof use the same continuous support history.
+  Checked prefixes resume at the first unfinished slice. Existing support,
+  peer, native collision, boundary and first-trigger checks remain active.
+- Offline cleanup precedes stock game.fini. Custom muted model references
+  retire at stock appearance destruction; ownership hooks remain through
+  late stock teardown. A retired chat protocol cannot receive new close events.
+- Unresolved Bot command/turn substage timings and model-owner identities are
+  recorded only through the checked detailed-diagnostics entrance.
+
+Initial verification: 36 player files, 29 shared-control files (engine-free
+Windows reference), 49 launcher files, plus focused garage, shutdown and radio
+checks pass. Full reference validation, new-source Windows packaging and exact
+client acceptance are in progress. Earlier direct Windows-host shared checks
+failed because the x64 test interpreter cannot load the shipping x86 client
+extension; no assertion was weakened and those failures are not native passes.
+
+## Previous handoff — November 19, 2026
 
 Runtime/code revision: `bf27cda927b82f962ee0a50846371edcadea0003`, build
 `local-pr119-bf27cda9`. This adds checked-only world/wreck/lane-refusal and unsettled-motion

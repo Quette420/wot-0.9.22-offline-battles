@@ -15646,3 +15646,44 @@ ammunition feedback. The first implementation is removed before replacement.
 BattleRuntime is restored byte-for-byte to 0e4146f7 (before 18983a25 introduced
 player control). Unrelated queue, earnings and governor-wear fixes are retained.
 Bot policy, driving and navigation owners are not changed by this withdrawal.
+# PR #119 garage and native retirement follow-up (2026-11-19)
+
+The pinned `items/tankmen.pyc:TankmanDescr.respecialize` applies
+`round(oldRoleLevel * (1 - baseRoleLoss - classChangeRoleLoss))`, omitting the
+class loss for same-class vehicles and the base loss for the same vehicle.
+It then applies the school's minimum and its existing `addXP(0)` handling.
+`PersonalCaseDataProvider.getRetrainingData` reads the same shop school data.
+Do not replace either consumer with fixed result percentages.
+
+Historical coefficients: free school minimum 50, base/cross-class losses .2/.2;
+credits school minimum 75, .1/.1; gold school minimum 100, 0/0. Without an
+unused XP pool, a 100% member becomes 80/90/100 on a same-class change and
+60/80/100 on a cross-class change. Original-vehicle training has no transfer
+loss. Career prices and sandbox prices remain unchanged.
+
+Evidence reviewed on 2026-11-19: the pinned #1513 bytecode establishes the
+formula and preview contract, not the missing historical server shop packet.
+[Wargaming's retained legacy crew support article](https://www.wargaming.net/support/en/products/wot/article/10225/)
+documents free/credit/gold 20/10/0 losses. The class-change supplement is the
+first-hand [legacy crew guide](https://worldoftanksguide.apctools.com/guide-crew.shtml),
+which explicitly reports doubled losses for a different class. This is a
+high-confidence historical reconstruction compatible with the exact client,
+not a claim to have captured a retail 0.9.22 server response. Modern 1.24.1+
+crew efficiency rules are not used.
+
+Pinned `OutfitApplier._request` calls `Shop.buyAndEquipOutfit`, which emits
+CMD 119 directly with `[shopRev, vehicleInvID, season]` and one packed outfit.
+It does not first send CMD 118. The offline CMD 119 consumer must reuse
+existing copies, buy only shortages at the current shop price, transfer
+inventory and persist the outfit in one transaction. Unknown prices,
+not-in-shop items and insufficient funds still fail without partial charges.
+
+Pinned `game.fini` closes Messenger and resets entities/spaces before
+`gui_personality.fini` invokes mod cleanup. Offline owners now retire before
+stock fini and collect their unreachable cycles while model managers are live.
+Appearance destruction drops custom muted-generation model references before
+stock component/model destruction; ownership-only destroy hooks outlive sound
+uninstallation. They retain classes/functions, not model instances. These
+ordering contracts and the late-chat guard do not by themselves prove which
+reference retained the faulting model in report `151150-204579a0631e`.
+Exact-client exit acceptance and first-fault evidence remain necessary.

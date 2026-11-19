@@ -73,20 +73,29 @@ def hydraulic_reach(descriptor, direction, flat_body, config):
     initial = at(neutral)
     correction, result = neutral, initial
     if initial[0]:
-        edge = config['minimum'] if initial[0] < 0 else config['maximum']
-        result = at(edge)
-        if result[0] == initial[0]:
+        choices = []
+        # Nose-up correction reverses its pitch effect behind the hull.
+        # Read both actual endpoint responses instead of inferring the edge
+        # from a forward-facing pitch sign. This is angle arithmetic only.
+        for edge in (config['minimum'], config['maximum']):
+            result = at(edge)
+            if result[0] == initial[0]:
+                continue
+            failed, candidate = neutral, edge
+            for unused in range(32):
+                middle = (failed + candidate) * .5
+                if at(middle)[0] == initial[0]:
+                    failed = middle
+                else:
+                    candidate = middle
+            tested = at(candidate)
+            if not tested[0]:
+                choices.append((abs(candidate - neutral), candidate, tested))
+        if not choices:
             return dict(reachable=False, reason='hydraulic_pitch_limit',
                         local_yaw=result[1], local_pitch=result[2],
                         pitch_limits=result[3], hydraulic_pitch=edge)
-        failed, correction = neutral, edge
-        for unused in range(32):
-            middle = (failed + correction) * .5
-            if at(middle)[0] == initial[0]:
-                failed = middle
-            else:
-                correction = middle
-        result = at(correction)
+        unused_distance, correction, result = min(choices, key=lambda item: item[0])
     limits = _field(gun, 'turretYawLimits')
     yaw_ok = limits is None or (float(limits[0]) - NATIVE_ANGLE_TOLERANCE <=
         result[1] <= float(limits[1]) + NATIVE_ANGLE_TOLERANCE)

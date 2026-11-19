@@ -1243,7 +1243,9 @@ def _install_lan_session():
     if _session is not None:
         return True
     from gui.mods.offline_lan_0922.lan_session import LANSession
-    from gui.mods.offline_lan_0922 import engine_audio, runtime_diagnostics
+    from gui.mods.offline_lan_0922 import engine_audio, runtime_diagnostics, native_shutdown
+    import game
+    native_shutdown.install(game, _cleanup_runtime)
     engine_audio.install()
     runtime_diagnostics.install_exit_trace()
     session = LANSession(
@@ -1267,6 +1269,9 @@ def _install_worker_session():
     global _session
     if _session is not None:
         return True
+    import game
+    from gui.mods.offline_lan_0922 import native_shutdown
+    native_shutdown.install(game, _cleanup_runtime)
     from gui.mods.offline_lan_0922.authority_worker import WorkerSession
     _session = WorkerSession(
         _config, lobby_ready=_native_lobby_is_ready,

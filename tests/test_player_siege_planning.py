@@ -44,6 +44,20 @@ class ActualHydraulicScene(SiegeScene):
 
 
 class ActualSiegeAimTests(unittest.TestCase):
+    def test_recorded_rear_ray_uses_opposite_hydraulic_edge_before_checked_turn(self):
+        scene = self.scene(enabled_pitch=(-math.radians(4),math.radians(2)))
+        flat = (-2.588335037,-.013411073,.157022864)
+        local = (.30818735293,-.04354924457,-.95032837419)
+        direction = shot_geometry.transform_vehicle_vector(local,*flat)
+        config = dict(isAvailable=True,isEnabled=True,
+                      minimum=-math.radians(11),maximum=math.radians(11),speed=.2)
+        result = hydraulic_reach(scene.entity.typeDescriptor,direction,flat,config)
+        self.assertTrue(result['needs_hull'],result)
+        self.assertFalse(result['reachable'])
+        self.assertLess(result['hydraulic_pitch'],0.)
+        self.assertGreaterEqual(result['local_pitch'],result['pitch_limits'][0]-1.e-8)
+        self.assertLessEqual(result['local_pitch'],result['pitch_limits'][1]+1.e-8)
+
     def scene(self, **kwargs):
         scene = ActualHydraulicScene()
         scene.setUp()

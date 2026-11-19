@@ -153,12 +153,15 @@ SANDBOX_WALLET = {
 # to price them.  The prices are server state the client never receives, so
 # free, 20000 credits and 200 gold are the long-published retail numbers,
 # chosen the same way the gold exchange rate and the garage slot price were.
-# ``baseRoleLoss`` and ``classChangeRoleLoss`` stay at zero because retraining
-# does not exist offline yet, and the recruit window reads both.
+# #1513 respecialize adds classChangeRoleLoss to baseRoleLoss, multiplies the
+# old role level by (1 - loss), then applies the school's minimum and unused
+# XP. Legacy rules: free 20% + 20% cross-class, credits 10% + 10%, gold 0%.
+# See COMPATIBILITY_REVIEW.md for the historical coefficient evidence.
 def _tankman_cost(credits_amount, gold, role_level, premium=False):
+    loss = {50: .2, 75: .1, 100: 0.}[role_level]
     return {
         'credits': credits_amount, 'gold': gold, 'roleLevel': role_level,
-        'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0,
+        'baseRoleLoss': loss, 'classChangeRoleLoss': loss,
         'isPremium': premium,
     }
 

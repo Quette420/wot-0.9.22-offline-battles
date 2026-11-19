@@ -118,6 +118,27 @@ class NativePlanScene(TraverseScene):
 
 
 class StationaryPlanTests(unittest.TestCase):
+    def test_supported_small_bump_has_one_continuous_aim_and_turn_endpoint(self):
+        scene = self.scene(bearing=2.8)
+        scene.battle._local_suspension_params = vehicle_physics.derive_suspension_params(
+            scene.entity.typeDescriptor)
+        scene.ground_function = lambda x,z: .05 * math.exp(-((x-1.5)**2+z*z)/.01)
+        frame, plan = scene.plan(attempts=100)
+        self.assertEqual('proved',plan['status'],plan)
+        proof = plan['proof']
+        self.assertFalse(proof['fire_permission'])
+        previous = proof['source_support']
+        for arc in proof['arc']:
+            self.assertTrue(arc['native_clear'])
+            previous = arc['support'][-1]
+        self.assertEqual(previous['position'],proof['projected_position'])
+        self.assertEqual(previous['pitch'],plan['flat_body'][1])
+        self.assertEqual(previous['roll'],plan['flat_body'][2])
+        calls = len(scene.ground_calls)
+        again_frame, again = scene.plan()
+        self.assertEqual('proved',again['status'],again)
+        self.assertEqual(calls,len(scene.ground_calls))
+
     def scene(self, **kwargs):
         scene = NativePlanScene()
         scene.setUp()

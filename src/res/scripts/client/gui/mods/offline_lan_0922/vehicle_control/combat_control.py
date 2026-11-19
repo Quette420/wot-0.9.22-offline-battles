@@ -995,5 +995,6 @@ class CombatControl(object):
             costs['total_ms'] = (_COMMAND_CLOCK()-started)*1000.
             costs['policy'] = self.attack_policy.decision.get('reason')
             combat_detail(self, 'combat_command_cost', self.actor_id, now, 'sample',
-                lambda: dict(costs=costs, actor_kind=self.actor_kind))
+                lambda: dict(costs=costs, actor_kind=self.actor_kind,
+                    evaluation=(self.attack_policy.frame or {}).get('evaluation_counts')))
         return order

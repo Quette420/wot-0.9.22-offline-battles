@@ -412,10 +412,10 @@ class StableRouteAttackTests(unittest.TestCase):
 
         scene.battle._local_speed = 0.
         for unused in range(25):
-            scene.tick(.125)
-            self.assertTrue(owner.combat_owned, owner.receipt)
             if scene.launches():
                 break
+            scene.tick(.125)
+            self.assertTrue(owner.combat_owned, owner.receipt)
         self.assertEqual(1, owner._episode)
         self.assertEqual([0], [shot['shell_index'] for shot in scene.launches()])
         self.assertEqual(('bot', 50), policy.decision['candidate']['target_key'])

@@ -3241,7 +3241,17 @@ class NativeAttackEvaluator(object):
         shell = next((value for value in frame['shells'] if value['index'] == key[0]), None)
         if target is None or shell is None:
             return None
-        predicted = self._prediction(frame, shell, target, key[2])
+        # Reading a retained row is not a frontier work item. In particular,
+        # a full-domain enumeration must not solve every sample's trajectory
+        # after motion. Only the bounded evaluator may produce a fresh ray.
+        cached = self.predictions.get(key[:3])
+        if cached is None or cached[0] != self._prediction_stamp(frame, shell, target):
+            counts = frame.get('evaluation_counts')
+            if counts is not None:
+                counts['unpriced_row_reads'] = counts.get('unpriced_row_reads', 0) + 1
+            cache[token] = None
+            return None
+        predicted = cached[1]
         if predicted is not None and predicted.get('unreachable') and row.get('scope') == 'excluded':
             # Keep an explicit native range exclusion in the finite domain.
             # It cannot fire; scope_current below still fences that exclusion.
@@ -3287,6 +3297,7 @@ class NativeAttackEvaluator(object):
         return result
 
     def snapshot(self, now):
+        started = _WALL_CLOCK() if combat_detail_enabled() else None
         runtime, owner = self.runtime, self.owner
         source = runtime.current_source()
         gun = runtime.gun
@@ -3392,7 +3403,15 @@ class NativeAttackEvaluator(object):
                         current_heading_degrees=math.degrees(change['current'][1]),
                         threshold_degrees=30., epoch=change['epoch']))
         frame['review_views'] = {}
+        if started is not None:
+            frame['evaluation_counts'] = dict(trajectory_batches=0)
+            lane_started = _WALL_CLOCK()
         self._observe_lanes(frame)
+        if started is not None:
+            frame['evaluation_counts'].update(
+                snapshot_ms=(_WALL_CLOCK()-started)*1000.,
+                lane_snapshot_ms=(_WALL_CLOCK()-lane_started)*1000.,
+                targets=len(targets))
         if self._at != now:
             self._at = now
             pending = getattr(getattr(runtime, 'combat_stop', None),
@@ -3912,6 +3931,9 @@ class NativeAttackEvaluator(object):
             previous = self.predictions.get(key)
             if previous is not None and previous[0] == stamp:
                 return previous[1]
+            counts = frame.get('evaluation_counts')
+            if counts is not None:
+                counts['trajectory_batches'] += 1
             samples = shot_geometry.ordered_vehicle_aim_samples(entity.typeDescriptor)
             body = target['matrix']
             pose = dict(position=_point(body.translation), yaw=float(body.yaw),

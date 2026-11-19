@@ -107,6 +107,30 @@ class SharedCombatReviewContractTests(unittest.TestCase):
                 policy._evaluate(other, scene.now, 'foreground')
                 self.assertEqual(anchor, policy.evaluator.review.targets[job[0][1]]['anchor'])
 
+    def test_cached_point_enumeration_cannot_expand_the_trajectory_work_budget(self):
+        for bot in (False, True):
+            with self.subTest(bot=bot), contextlib.redirect_stdout(io.StringIO()):
+                value, scene, runtime = self.fixture(bot)
+                policy, evaluator = runtime.attack_policy, runtime.attack_policy.evaluator
+                # Populate the finite native sample set before ordinary motion.
+                jobs = policy._jobs(shell_index=runtime.gun.shot_index)
+                evaluator._budgets['foreground'] = 10000
+                for job in jobs:
+                    policy._evaluate(job, scene.now, 'foreground')
+                scene.pose(scene.target, (1., 0., 101.))
+                self.refresh(value, scene, runtime, bot)
+                policy._used['foreground'] = 0
+                with mock.patch.object(evaluator, '_prediction', wraps=evaluator._prediction) as prediction:
+                    policy._rows_for('penetration', runtime.gun.shot_index, fresh_line=True)
+                    self.assertEqual(0, prediction.call_count,
+                        'reading retained rows must not calculate every trajectory outside the frontier')
+                module = native.ADMISSION.rsplit('.', 1)[0]+'.attack_policy'
+                with mock.patch(module+'.ballistics.ballistic_intercept',
+                                wraps=__import__(module, fromlist=['ballistics']).ballistics.ballistic_intercept) as solve:
+                    policy._frontier(scene.now, accepts=lambda row: False)
+                    self.assertLessEqual(solve.call_count, policy.foreground_budget)
+                self.assertLessEqual(policy._used['foreground'], policy.foreground_budget)
+
     def test_forward_motion_and_own_lateral_motion_use_the_vehicle_centre_line(self):
         for bot in (False, True):
             with self.subTest(bot=bot), contextlib.redirect_stdout(io.StringIO()):

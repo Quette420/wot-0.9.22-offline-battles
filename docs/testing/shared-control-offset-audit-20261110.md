@@ -57,10 +57,28 @@ departure/reentry, HE surface scoring, obstruction recovery and diagnostic-off
 behavior. New detailed review records are emitted only through the checked
 detailed-diagnostic option.
 
-Release verification and native-client receipts are being collected before
-delivery. This section will be completed with the frozen runtime, package,
-exact CI and original-scene report evidence. Original PR #119 stays open and
-unmerged; no tag or release is authorized.
+The first native candidate, `a527b668`, failed the original 15-versus-15
+Windstorm Strv S1 scene. The player committed five shots; the worker recorded
+no Bot native trigger acceptance. Report
+`wot-error-report-20261120-011212-2f2439e49895.zip` preserves the ended game.
+An earlier mid-game sample measured median worker frames of 1026.978 ms
+(maximum 1615.997 ms), while median server RTT was 16.159 ms. The resulting
+frame gaps repeatedly reset the existing 0.75-second observation-gap guard,
+preventing most Bots from accumulating the required two-second clear contact.
+This candidate is not approved for delivery.
+
+A reproduced calculation-budget defect refreshed every cached point's
+trajectory during row enumeration, outside the foreground/background limits.
+Both actor bindings reproduced nine extra trajectory requests for one cached
+enemy. Row reads now consume only already priced current trajectories; fresh
+intercepts remain in the existing bounded evaluation frontier. Armour results
+remain cached. Optional cost records include trajectory counts and native
+snapshot costs. The two-second confirmation and its gap guard are unchanged.
+
+Release verification and another native-client run are in progress. This
+section will be completed with the final runtime, package, exact CI and
+original-scene evidence. Original PR #119 stays open and unmerged; no tag or
+release is authorized.
 
 ## Previous follow-up — November 19, 2026, opt-in turn-plan investigation
 

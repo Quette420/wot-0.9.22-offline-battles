@@ -118,7 +118,9 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
         calls = self.native_hits
         self.target.appearance.turretMatrix.setRotateY(.2)
         self.snapshot()
-        self.assertIsNotNone(self.policy.current_row(old))
+        # Live aim refresh belongs to the bounded frontier, not a cache read.
+        # Its armour result survives that refresh without another collider hit.
+        self.assertIsNone(self.policy.current_row(old))
         current = self.evaluate_point()
         self.assertEqual('failed', current['armor'])
         self.assertEqual(self.native_hits, calls)

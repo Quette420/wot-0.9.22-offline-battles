@@ -2,33 +2,107 @@
 
 ## Current follow-up — November 19, 2026, garage/rear-turn/retirement
 
-Implementation is under verification; no native acceptance or new delivery is
-claimed yet. The original PR119 remains open and unmerged. Original navigation,
-route data, search and driving owners have no changes in this follow-up.
+Runtime/code revision: `b3c0753e6e1d9def206d675935f43e5ba6480f02`, build
+`local-pr119-b3c0753e`. The following documentation-only head records the tested
+runtime without rebuilding it. Original PR119 stays open and unmerged; no tag
+or release. Delivery: `C:/Users/USER/Downloads/wot_PR119_b3c0753e_Windows_2026-11-19.zip`
+(68,362,733 bytes, 1,300 files). Every delivered file matches the native-tested
+application; full ZIP integrity and duplicate-path checks pass. The clean
+delivery also passes the independent frozen-source/package verifier.
+
+Original navigation, route data, search, driving and support-physics owners
+have no changes against this follow-up's base `727eb33d`. No support, collision,
+angle, armour or first-trigger predicate was bypassed or relaxed.
+
+### Confirmed corrections
 
 - CMD 119 now implements the pinned buy-and-equip contract: purchase only
-  missing exterior copies, transfer inventory and persist atomically.
+  missing exterior copies, transfer inventory and persist atomically. Funds,
+  stock, exclusivity and persistence failures cannot partially charge/equip.
 - Shared school coefficients restore free .2/.2, credits .1/.1 and gold 0/0
   base/cross-class losses; the exact client still calculates role levels and
-  unused XP. Historical evidence/confidence is in COMPATIBILITY_REVIEW.md.
+  unused XP. A 100% member without spare XP becomes free/credits/gold
+  80/90/100 on a same-class change, 60/80/100 across classes. The pinned client
+  proves the formula, not a captured historical server packet. Historical
+  evidence and reconstruction confidence are in COMPATIBILITY_REVIEW.md.
 - Lineup and save vehicle filters share full Chinese/English class labels.
 - Hydraulic angle inversion reads both actual edge responses; a rear ray no
   longer assumes the nose-up pitch response has the forward sign.
 - Endpoint aim and full turn proof use the same continuous support history.
   Checked prefixes resume at the first unfinished slice. Existing support,
   peer, native collision, boundary and first-trigger checks remain active.
+- Future stationary proof work is shared fairly among at most four requesting
+  actors per owner callback; later physics substeps cannot refill that callback's
+  work allowance. Current-point/final-fire verification keeps its existing
+  entrance. Deferred work remains unknown and cannot renew a stop by itself.
+  The fresh work quantum starts after dependency gathering so slow reads cannot
+  starve every physical slice. An injected 10 ms read regression retains real
+  proof progress; no acceptance assertion was weakened.
 - Offline cleanup precedes stock game.fini. Custom muted model references
   retire at stock appearance destruction; ownership hooks remain through
   late stock teardown. A retired chat protocol cannot receive new close events.
-- Unresolved Bot command/turn substage timings and model-owner identities are
-  recorded only through the checked detailed-diagnostics entrance.
+- Command/turn substage timings and unresolved model-owner identities are
+  recorded only with detailed diagnostics checked.
 
-Initial verification: 36 player files, 29 shared-control files (engine-free
-Windows reference), 49 launcher files, plus focused garage, shutdown and radio
-checks pass. Full reference validation, new-source Windows packaging and exact
-client acceptance are in progress. Earlier direct Windows-host shared checks
-failed because the x64 test interpreter cannot load the shipping x86 client
-extension; no assertion was weakened and those failures are not native passes.
+### Exact-client evidence
+
+All new runs use isolated QA copies with Chinese HD #1513. The original user's
+save was not modified. Reports are archived separately before the production
+three-report retention limit can prune them, under
+`qa-pr119-parity-20261118/artillery-adaptive-20261119/report-archive`.
+
+| Runtime / final report | Observed result |
+| --- | --- |
+| `7ff74d84`, `170431-5948d56f0de1`, garage | Native standalone camo purchase and separate CMD 119 combined buy/equip both succeed for 50 gold each. PLA multicolor persists on NC-31. The original 100% T1 commander previews 100/90/80 for same-class T2 Light; actual credit training deducts 20,000 credits and persists 90%. This is an actual purchase/training flow, not a test-only counter update. |
+| `7ff74d84`, `171446-e2835a7940ae`, all-UDES Mittengard | Player HE readiness is acknowledged before auto start. Nine accepted player HE launches, 1,972 damage and two kills; natural team-elimination victory, then normal exit. Both native exception trails are header-only. This precedes the shared future-work cap. |
+| `e7434831`, `174001-7b638bf26d2f`, all-UDES Mittengard | Explicit HE readiness; one accepted player HE launch before enemy destruction. Natural enemy capture finish. This intermediate candidate failed Linux hydraulic handoff tests and is not delivered; the slow-dependency starvation was corrected in `b3c0753e`. |
+| `b3c0753e`, `175548-047e9cc0b9f1`, Mines 15v15, player Strv 103B plus 29 UDES 03 | Stocks 17/17/16; explicit HE-ready receipt precedes auto start. A manual setup turn is followed by an explicit hold mission. Auto completes a checked 149.17-degree rear turn: hull yaw 2.663 at 17:50:53 becomes 0.065 at 17:51:01 at the same anchor. Seven subsequent automatic HE launches have seven server terminal receipts (six penetration, one fallback), 1,579 damage and two kills. Workers have 48 completed turn-proof samples and 81 projectile terminals. Zero endpoint-disagreement records in either role. Natural team-elimination victory at 17:54:49, player survives. Normal stock game.fini returns at 17:55:21; both native exception trails are header-only and all three role logs contain zero Python tracebacks. The setup turn and HE load are explicit test inputs, not credited as automatic decisions. |
+| `b3c0753e`, `180313-e1bcaeb9243f`, restarted career QA garage | The same member still has actual training level 90% and T2 Light specialization; the equipped camo remains selected, with the prior wallet totals retained. No second purchase/training is submitted. Normal game.fini returns; both native exception trails are header-only. |
+
+The original `151150-204579a0631e` fault was in a late PyCompoundModel release
+after model-manager shutdown, followed by recursive engine exception handling.
+The matching destroyed appearance address does not prove the final Python
+retainer. The concrete custom model-reference and cleanup-order gaps are fixed;
+the new native exits did not reproduce access violation/stack overflow. This
+does not identify every possible native owner or guarantee every future exit.
+
+Remaining measured observations are not presented as fixed: the final Mines
+round initially waited about 17 seconds after the first rear-turn proof while
+the current point's target/component and lane evidence kept changing. It then
+turned and fired. The existing checked diagnostics retain those revocations;
+this is not proof of another confirmed actuator or route defect. Complete
+authored waiting-place duration/turn acceptance is not established by the
+explicit hold mission. Dense all-UDES sampled worker frames still peak at
+490.508 ms (median 137.320 ms); server RTT peaks at 89.852 ms. The single displayed
+999 ms record is after the battle result, with dispatch delay 2,889.694 ms and
+no worker-frame measurement. These different live rounds are not controlled
+performance comparisons. Do not claim all latency or all aiming waits resolved.
+
+### Verification and delivery identity
+
+- Exact runtime [Tests run 44498483836](https://github.com/colorfulmeans/wot-0.9.22-offline-battles/actions/runs/44498483836)
+  passes all eight jobs: original navigation, Bot behavior, native geometry,
+  full tests/package, Windows server/editor/launcher and native exception trail.
+  Downloaded unit results confirm 537 client files / 10,897 tests / 9 skips and
+  49 Linux launcher files / 1,330 tests / 170 explicit skips, zero failures.
+- Final local player/shared checks: 65 files / 1,324 tests, zero failures/skips.
+  Windows launcher checks: 49 files / 1,336 tests / 18 explicit skips, zero
+  failures. Direct x64 Python cannot load the shipping x86 extension; local
+  shared checks use the existing engine-free reference path. These are not
+  substituted for the separate native #1513 evidence above.
+- The pinned Python 2.7 respecialize bytecode passes 24 actual coefficient
+  replays, including school minima and same/different class. Focused combined
+  outfit rollback, shutdown ordering and late-radio retirement checks pass.
+- All 266 current client bytecode modules match source; the fresh Windows
+  launcher verifies 46 frozen modules and 269 paired server sources. Unchanged
+  native payload inputs match the verified shipping x86 binary. The embedded
+  recorder runtime executes and the packaged editor's actual CLI smoke passes.
+- Delivery is the complete locally built, native-tested `local-pr119-b3c0753e`
+  application, not a later CI artifact relabelled as tested. No logs, QA saves,
+  test journals, dumps, or runtime receipt residue are in the delivery ZIP.
+
+Earlier dated notes below are audit history. Their pending or superseded
+statements describe those revisions; this current section takes precedence.
 
 ## Previous handoff — November 19, 2026
 

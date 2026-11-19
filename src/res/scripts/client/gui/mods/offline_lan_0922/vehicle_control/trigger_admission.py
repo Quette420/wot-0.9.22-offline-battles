@@ -105,18 +105,24 @@ class TriggerAdmission(object):
         if not combat_detail_enabled():
             return
         reason = proof.get('refusal')
-        if reason not in ('auto_actual_barrel_armour', 'auto_actual_barrel_miss'):
+        if reason not in ('auto_actual_barrel_armour', 'auto_actual_barrel_miss',
+                          'auto_world_blocked'):
             return
         runtime = self.control.runtime
         candidate, solution = proof.get('candidate') or {}, proof['solution']
-        combat_detail(runtime, 'actual_barrel_refusal', runtime.actor_id, now,
+        world = reason == 'auto_world_blocked'
+        path = proof['raw_path'] if proof['stage'] == 0 else proof['path']
+        combat_detail(runtime, 'actual_world_refusal' if world else 'actual_barrel_refusal',
+            runtime.actor_id, now,
             (reason, candidate.get('key')), lambda: dict(refusal=reason,
                 candidate=candidate.get('key'), mode=candidate.get('mode'),
                 aim_point=solution['point'], source_pose=solution.get('source_pose'),
                 barrel_origin=proof['raw_ray'][0], barrel_direction=proof['raw_ray'][1],
                 centre_endpoint=proof['raw_path'][-1],
                 target_engine=proof['target'].id,
-                contact=proof.get('centre_observation'), cursor=proof['cursor']))
+                contact=proof.get('centre_observation'), cursor=proof['cursor'],
+                blocker=proof.get('blocker'),
+                blocked_chord=path[proof['cursor']:proof['cursor'] + 2] if world else None))
 
     def _target(self, context):
         value = context.get('target')

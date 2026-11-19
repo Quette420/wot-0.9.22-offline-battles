@@ -836,6 +836,26 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
                     self.assertNotEqual(2,payload['contact']['armor']['result'])
                     self.assertEqual(3,len(payload['barrel_direction']))
 
+    def test_actual_world_refusal_records_the_blocking_chord_only_with_opt_in(self):
+        self.world = [((-10., -10., 50.), (10., 10., 50.1))]
+        self.assertFalse(self.fire())
+        self.assertEqual('auto_world_blocked', self.control.last_fire_failure)
+        self.assert_unspent()
+        proof = self.admission.pending['proof']
+        for enabled in (False, True):
+            with self.subTest(detailed=enabled), mock.patch(
+                    ADMISSION+'.combat_detail_enabled', return_value=enabled), \
+                    mock.patch(ADMISSION+'.combat_detail') as detail:
+                self.admission._record_actual_refusal(proof, self.now)
+            self.assertEqual(enabled, detail.called)
+            if enabled:
+                self.assertEqual('actual_world_refusal', detail.call_args.args[1])
+                payload = detail.call_args.args[-1]()
+                self.assertEqual('centre', payload['blocker']['ray_stage'])
+                self.assertEqual(2, len(payload['blocked_chord']))
+                self.assertAlmostEqual(50., payload['blocker']['point'][2])
+                self.assertEqual(self.target.id, payload['target_engine'])
+
     def test_real_target_pose_change_invalidates_old_first_trigger_evidence(self):
         self.pose(self.target, (10., 0., 100.))
         self.assertFalse(self.fire())

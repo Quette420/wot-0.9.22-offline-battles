@@ -8,11 +8,15 @@ def shell_order(shell):
 
 
 def stocked(frame, explosive):
-    return sorted((shell for shell in frame['shells']
-                   if (shell['is_he'] if explosive else penetration_round(shell))
-                   and not shell.get('unavailable')
-                   and frame['ammo'][shell['index']] > 0),
-                   key=shell_order)
+    available = (shell for shell in frame['shells']
+                 if (shell['is_he'] if explosive else penetration_round(shell))
+                 and not shell.get('unavailable')
+                 and frame['ammo'][shell['index']] > 0)
+    if explosive:
+        # The reviewed main HE round keeps priority when used for blast damage.
+        return sorted(available, key=lambda shell: (
+            not penetration_round(shell), shell_order(shell)))
+    return sorted(available, key=shell_order)
 
 
 class OrderedAttack(object):

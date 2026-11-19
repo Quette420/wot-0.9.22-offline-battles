@@ -8306,8 +8306,9 @@ class BattleRuntime(SharedBattleGeometry):
                 layout = dict((int(_field(_field(shot, 'shell'), 'compactDescr')), count)
                               for shot, count in zip(_field(descriptor.gun, 'shots'), counts))
                 order = ()
-        return gun_mechanics.GunState(descriptor, self._local_loadout(descriptor),
-                                      ammo_layout=layout, shell_order=order)
+        return gun_mechanics.GunState(
+            descriptor, self._local_loadout(descriptor), ammo_layout=layout,
+            shell_order=order, prefer_primary_he=not self._replay_mode)
 
     def _log_effective_parameters(self, descriptor):
         """Print the values this battle actually uses for the player's tank.

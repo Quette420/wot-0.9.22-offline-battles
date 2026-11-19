@@ -1,4 +1,4 @@
-"""Player planning roles for the exact #1513 gun/shell combinations.
+"""Primary HE identities and planning roles for the exact #1513 combinations.
 
 These roles do not alter a shell's physical kind, damage or magazine rules.
 The five HE exceptions were selected from the pinned client's mounted shots;
@@ -17,6 +17,15 @@ FULL_VALIDATION_HE = frozenset((
     ('uk:_105mm_AT_Gun_L7', 'uk:_105mm_HESH_L7'),
     ('uk:_5_5inch_AT_Gun', 'uk:_5_5inch_HESH_Mk_1'),
 ))
+
+
+def mounted_identity(nation, name):
+    if not nation or not name:
+        return None
+    name = str(name)
+    if ':' in name:
+        return name if name.split(':', 1)[0] == nation else None
+    return nation + ':' + name
 
 
 def validation_mode(gun_identity, shell_identity, kind):

@@ -3150,12 +3150,14 @@ class NativeAttackEvaluator(object):
         shells = []
         vehicle_name = str(_field(descriptor.type, 'name', '') or '')
         nation = vehicle_name.split(':', 1)[0] if ':' in vehicle_name else None
-        gun_identity = self._mounted_identity(nation, _field(descriptor.gun, 'name'))
+        gun_identity = ammunition_validation.mounted_identity(
+            nation, _field(descriptor.gun, 'name'))
         for index, shot in enumerate(gun.shots):
             try:
                 piercing = float(combat_rules.range_piercing(shot, 0.))
                 native_shell = combat_rules.legacy_shot(shot).get('shell') or {}
-                shell_identity = self._mounted_identity(nation, native_shell.get('name'))
+                shell_identity = ammunition_validation.mounted_identity(
+                    nation, native_shell.get('name'))
                 validation = ammunition_validation.validation_mode(
                     gun_identity, shell_identity, native_shell.get('kind'))
                 shells.append(dict(index=index, is_he=combat_rules.is_he(shot),
@@ -3235,15 +3237,6 @@ class NativeAttackEvaluator(object):
                     stamp[2] != signatures.get(key[0])):
                 self.predictions.pop(key, None)
         return frame
-
-    @staticmethod
-    def _mounted_identity(nation, name):
-        if not nation or not name:
-            return None
-        name = str(name)
-        if ':' in name:
-            return name if name.split(':', 1)[0] == nation else None
-        return nation + ':' + name
 
     def _scene_stamp(self):
         owner = self.owner

@@ -1,6 +1,50 @@
 # PR119 control-offset correction — November 10, 2026
 
-## Current follow-up — November 19, 2026, garage/rear-turn/retirement
+## Current follow-up — November 19, 2026, bridge navigation lifecycle
+
+This follow-up changes navigation for both player automatic control and Bots.
+Temporary passage and occupied-endpoint targets are part of navigation. The
+user explicitly authorized correcting this shared legacy mechanism after
+report `182624-b1937ef66f77`; the earlier navigation restriction does not exclude
+this fix. The original route data, A* search, pedal law and support/collision
+proofs remain in place.
+
+The visible client at 18:25:43 has no selected enemy or close contacts, yet
+brakes and turns left toward passage point `(221.215879, -11.003, 213.215879)`
+after the hull has cleared the narrow cells. Its passage owner ended earlier,
+while the generic local-leg and alignment owners retained that point. The
+rear-cell quantized diagonal also generated a fresh sideways target after
+the centre and nose were already in wide terrain. Exact map-data replay
+reproduces the old target. Bot 6 likewise retains a side/rear bypass with no
+current contacts; its initial blocker was not captured and is not invented.
+
+Corrections in the common navigation path:
+
+- Publish the source and original endpoint with a passage/occupied bypass.
+  Retain finite progress and actor-private refusal rules.
+- While only the tail remains narrow, propose the actual exit heading and
+  submit it to the existing hull, hazard and fresh corridor proofs.
+- Once the body clears the passage, expire its generic endpoint before
+  normal navigation selects and proves its next leg. An unfinished proof
+  remains pending; expiry never grants forward motion.
+- Recheck the original occupied local endpoint while its offset is retained.
+  An explicit unoccupied receipt expires that bypass. A still-blocked or
+  unknown endpoint cannot be assumed clear. Control does not depend on logs.
+- Retire only the matching driver's alignment target with the expired leg.
+  Unrelated alignment, route vertices, waits and physical guards keep their
+  owners. Pending passage proof retains its existing point and passage memory.
+- Source/expiry details use the existing opt-in `BOT LOCAL HANDOFF` entrance.
+  No new unconditional detailed log is introduced.
+
+Preliminary reference checks pass 32 affected files / 499 cases, including
+player handoffs, shared missions and navigation. The shared-control checker
+passes 89 cases on the explicitly engine-free reference path. CPython 2.7
+compiles all 266 client modules. The captured assertions fail on the prior
+`d6df00c0` navigation source for both actor identities, then pass after the fix.
+These checks are not native acceptance. Fresh #1513 bridge acceptance, exact
+CI, package identity and delivery are recorded below once observed.
+
+## Previous follow-up — November 19, 2026, garage/rear-turn/retirement
 
 Runtime/code revision: `b3c0753e6e1d9def206d675935f43e5ba6480f02`, build
 `local-pr119-b3c0753e`. The following documentation-only head records the tested

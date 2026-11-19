@@ -856,6 +856,53 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
                 self.assertAlmostEqual(50., payload['blocker']['point'][2])
                 self.assertEqual(self.target.id, payload['target_engine'])
 
+    def test_dynamic_wreck_refusal_records_opted_in_native_witness(self):
+        wreck = self.vehicle(43, (0., 0., 50.), 2)
+        self.battle._records['bot:43']['state'].update(alive=False, health=0)
+        wreck.health = 0
+        self.step()
+        self.assertFalse(self.fire())
+        self.assertEqual('auto_world_blocked', self.control.last_fire_failure)
+        proof = self.admission.pending['proof']
+        for enabled in (False, True):
+            with self.subTest(detailed=enabled), mock.patch(
+                    ADMISSION+'.combat_detail_enabled', return_value=enabled), \
+                    mock.patch(ADMISSION+'.combat_detail') as detail:
+                reason, blocker = self.admission._dynamic(proof)
+            self.assertEqual('auto_world_blocked', reason)
+            self.assertEqual('wreck', blocker['blocker_kind'])
+            self.assertEqual(enabled, detail.called)
+            if enabled:
+                self.assertEqual('actual_world_refusal', detail.call_args.args[1])
+                payload = detail.call_args.args[-1]()
+                self.assertEqual('centre', payload['lane_stage'])
+                self.assertEqual(blocker, payload['blocker'])
+                self.assertGreaterEqual(len(payload['lane_path']), 2)
+                self.assertIsNone(payload['blocked_chord'])
+        self.assert_unspent()
+
+    def test_dynamic_splash_refusal_records_opted_in_scattered_path(self):
+        self.set_he()
+        self.lay()
+        self.vehicle(43, (4., 0., 96.), 1)
+        self.assertFalse(self.fire())
+        self.assertEqual('auto_friendly_splash', self.control.last_fire_failure)
+        proof = self.admission.pending['proof']
+        for enabled in (False, True):
+            with self.subTest(detailed=enabled), mock.patch(
+                    ADMISSION+'.combat_detail_enabled', return_value=enabled), \
+                    mock.patch(ADMISSION+'.combat_detail') as detail:
+                reason, blocker = self.admission._dynamic(proof)
+            self.assertEqual('auto_friendly_splash', reason)
+            self.assertEqual(enabled, detail.called)
+            if enabled:
+                self.assertEqual('actual_lane_refusal', detail.call_args.args[1])
+                payload = detail.call_args.args[-1]()
+                self.assertEqual('scatter', payload['lane_stage'])
+                self.assertEqual(blocker, payload['blocker'])
+                self.assertEqual(proof['path'], payload['lane_path'])
+        self.assert_unspent()
+
     def test_real_target_pose_change_invalidates_old_first_trigger_evidence(self):
         self.pose(self.target, (10., 0., 100.))
         self.assertFalse(self.fire())

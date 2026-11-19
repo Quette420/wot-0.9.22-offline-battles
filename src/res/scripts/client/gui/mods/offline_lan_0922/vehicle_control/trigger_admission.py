@@ -101,28 +101,35 @@ class TriggerAdmission(object):
                             if key not in ('token', 'target', 'path', 'raw_ray'))
         return result
 
-    def _record_actual_refusal(self, proof, now):
+    def _record_actual_refusal(self, proof, now, reason=None, blocker=None, lane_stage=None):
         if not combat_detail_enabled():
             return
-        reason = proof.get('refusal')
+        reason = reason or proof.get('refusal')
         if reason not in ('auto_actual_barrel_armour', 'auto_actual_barrel_miss',
-                          'auto_world_blocked'):
+                          'auto_world_blocked', 'auto_friendly_lane',
+                          'auto_friendly_splash', 'auto_lane_geometry_unknown'):
             return
         runtime = self.control.runtime
         candidate, solution = proof.get('candidate') or {}, proof['solution']
         world = reason == 'auto_world_blocked'
-        path = proof['raw_path'] if proof['stage'] == 0 else proof['path']
-        combat_detail(runtime, 'actual_world_refusal' if world else 'actual_barrel_refusal',
+        path = (proof.get('centre_path', proof['raw_path']) if lane_stage == 'centre' else
+                proof['path'] if lane_stage == 'scatter' else
+                proof['raw_path'] if proof['stage'] == 0 else proof['path'])
+        stage = ('actual_world_refusal' if world else
+                 'actual_lane_refusal' if lane_stage else 'actual_barrel_refusal')
+        combat_detail(runtime, stage,
             runtime.actor_id, now,
-            (reason, candidate.get('key')), lambda: dict(refusal=reason,
+            (reason, candidate.get('key'), lane_stage), lambda: dict(refusal=reason,
                 candidate=candidate.get('key'), mode=candidate.get('mode'),
                 aim_point=solution['point'], source_pose=solution.get('source_pose'),
                 barrel_origin=proof['raw_ray'][0], barrel_direction=proof['raw_ray'][1],
                 centre_endpoint=proof['raw_path'][-1],
                 target_engine=proof['target'].id,
                 contact=proof.get('centre_observation'), cursor=proof['cursor'],
-                blocker=proof.get('blocker'),
-                blocked_chord=path[proof['cursor']:proof['cursor'] + 2] if world else None))
+                blocker=proof.get('blocker') if lane_stage is None else blocker,
+                lane_stage=lane_stage, lane_path=path if lane_stage else None,
+                blocked_chord=path[proof['cursor']:proof['cursor'] + 2]
+                    if world and lane_stage is None else None))
 
     def _target(self, context):
         value = context.get('target')
@@ -385,9 +392,13 @@ class TriggerAdmission(object):
     def _dynamic(self, proof):
         reason, blocker = self._lane(proof.get('centre_path', proof['raw_path']))
         if reason is not None:
+            self._record_actual_refusal(proof, self.control.runtime.now, reason, blocker, 'centre')
             return reason, blocker
         splash = combat_rules.he_radius(proof['shot']) if proof.get('terminal_impact') is not None else 0.
-        return self._lane(proof['path'], splash)
+        reason, blocker = self._lane(proof['path'], splash)
+        if reason is not None:
+            self._record_actual_refusal(proof, self.control.runtime.now, reason, blocker, 'scatter')
+        return reason, blocker
 
     @staticmethod
     def _launch_path(origin, velocity, gravity, maximum, near_limit=None, flight_limit=None):

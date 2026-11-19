@@ -118,6 +118,42 @@ class NativePlanScene(TraverseScene):
 
 
 class StationaryPlanTests(unittest.TestCase):
+    def test_late_physics_slices_keep_one_future_turn_work_quantum(self):
+        from gui.mods.offline_lan_0922.vehicle_control import stationary_plan
+        scene = self.scene(bearing=2.8)
+        scene.runtime.engine._evaluation_callback_at = scene.now
+        frame, shell, target, raw = scene.plan_frame()
+        with mock.patch.object(stationary_plan, 'SLICES_PER_TICK', 1):
+            first = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+            self.assertEqual(1, first['verified_arcs'])
+            queries = len(scene.catalog_calls), len(scene.ground_calls)
+            scene.fixture.now += .2
+            frame, shell, target, raw = scene.plan_frame()
+            second = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+            self.assertFalse(second['proved'])
+            self.assertEqual(queries, (len(scene.catalog_calls), len(scene.ground_calls)))
+            scene.runtime.engine._evaluation_callback_at = scene.now
+            third = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+            self.assertGreater(third['verified_arcs'], first['verified_arcs'])
+
+    def test_queue_deferral_does_not_sample_or_certify_support(self):
+        from gui.mods.offline_lan_0922.vehicle_control.evaluation_budget import EvaluationBudget
+        scene = self.scene(bearing=2.8)
+        actor = scene.runtime.actor_id
+        budget = EvaluationBudget()
+        budget.begin((7, 1.), (1, 2, 3, 4, actor))
+        for other in range(1, 5):
+            self.assertTrue(budget.stationary(other))
+        frame, shell, target, raw = scene.plan_frame()
+        queries = len(scene.catalog_calls), len(scene.ground_calls)
+        with mock.patch.object(scene.runtime.engine, '_begin_evaluation_frame', return_value=budget):
+            pending = scene.planner.project(frame, shell, target, raw, scene.now, 'foreground')
+        self.assertEqual('stationary_shared_budget_pending', pending['reason'])
+        self.assertFalse(pending['proved'])
+        self.assertFalse(pending['progressing'])
+        self.assertEqual(0, pending['verified_arcs'])
+        self.assertEqual(queries, (len(scene.catalog_calls), len(scene.ground_calls)))
+
     def test_supported_small_bump_has_one_continuous_aim_and_turn_endpoint(self):
         scene = self.scene(bearing=2.8)
         scene.battle._local_suspension_params = vehicle_physics.derive_suspension_params(

@@ -164,6 +164,7 @@ class StationaryPlanner(object):
         self._supports, self._arcs, self._plans = {}, {}, {}
         self._paths = {}
         self._budget_at = None
+        self._work_frame = None
         self._slices, self._support_left = 0, 0
         self._deadline = 0.
 
@@ -320,8 +321,9 @@ class StationaryPlanner(object):
                 hydraulic_stamp), pivot, peers, cap
 
     def _budget(self, now, deadline):
-        if self._budget_at != now:
-            self._budget_at = now
+        frame = now if self._work_frame is None else self._work_frame
+        if self._budget_at != frame:
+            self._budget_at = frame
             self._slices, self._support_left = SLICES_PER_TICK, SUPPORT_SAMPLES_PER_TICK
             self._deadline = self.clock() + WALL_SECONDS_PER_TICK
         limit = self._deadline if deadline is None else min(self._deadline, deadline)
@@ -693,6 +695,14 @@ class StationaryPlanner(object):
         costs = {} if combat_detail_enabled() else None
         started = self.clock() if costs is not None else None
         try:
+            begin = getattr(self.runtime.engine, '_begin_evaluation_frame', None)
+            budget = begin(now) if callable(begin) else None
+            self._work_frame = budget.frame if budget is not None else None
+            if budget is not None and not budget.stationary(self.runtime.actor_id):
+                raise _Deferred('stationary_shared_budget_pending')
+            # Include dependency gathering in the existing wall quantum.
+            # Late physical substeps cannot multiply a callback's work cap.
+            self._budget(now, deadline)
             dependencies, pivot, peers, cap = self._dependencies(frame)
             if costs is not None:
                 costs['dependencies_ms'] = (self.clock()-started)*1000.

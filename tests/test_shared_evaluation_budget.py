@@ -12,6 +12,36 @@ from gui.mods.offline_lan_0922.vehicle_control.evaluation_budget import Evaluati
 
 
 class EvaluationBudgetTests(unittest.TestCase):
+    def test_future_pose_work_is_fair_and_independent_of_shot_review(self):
+        budget = EvaluationBudget()
+        actors = tuple(range(1, 30))
+        seen = set()
+        for frame in range(8):
+            budget.begin(frame, actors)
+            granted = [actor for actor in actors if budget.stationary(actor)]
+            self.assertLessEqual(len(granted), 4)
+            seen.update(granted)
+            self.assertTrue(all(budget.stationary(actor) for actor in granted))
+            self.assertEqual(tuple(granted), budget.receipt()['stationary_actors'])
+            self.assertEqual(2, budget.background(1, 2))
+            self.assertTrue(budget.atomic(1))
+        self.assertEqual(set(actors), seen)
+
+    def test_dead_and_idle_future_pose_waiters_cannot_starve_live_actors(self):
+        budget = EvaluationBudget()
+        budget.begin(0, range(1, 8))
+        for actor in range(1, 8):
+            budget.stationary(actor)
+        budget.begin(1, (1, 2, 3, 4, 6, 7, 8))
+        self.assertTrue(budget.stationary(6))
+        self.assertTrue(budget.stationary(7))
+        self.assertFalse(budget.begin(1, (1, 2, 3, 4, 6, 7, 8)))
+        self.assertNotIn(5, budget.receipt()['stationary_waiting'])
+        # Reserved actors stop requesting work; their next-callback grants
+        # expire and do not prevent new active requesters from running.
+        budget.begin(2, (1, 2, 3, 4, 6, 7, 8))
+        self.assertTrue(budget.stationary(8))
+
     def test_twenty_nine_actors_get_background_within_eight_control_frames(self):
         budget = EvaluationBudget()
         actors = list(range(1, 30))

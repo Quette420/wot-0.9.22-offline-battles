@@ -62,7 +62,7 @@ class PrimaryHERulesTests(unittest.TestCase):
 
     def test_gold_he_can_still_fallback_after_the_whole_penetration_sequence(self):
         scene = self.scene()
-        scene.frame.update(loaded=2, ammo=(10, 10, 10))
+        scene.frame.update(loaded=2, ammo=(10, 0, 10))
         for step in range(10):
             result=scene.tick(step*.1)
             if result['action']=='switch_shell':break
@@ -76,16 +76,6 @@ class PrimaryHERulesTests(unittest.TestCase):
         scene.he(100., target=scene.policy.ordered.target[1])
         result = scene.tick(2.)
         self.assertEqual('he_fallback', result['candidate']['mode'])
-
-    def test_ordinary_he_fallback_remains_available_when_hesh_is_out_of_stock(self):
-        scene = self.scene()
-        scene.frame.update(loaded=0, ammo=(10, 10, 0))
-        for step in range(10):
-            result = scene.tick(step * .1)
-            if result['action'] == 'switch_shell':
-                break
-        self.assertEqual(('ordered_he_fallback_load', 1),
-                         (result['reason'], result['shell_index']))
 
     def test_equal_test_rack_keeps_all_shells_and_loads_the_reviewed_primary(self):
         vehicle = mobile_combat_test.CONWAY

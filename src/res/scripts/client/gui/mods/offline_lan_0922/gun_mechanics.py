@@ -13,10 +13,8 @@ import math
 import random
 
 from gui.mods.offline_lan_0922 import burst_mechanics
-from gui.mods.offline_lan_0922 import combat_rules
 from gui.mods.offline_lan_0922 import loadout
 from gui.mods.offline_lan_0922 import shot_dispersion
-from .vehicle_control import ammunition_validation
 
 
 def _field(value, name, default=None):
@@ -51,7 +49,7 @@ def mounted_shot_order(shots, shell_order):
 class GunState(object):
 
     def __init__(self, descriptor, loadout_modifiers=None, ammo_layout=None,
-                 shell_order=None, prefer_primary_he=False):
+                 shell_order=None):
         gun = descriptor.gun
         self.shell_order = tuple(shell_order or ())
         self.shots = mounted_shot_order(
@@ -98,10 +96,6 @@ class GunState(object):
         # after a garage slot swap, the first mounted slot is selected.
         if self.shell_order:
             selected = 0
-        if prefer_primary_he:
-            primary = self._stocked_primary_he_index(descriptor)
-            if primary is not None:
-                selected = primary
         self.shot_index = max(0, min(selected, max(0, len(self.shots) - 1)))
         if not self.ammo or self.ammo[self.shot_index] <= 0:
             # Retail loads the first shell the vehicle actually carries.
@@ -134,24 +128,6 @@ class GunState(object):
         self.pending_index = None
         self._burst_remaining = 0
         self._burst_total = 0
-
-    def _stocked_primary_he_index(self, descriptor):
-        vehicle_name = _field(_field(descriptor, 'type'), 'name', '')
-        nation, separator, _ = str(vehicle_name or '').partition(':')
-        gun = ammunition_validation.mounted_identity(
-            nation if separator else None, _field(descriptor.gun, 'name'))
-        reviewed = {shell for weapon, shell in ammunition_validation.FULL_VALIDATION_HE
-                    if weapon == gun}
-        if not reviewed:
-            return None
-        for index, shot in enumerate(self.shots):
-            if self.ammo[index] <= 0:
-                continue
-            shell = combat_rules.legacy_shot(shot).get('shell') or {}
-            identity = ammunition_validation.mounted_identity(nation, shell.get('name'))
-            if shell.get('kind') == ammunition_validation.HE and identity in reviewed:
-                return index
-        return None
 
     @staticmethod
     def _shot_compact_descrs(shots):

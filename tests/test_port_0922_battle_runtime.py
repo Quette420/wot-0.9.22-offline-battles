@@ -10136,35 +10136,6 @@ class BattleRuntimeContractTests(unittest.TestCase):
                 'CurrentVehicle': current_vehicle}):
             self.assertEqual({}, battle._local_ammo_layout())
 
-    def test_battle_ammo_starts_with_stocked_hesh_in_the_mounted_order(self):
-        battle = BattleRuntime(_runtime())
-        battle._local_loadout = lambda unused_descriptor: loadout.baseline()
-        battle._avatar = mock.Mock()
-        battle._server = types.SimpleNamespace(vehicle_id=42)
-        battle._present_equipments = mock.Mock()
-        battle._garage_loadout = dict(
-            shells={101: 7, 102: 7, 103: 6}, shell_order=(101, 103, 102))
-        descriptor = _Descriptor('uk:GB83_FV4005')
-        descriptor.gun.name = '_183mm_AT_Gun'
-        descriptor.gun.shots[0].shell.name = '_183mm_AP_Mk1'
-        for compact, name in ((102, '_183mm_HESH'), (103, '_183mm_HE_Mk1')):
-            descriptor.gun.shots.append(types.SimpleNamespace(shell=types.SimpleNamespace(
-                compactDescr=compact, name=name, kind='HIGH_EXPLOSIVE')))
-
-        state = battle._new_local_gun_state(descriptor)
-        self.assertEqual([101, 103, 102], [shot.shell.compactDescr for shot in state.shots])
-        self.assertEqual([7, 6, 7], state.ammo)
-        self.assertEqual((2, 0, state.reload), (state.shot_index, state.clip, state.reload_time))
-        battle._publish_ammo_state(state)
-        battle._avatar.updateVehicleSetting.assert_called_once_with(
-            42, battle._runtime.constants.VEHICLE_SETTING.CURRENT_SHELLS, 102)
-
-        battle._replay_mode = True
-        self.assertEqual(0, battle._new_local_gun_state(descriptor).shot_index)
-        battle._replay_mode = False
-        battle._garage_loadout['shells'][102] = 0
-        self.assertEqual(0, battle._new_local_gun_state(descriptor).shot_index)
-
     def test_mounted_zero_id_manual_extinguisher_is_preserved(self):
         runtime = _runtime()
         descriptor = types.SimpleNamespace(

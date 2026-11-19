@@ -254,6 +254,40 @@ class SiegeEngagementTests(unittest.TestCase):
         self.assertFalse(scene.runtime.state['gun_aligned'])
         self.assertFalse(scene.launches())
 
+    def test_enabled_motion_only_sample_survives_stationary_review(self):
+        scene = self.scene(enabled_pitch=(0., 0.))
+        runtime = scene.runtime
+        self.advance_until(scene, lambda: runtime.siege_aim_candidate() is not None,
+                           actuate=False)
+        motion = runtime.siege_aim_candidate()
+        self.assertIsNone(runtime.current_attack_candidate(
+            runtime.state, motion['target'], for_aim=True))
+        episode = runtime.combat_stop._episode
+        before = tuple(scene.battle._gun_state.ammo)
+
+        # The same live contact moves while its stationary proof is being
+        # renewed. At the gun boundary no new laying or fire candidate exists.
+        scene.fixture.now += .1
+        scene.pose(scene.target, (0., 13., 100.))
+        scene.observe()
+        runtime._siege_aim_candidate = None
+        runtime.attack_policy.decision = dict(action='wait',
+            reason='stationary_domain_review_pending', candidate=None)
+        command, target = runtime.engine._shared_gun_aim_input(
+            runtime.state, dict(fire_allowed=False), None, scene.now)
+        self.assertIsNotNone(target)
+        self.assertEqual(motion['target']['network_id'], target['network_id'])
+        self.assertEqual(episode, runtime.combat_stop._episode)
+        self.assertEqual(siege_mechanics.ENABLED, scene.entity.siegeState)
+        self.assertNotEqual(motion['solution']['point'], command['aim_position'])
+        self.assertEqual(motion['key'], runtime.attack_policy.evaluator.trigger_refresh_receipt['key'])
+        self.assertEqual(dict(predictions=1, world_chords=0, armour_batches=0),
+                         runtime.attack_policy.evaluator.trigger_refresh_receipt['work'])
+        self.assertTrue(command['_shared_aim_pending'])
+        self.assertFalse(command['fire_allowed'])
+        self.assertEqual(before, tuple(scene.battle._gun_state.ammo))
+        self.assertFalse(scene.launches())
+
     def test_zero_pitch_gun_reaches_actual_proof_with_native_pivot_translation(self):
         # An exact static gun cannot absorb even a small flat/actual-origin
         # discrepancy. Drive the genuine hydraulic mailbox and actuator rather

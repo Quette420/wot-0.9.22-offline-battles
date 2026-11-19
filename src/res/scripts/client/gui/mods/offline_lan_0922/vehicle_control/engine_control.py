@@ -70,12 +70,21 @@ class SharedEngineControl(SharedOrderPlanning):
                 command = dict(command, fire_allowed=False,
                                aim_position=None, _ballistic_solution=None)
                 target = None
+        solution = command.get('_ballistic_solution')
         candidate = runtime.current_attack_candidate(state, target, for_aim=True)
-        if candidate is not None and isinstance(command.get('_ballistic_solution'), dict):
+        siege_laying = (isinstance(solution, dict) and solution.get('siege_aim') and
+                        solution.get('_player_motion_only'))
+        if candidate is None and target is not None and siege_laying:
+            # An enabled hydraulic point can lay the barrel before it has a
+            # firing-position proof. Remember the sample that actually drove
+            # the gun so a temporary review gap can renew its aim input.
+            candidate = runtime.siege_aim_candidate(target)
+        if candidate is not None and isinstance(solution, dict):
             runtime._shared_aim_intention = dict(
                 candidate=dict((name, candidate[name]) for name in
                     ('key', 'shell_index', 'sample', 'mode', 'target')),
                 generation=runtime.generation, episode=owner._episode,
+                siege_laying=bool(siege_laying),
                 weapon_identity=tuple(observation(runtime).weapon_identity()),
                 entity=runtime.target_entity(candidate['target']))
             return command, target
@@ -104,6 +113,9 @@ class SharedEngineControl(SharedOrderPlanning):
             (selected.get('kind'), selected.get('network_id')) != key or
             target is not None and
             (target.get('kind'), target.get('network_id')) not in allowed)
+        siege_laying = retained.get('siege_laying')
+        if siege_laying and (not owner.combat_owned or owner.receipt.get('selected') != key):
+            replaced = True
         if (retained['generation'] != runtime.generation or
                 retained['episode'] != owner._episode or not native_alive or replaced or
                 retained['weapon_identity'] != tuple(observation(runtime).weapon_identity()) or
@@ -116,6 +128,11 @@ class SharedEngineControl(SharedOrderPlanning):
         solution = policy.evaluator.refresh_trigger_solution(intention, now)
         if solution is None:
             return command, target
+        if siege_laying and combat_detail_enabled():
+            combat_detail(runtime, 'siege_aim_refresh', runtime.actor_id, now,
+                (owner._episode, intention['key'], policy.decision.get('reason')),
+                lambda: dict(episode=owner._episode, target=key, point=intention['key'],
+                    policy_reason=policy.decision.get('reason'), fire_allowed=False))
         solution = dict(solution, _origin=tuple(solution['origin']), arc='low',
                         _player_motion_only=True, _shared_aim_pending=True)
         return dict(command, aim_position=solution['point'], fire_allowed=False,

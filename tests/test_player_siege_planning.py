@@ -498,6 +498,62 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
         self.assertEqual('stationary_native_support_pending', plan['reason'])
         self.assertFalse(scene.catalog_calls)
 
+    def test_worker_keeps_motion_only_siege_sample_while_rechecking(self):
+        from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
+
+        scene = self.scene(enabled_pitch=(0., 0.))
+        engine, actor = scene.runtime.engine, scene.runtime.actor_id
+        state = engine.states[actor]
+        records = scene.battle._records
+        actor_record = 'bot:%s' % actor
+        records[actor_record] = dict(records['player:1'],
+            kind='bot', network_id=actor, local=False, state=state)
+        self.addCleanup(records.pop, actor_record, None)
+        binding = BotControlBinding(scene.battle, engine, actor)
+        self.addCleanup(binding.close)
+        target = dict(scene.runtime.visible_targets()[0])
+        self.assertTrue(binding.observe(scene.now, [target]))
+        owner, policy = binding.combat_stop, binding.attack_policy
+        owner.active = owner.combat_owned = True
+        owner.targets = (target,)
+        owner.receipt['selected'] = (target['kind'], target['network_id'])
+        policy.frame = policy.evaluator.snapshot(scene.now)
+        job = next(job for job in policy._jobs('penetration', binding.gun.shot_index)
+                   if job[2]['entity'] is scene.target)
+        row = policy._evaluate(job, scene.now, 'foreground')
+        policy.decision = dict(action='firing_position', reason='mechanical_limited', candidate=row)
+        motion = binding.siege_aim.candidate(policy.frame, scene.now, row)
+        self.assertIsNotNone(motion, binding.siege_aim.status())
+        binding._siege_aim_candidate = motion
+        self.assertIsNone(binding.current_attack_candidate(state, target, for_aim=True))
+
+        with mock.patch.dict(engine._actor_controls, {actor: binding}):
+            solution, ready = engine._cadenced_ballistic_solution(
+                state, target, engine._descriptors[actor], binding.gun.shot_index, scene.now)
+            self.assertTrue(ready)
+            self.assertTrue(solution['_player_motion_only'])
+            command = dict(fire_allowed=False, _ballistic_solution=solution)
+            engine._shared_gun_aim_input(state, command, target, scene.now)
+
+            scene.fixture.now += .1
+            scene.pose(scene.target, (0., 13., 100.))
+            self.assertTrue(binding.observe(scene.now, [dict(target, position=(0., 13., 100.))]))
+            binding._siege_aim_candidate = None
+            policy.decision = dict(action='wait', reason='stationary_domain_review_pending', candidate=None)
+            waiting = dict(fire_allowed=False)
+            retained, contact = engine._shared_gun_aim_input(state, waiting, None, scene.now)
+            self.assertIsNotNone(contact)
+            self.assertEqual(target['network_id'], contact['network_id'])
+            self.assertNotEqual(solution['point'], retained['aim_position'])
+            self.assertTrue(retained['_shared_aim_pending'])
+            self.assertFalse(retained['fire_allowed'])
+
+            scene.fixture.now += .1
+            self.assertTrue(binding.observe(scene.now, []))
+            self.assertEqual((waiting, None), engine._shared_gun_aim_input(
+                state, waiting, None, scene.now))
+            self.assertIsNone(binding._shared_aim_intention)
+
     def test_worker_binding_proves_the_same_complete_hydraulic_turn(self):
         from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
         from gui.mods.offline_lan_0922.vehicle_control.stationary_plan import StationaryPlanner

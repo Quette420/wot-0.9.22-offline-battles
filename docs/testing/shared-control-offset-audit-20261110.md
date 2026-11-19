@@ -1,5 +1,104 @@
 # PR119 control-offset correction — November 10, 2026
 
+## Current handoff — November 19, 2026
+
+Runtime/code revision: `bf27cda927b82f962ee0a50846371edcadea0003`, build
+`local-pr119-bf27cda9`. This adds checked-only world/wreck/lane-refusal and unsettled-motion
+evidence to the native-tested hydraulic correction `97cee192`. Local branch
+`fix/pr119-stable-engagement` updates the original PR119 head branch
+`fix/elite-premium-ammo-reviewed-guns`; it is not `origin/main`. Keep PR119 open
+and unmerged. No tag or release is authorized. Review ZIP:
+`C:/Users/USER/Downloads/wot_PR119_bf27cda9_Windows_2026-11-19.zip`.
+Its nested client ZIP is byte-identical to the native test payload; the clean
+delivery stage and outer ZIP inventory/integrity checks pass.
+
+Confirmed corrections in this follow-up:
+
+- Actual-barrel artillery preparation, matching pending exact-path work and
+  atomic player/Bot region claims replace the duplicated parking ownership.
+- Hydraulic Bots select physical five-point/full support from terrain attitude
+  and missing contacts; every player vehicle stays on complete support. The
+  integrated worker descriptor owns common weapon and mode observation.
+- Stationary work survives sub-precision support jitter and recognizes checked
+  current-point arc progress. The admitted pivot receives its first bounded
+  refresh and matching native input; current executable points still win.
+- First-trigger centre proof reaches the real plate beyond an interior sample.
+  A sideways hydraulic endpoint cannot block its already proved chassis turn:
+  the turn retains current correction before endpoint hydraulic aiming.
+- Offset-fan arrival hands back to the authored route disk. Original route
+  data, path search and driver laws have no diff from this follow-up's base
+  `b9a360e14ef19416b332f9f3956cdbae51452628`.
+
+Native results are specific to the scenes exercised:
+
+| Runtime and report | Observed result |
+| --- | --- |
+| `42c0bcc0`, `071848-974d091b3a48`, S-51/203 mm, normal Mines 15v15 | Two standard HE and one explicitly selected premium HE player launches have terminal receipts. Friendly S-51 #14/#15 have terminal impacts and separate parking claims. This does not prove automatic premium selection. |
+| `2a90535f`, `073812-f87a99d370fd`, all UDES 03, Mines | Nine player launches/terminals, 2,167 damage; two HE penetration shots, two consecutive HE fallback shots, then low-penetration APCR. This round exposed the subsequent sideways input defect. |
+| `97cee192`, `075102-e56440f36026`, all UDES 03, Mittengard | Six player HE launches/terminals, 19 Bot terminal receipts, 1,234 damage; natural capture finish and no traceback. This map has no authored waiting places. |
+| `97cee192`, round 2 of `075957-e56440f36026`, all UDES 03, Mines | 80 worker turn proofs, eight staged hydraulic inputs across five Bots, 75 Bot terminal receipts. #6 physically turned from yaw 1.890 to 0.643 and hit #26 at 07:55:02/19. #7 turned toward #19 and has an impact at 07:56:41. The player fired zero shots before death. |
+| `8dab5e62`, `081315-63fbfad17585`, S-51/203 mm, normal Mines 15v15 | Two standard HE and two explicitly selected premium HE player launches have four terminal receipts. Friendly S-51 #14 has one terminal impact and #15 has two; those three ground impacts were not vehicle hits. Player region `p_19039905dbf1`, #14 `p_d6a5180aae4e` and #15 `spg_1_central_hills` are distinct. Natural team-elimination finish at 08:12:05; no traceback. |
+| `8dab5e62`, `082611-c07e3dfbb219`, all UDES 03, Mines | Zero player shots before death, repeated stationary/hull review and combat releases; 89 worker turn proofs and 84 Bot terminal receipts. No final-trigger/world-refusal row was reached. Natural enemy capture finish at 08:23:40; no traceback. This is a failed player case. |
+| `94169888`, `083145-5bd698e928cb`, all UDES 03, Mines | Four player HE penetration launches and four terminal receipts, plus 54 Bot terminal receipts at capture. The six new motion-pending samples show actual nonzero turn speed with zero vertical speed, not a measured vertical-jitter defect. No world-refusal row or traceback. This targeted test was stopped after player death, before natural battle completion; it is not full-round acceptance. |
+| `94169888`, `084256-b26f907d56b3`, Object 261, normal Mines 15v15 | Stocks 9/9, five player launches/terminals: three standard HE and two premium HE, 477 damage. Settlements #2/#3 against #21 were both known non-direct zero-damage impacts; the policy requested premium HE at 08:39:31.935 and launched it at 08:40:06.679 (clock 403.292), before the explicit test stop/select command at clock 413.270/413.423. This proves the automatic switch; the later explicit selection is not credited as automatic. Friendly Bat.-Chatillon 155 #14 fired three terminal shots; friendly 261 #15 and enemy #29/#30 also have terminal receipts. Player and friendly #14/#15 regions are distinct. Natural capture finish at 08:42:32; no traceback. |
+| `94169888`, round 2 of `085143-b26f907d56b3`, Bat.-Chatillon 155, normal Mines 15v15 | Stocks 18/18 and physical three-round clip. Standard HE #1/#2/#3 launched at 08:46:31/42 and 08:47:06, with three `2:p:1:*` terminal receipts and the full reload edge after #3. Different targets reset the miss streak; this round does not prove automatic premium selection. The explicit premium setup was cancelled by natural team elimination at 08:49:55 before readiness. No traceback. |
+| `bf27cda9`, `090000-4c33dc60c74f`, Bat.-Chatillon 155, normal Mines 15v15 | Explicit premium setup completed with clip 3 and stocks 18/18. Three premium HE launches at 08:57:23/34/44 have terminal receipts. After #3 the policy automatically requested standard HE at 08:57:46.288; three subsequent standard HE launches at 08:58:59 and 08:59:10/32 also have terminal receipts. Six physical launches/terminals prove both clips and the return boundary. Checked dynamic logging observed a scattered ray blocked by friendly wreck #11 at 08:57:22.897, followed by an accepted launch less than a second later. No traceback. This targeted run stopped after both firing cycles, before natural battle completion. |
+| `bf27cda9`, `091823-3e53ccc75856`, all UDES 03, Mines | Confirmed HE readiness (stock 13/13/14), one player HE launch/terminal at 09:11:57, 396 damage, then prolonged review/laying waits and player destruction. The final release was `native_pivot_stalled`; this is not acceptance of the remaining player problem. There were 82 Bot terminal receipts and no traceback. Natural enemy capture finish at 09:17:59. Mid-round capture `091527-3e53ccc75856` is also archived. |
+
+The `97cee192` Mines player case remains unresolved: aligned/armour-passed candidates
+were rejected as `auto_world_blocked`, but that runtime did not log the blocking
+chord. The new checked-only `actual_world_refusal` includes the actual barrel,
+aim point, centre/scatter blocker and chord. `bf27cda9` also covers the distinct
+dynamic wreck/debris path, which can return the same refusal without crossing
+the static-world logging branch. Dynamic lane refusals include their original
+native witness and the checked centre/scattered polyline, not an invented
+blocking chord. Friendly splash and missing lane geometry are included too.
+Both added native-contact regressions fail before this diagnostic correction
+and pass after it, including the unchecked no-record branch. No world collision or fire guard
+was bypassed. The additional `8dab5e62` zero-shot case stalled before this
+boundary; `94169888` now records actual speed, turn speed, vertical speed and
+support flags only with detailed diagnostics enabled. The succeeding four-shot
+case does not establish a root cause for either earlier failure. No settling
+threshold was relaxed. Do not relabel either zero-shot round as acceptance. Complete native
+waiting-place timing/turn acceptance also remains unproved by these reports.
+
+The final all-UDES retest also leaves a reproducible pre-trigger stall after its
+first shot. For target #16, sample 0 received `actual_enabled_hydraulic_input`
+at 09:12:57 and 09:13:00/04; adjoining frames alternated with
+`stationary_hull_review_pending` or `actual_hydraulic_point_pending`. At
+09:13:11 sample 8 was reachable with failed penetration, while the finite HE
+sweep still had no completed fallback comparison. The observed motion-pending
+samples have real turn speed and zero vertical speed. These facts localize
+this instance before final shot admission; they do not prove why the sweep/input
+handoff fails to finish. Do not declare the UDES player stall fixed or remove
+its support, armour or launch checks on this evidence.
+
+Dense all-UDES latency remains a limitation. Mittengard server RTT median was
+17.8 ms; worker frame median was 631 ms. Captured 30-second windows spent about
+2.5–3.0 seconds in vertical support while actor work outside that stage and gun
+aiming remained substantial. These captures do not isolate every contributor
+and do not establish that all latency is fixed.
+
+Final validation of `bf27cda9`: 69 player/shared control files, 1,376 cases, no
+failures or skips; diagnostic-mode and trigger-refresh checks pass; CPython 2.7
+source compile passes for 265 modules. Independent inspection verifies all 265
+client bytecode modules, 268 paired server sources, 45 frozen launcher modules
+and the native/recorder/editor package contracts. The precursor `94169888`
+passed all eight jobs in [Tests run 1606](https://github.com/colorfulmeans/wot-0.9.22-offline-battles/actions/runs/44429107170).
+Exact final runtime CI: [Tests run 1607](https://github.com/colorfulmeans/wot-0.9.22-offline-battles/actions/runs/44432063236)
+passed all eight jobs: retained navigation, Bot behavior, native geometry,
+client tests, Windows server/editor, Windows launcher/package and the native
+exception trail.
+
+Evidence retention: the production three-report limit pruned the earlier raw
+`052258`, `050036` and `051141` ZIPs before they were archived. Their parsed
+three-role logs and analyses remain, but the original ZIPs cannot be supplied.
+All surviving and subsequent raw ZIPs are now archived separately under the
+isolated QA `artillery-adaptive-20261119/report-archive` folder.
+
+The dated notes below are audit history. Their intermediate pending statements
+describe those revisions; the current result and limits above take precedence.
+
 ## November 19 — Sideways hydraulic handoff follow-up (native retest pending)
 
 Report `wot-error-report-20261119-073812-f87a99d370fd.zip` ran `2a90535f`

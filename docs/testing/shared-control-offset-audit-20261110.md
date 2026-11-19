@@ -36,13 +36,56 @@ Corrections in the common navigation path:
 - Source/expiry details use the existing opt-in `BOT LOCAL HANDOFF` entrance.
   No new unconditional detailed log is introduced.
 
-Preliminary reference checks pass 32 affected files / 499 cases, including
-player handoffs, shared missions and navigation. The shared-control checker
-passes 89 cases on the explicitly engine-free reference path. CPython 2.7
-compiles all 266 client modules. The captured assertions fail on the prior
-`d6df00c0` navigation source for both actor identities, then pass after the fix.
-These checks are not native acceptance. Fresh #1513 bridge acceptance, exact
-CI, package identity and delivery are recorded below once observed.
+Runtime `6a3b9e27968226a37547b2b4befae7830e1ab036`, build
+`local-pr119-6a3b9e27`, passes all eight jobs in
+[Tests run 44515099402](https://github.com/colorfulmeans/wot-0.9.22-offline-battles/actions/runs/44515099402).
+Local reference checks pass 32 affected files / 499 cases; the final additional
+diagnostic-option assertion brings the affected total to 500. The shared-control
+checker passes 89 cases on the explicitly engine-free path. CPython 2.7 compiles
+all 266 client modules and independently matches the packaged bytecode. The
+captured assertions fail on prior `d6df00c0` navigation for both actor identities,
+then pass after the fix. Existing test adapters accept the new optional receipt
+and owner arguments; their movement/retention assertions remain intact.
+
+Native #1513 report `194534-7f0f124644c3` uses ordinary Windstorm (`84_winter`),
+Strv S1 plus 29 elite Strv S1 Bots and an isolated clone of the current career.
+The launcher installs the matching build; the player follows
+`class_td_ice_road` automatically through the bridge. Player logs record four
+passage expiries. Worker logs record nine passage expiries and one original
+occupied-endpoint-clear expiry across seven actors. The retained sampled action
+windows contain no later reissue of an expired point; this is bounded log
+coverage, not an exhaustive trajectory trace. The battle naturally ends with
+team 2 eliminating team 1 at 19:37:57. All three role logs have zero Python
+tracebacks; both native exception trails are header-only. Shutdown is not a
+new acceptance claim for this build.
+
+The subsequent HE observation is separate and remains under read-only audit:
+
+- Route attack confirmation completes at 19:33:22.238 after 2.018 seconds.
+  Siege is transitioning at 19:33:23.263, enabled with a ready aiming solution
+  at 19:33:24.853, and the APCR shot commits at 19:33:25.249.
+- The user manually queues HE at 19:33:29.225 and selects CURRENT HE at
+  19:33:29.338. These are not automatic changes. Loading restarts at 8.186 s;
+  aiming is already ready/tracking at 19:33:30-31. The HE shot commits at
+  19:33:37.582; both shots have server impact terminals and total 926 damage.
+- The enemy moves beyond the gun's three-degree local traverse. From
+  19:33:42 the actor waits on stationary hull review while still loading.
+  The next HE becomes ready around 19:33:45.8; death is at 19:33:52.141.
+  The final actual yaw samples at 19:33:47/49/51 are identical, with roughly
+  12 degrees of hull turn still requested. Planning receipts repeat completed
+  stationary plans while support/hydraulic dependencies are reset.
+- A completed plan receipt names the target but omits its exact shell/sample
+  identity and the final current-plan rejection cause. It cannot establish
+  that the active point already had a usable current turn plan. The report
+  proves a finite aiming-preparation wait, not an infinite deadlock, and does
+  not establish that the entire wait was necessary. No HE selection, aiming,
+  support tolerance or firing predicate is changed for this audit.
+
+Delivery: `C:/Users/USER/Downloads/wot_PR119_6a3b9e27_Windows_2026-11-19.zip`
+(68,364,178 bytes / 1,300 files), byte-identical to the native-tested application.
+Independent frozen-source, paired-server, replay, packaged-editor and native
+payload checks pass. Original PR #119 stays open and unmerged. The following
+documentation-only head does not change the tested runtime or delivery bytes.
 
 ## Previous follow-up — November 19, 2026, garage/rear-turn/retirement
 

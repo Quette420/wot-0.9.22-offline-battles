@@ -34,6 +34,39 @@ _POSITION_EPSILON = .0001
 _PEER_DEPENDENCY = 11
 _SUPPORT_DEPENDENCY = 14
 _WALL_CLOCK = getattr(time, 'perf_counter', time.time)
+_DEPENDENCY_NAMES = ('weapon', 'planning_pose', 'position', 'native_position',
+    'scene', 'motion', 'pivot', 'mounted_box', 'bounds', 'shape', 'rotation_limit',
+    'peers', 'sensor', 'collision', 'support', 'debris', 'hydraulic')
+
+
+def plan_diagnostic(row):
+    """Read only the opt-in identity; it never constitutes planning evidence."""
+    plan = (row or {}).get('stationary_plan') or {}
+    proof = plan.get('proof') or {}
+    return proof.get('diagnostic') or (row or {}).get('stationary_diagnostic')
+
+
+def trace_plan_use(runtime, phase, row, now, reason, **details):
+    if not combat_detail_enabled():
+        return
+    def payload():
+        policy = getattr(runtime, 'attack_policy', None)
+        combat = getattr(runtime, 'combat_stop', None)
+        state = runtime.state or {}
+        selected = (getattr(policy, 'decision', None) or {}).get('candidate') or {}
+        pivot = getattr(combat, 'pivot', None) or {}
+        result = dict(checked_key=(row or {}).get('key'), plan=plan_diagnostic(row),
+            selected_key=selected.get('key'), pivot_key=pivot.get('key'),
+            loaded=(getattr(policy, 'frame', None) or {}).get('loaded'),
+            line=(row or {}).get('line'), armor=(row or {}).get('armor'),
+            mechanical=(row or {}).get('mechanical'),
+            point=((row or {}).get('solution') or {}).get('point'),
+            yaw=state.get('yaw'), position=state.get('position'),
+            siege_state=state.get('siege_state'))
+        result.update(details)
+        return result
+    combat_detail(runtime, 'stationary_' + phase, runtime.actor_id, now, reason,
+                  payload)
 
 
 def _angle(value):
@@ -690,7 +723,7 @@ class StationaryPlanner(object):
         return endpoint
 
     def project(self, frame, shell, target, raw_prediction, now, channel,
-                deadline=None):
+                deadline=None, diagnostic_key=None):
         receipts = []
         costs = {} if combat_detail_enabled() else None
         started = self.clock() if costs is not None else None
@@ -712,12 +745,8 @@ class StationaryPlanner(object):
                 costs['dependencies_ms'] = (self.clock()-started)*1000.
             if dependencies != self._epoch:
                 if self._epoch is not None and combat_detail_enabled():
-                    names = ('weapon', 'planning_pose', 'position', 'native_position',
-                             'scene', 'motion', 'pivot', 'mounted_box', 'bounds',
-                             'shape', 'rotation_limit', 'peers', 'sensor', 'collision',
-                             'support', 'debris', 'hydraulic')
                     changed = tuple(name for name, before, after in
-                                    zip(names, self._epoch, dependencies) if before != after)
+                                    zip(_DEPENDENCY_NAMES, self._epoch, dependencies) if before != after)
                     combat_detail(self.runtime, 'stationary_dependency_reset',
                         self.runtime.actor_id, now, changed,
                         lambda: dict(fields=changed, epoch=self._epoch_serial,
@@ -821,6 +850,16 @@ class StationaryPlanner(object):
                 projected_position=proposal['projected_frame']['position'],
                 projected_body=proposal['projected_frame']['body'],
                 hydraulic=hydraulic_receipt, fire_permission=False)
+            if combat_detail_enabled():
+                self._diagnostic_sequence = getattr(self, '_diagnostic_sequence', 0) + 1
+                proof['diagnostic'] = dict(plan_id=self._diagnostic_sequence,
+                    planner=id(self), epoch=self._epoch_serial, built_at=float(now),
+                    producer_key=diagnostic_key, shell_index=shell['index'],
+                    gun=shell.get('gun_identity'), shell=shell.get('shell_identity'),
+                    target=target['key'], sample_point=tuple(raw_prediction['sample_point']),
+                    source_position=frame['position'], source_body=frame['body'],
+                    projected_position=proof['projected_position'],
+                    projected_body=proof['projected_body'])
             result = dict(proposal, status='proved', proved=True, proof=proof,
                           reason='native_stationary_point_plan', progressing=False)
             self._plans[key] = result
@@ -829,7 +868,8 @@ class StationaryPlanner(object):
                     self.runtime.actor_id, now, ('proved', target['key']),
                     lambda: dict(target=target['key'], from_yaw=support_body[0],
                         to_yaw=proposal['flat_body'][0], start=source['position'],
-                        endpoint=proof['projected_position'], slices=len(receipts)))
+                        endpoint=proof['projected_position'], slices=len(receipts),
+                        plan=proof.get('diagnostic')))
             return result
         except _Deferred as error:
             result = _pending(error.reason, error.progressing)
@@ -839,6 +879,16 @@ class StationaryPlanner(object):
             # global cached supports/arcs may include work for another tank.
             # Only complete support + collision + hydraulic slices qualify.
             result['verified_arcs'] = len(receipts)
+            if diagnostic_key is not None and combat_detail_enabled():
+                result['diagnostic'] = dict(producer_key=diagnostic_key,
+                    shell_index=shell['index'], gun=shell.get('gun_identity'),
+                    shell=shell.get('shell_identity'), target=target['key'],
+                    sample_point=tuple(raw_prediction['sample_point']),
+                    epoch=self._epoch_serial, pending=error.reason,
+                    verified_arcs=len(receipts))
+                trace_plan_use(self.runtime, 'plan_pending',
+                    dict(key=diagnostic_key, stationary_diagnostic=result['diagnostic']),
+                    now, error.reason)
             return result
         except (AttributeError, TypeError, ValueError, KeyError, IndexError,
                 RuntimeError, OverflowError, ZeroDivisionError) as error:
@@ -863,8 +913,26 @@ class StationaryPlanner(object):
         if (not isinstance(proof, dict) or proof.get('proved') is not True or
                 proof.get('kind') != 'native_stationary_point_plan'):
             return False
+        current, error_text = None, None
         try:
-            return proof['dependencies'] == self._dependencies(frame)[0]
-        except (_Deferred, AttributeError, TypeError, ValueError, KeyError, IndexError,
-                RuntimeError, OverflowError, ZeroDivisionError):
-            return False
+            current = self._dependencies(frame)[0]
+            valid = proof['dependencies'] == current
+            reason = 'current' if valid else 'dependencies_changed'
+        except _Deferred as error:
+            valid, reason = False, error.reason
+        except (AttributeError, TypeError, ValueError, KeyError, IndexError,
+                RuntimeError, OverflowError, ZeroDivisionError) as error:
+            valid, reason = False, 'contract_' + type(error).__name__
+            error_text = str(error)[:200]
+        diagnostic = proof.get('diagnostic')
+        if isinstance(diagnostic, dict) and combat_detail_enabled():
+            before = proof.get('dependencies') or ()
+            changes = dict((name, dict(before=old, after=new)) for name, old, new in
+                zip(_DEPENDENCY_NAMES, before, current) if old != new) if current is not None else {}
+            diagnostic['last_check'] = dict(at=self.runtime.now, valid=bool(valid),
+                reason=reason, fields=tuple(sorted(changes)))
+            trace_plan_use(self.runtime, 'plan_current',
+                dict(key=diagnostic.get('producer_key'), stationary_plan=dict(proof=proof)),
+                self.runtime.now, (reason, tuple(sorted(changes))),
+                valid=bool(valid), changes=changes, error=error_text)
+        return valid

@@ -19,6 +19,7 @@ from ..ai import driver as shared_driver
 from ..native_input_diagnostics import combat_detail, combat_detail_enabled
 from .combat_stop import MECHANICAL_STALL_SECONDS
 from .native_aim import NATIVE_ANGLE_TOLERANCE
+from .stationary_plan import trace_plan_use
 
 def _point(value):
     if isinstance(value, dict):
@@ -534,6 +535,16 @@ class CombatControl(object):
                             destination=order.get('move_position'), throttle=throttle, turn=turn,
                             target=target_key, fire=order.get('fire_allowed')))
         self._last_order = order
+        if combat_detail_enabled() and self.state.get('siege_state') == siege_mechanics.ENABLED:
+            candidate = self._siege_aim_candidate or (self.combat_stop.pivot or {}).get('candidate')
+            trace_plan_use(self, 'controls', candidate, now,
+                (self.combat_stop.receipt.get('reason'), bool(abs(order['turn']) > 1.e-7)),
+                throttle=order['throttle'], turn=order['turn'], path_clear=bool(path_clear),
+                command_mode=order.get('combat_mode'), hull_aiming=self.state.get('hull_aiming'),
+                movement_intent=order.get('movement_intent'),
+                motion_probe=motion_probe, rotation_refused_until=self.state.get('_native_rotation_refused_until'),
+                policy_reason=self.attack_policy.decision.get('reason'),
+                siege_reason=(getattr(self.siege_aim, 'receipt', None) or {}).get('reason'))
         if self.combat_stop.stop_allowed and self.attack_policy is not None:
             action = self.attack_policy.decision['action']
             if action == 'firing_position':

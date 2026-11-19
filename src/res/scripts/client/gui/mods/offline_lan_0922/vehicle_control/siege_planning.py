@@ -11,6 +11,7 @@ from __future__ import division
 import math
 
 from .actor_observation import observation
+from .stationary_plan import plan_diagnostic, trace_plan_use
 
 from .. import shot_geometry
 from ..gun_mechanics import _field
@@ -184,6 +185,7 @@ class ActualSiegeAim(object):
                 stationary_status=plan.get('status'), stationary_line=plan.get('line'),
                 stationary_pending=row.get('stationary_pending'),
                 stationary_progress=row.get('stationary_progress_token'),
+                plan=plan_diagnostic(row),
                 policy_reason=runtime.attack_policy.decision.get('reason'),
                 episode=runtime.combat_stop.receipt.get('episode'),
                 inverse=inverse))
@@ -202,6 +204,9 @@ class ActualSiegeAim(object):
                 return None
             row = self._selected(frame, preferred)
             if not isinstance(row, dict) or row.get('shell_index') != frame['loaded']:
+                if combat_detail_enabled():
+                    trace_plan_use(self.runtime, 'siege_selection', row, now,
+                        'no_current_selected_point', preferred_key=(preferred or {}).get('key'))
                 return None
             target = next((value for value in frame['targets']
                            if value['key'] == row.get('target_key')), None)
@@ -284,6 +289,9 @@ class ActualSiegeAim(object):
             self.receipt.update(status='ready', reason='actual_enabled_hydraulic_input', candidates=1,
                 target=target['key'], sample=row['sample'], shell=shell['index'],
                 needs_hull=needs_hull, needs_hydraulic=solution['needs_hydraulic'])
+            if combat_detail_enabled():
+                trace_plan_use(self.runtime, 'siege_selection', result, now, 'ready',
+                    hull_yaw=hull_yaw, hydraulic_pitch=correction, needs_hull=needs_hull)
             if turn_first and combat_detail_enabled():
                 self._report_aim('siege_hydraulic_turn', now, row, solution, hydraulic, reach)
             if inverse is not None:

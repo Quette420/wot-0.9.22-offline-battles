@@ -521,6 +521,10 @@ class AttackPolicy(object):
         key, shell, target, unused_sample, unused_mode = job
         row = self.rows.get(key)
         if row is None or row.get('pose_stamp') != self._stamp(self.frame, shell, target):
+            if row is not None and row.get('stationary_plan') and combat_detail_enabled():
+                stationary_plan.trace_plan_use(self.runtime, 'plan_row', row, self.runtime.now,
+                    'point_stamp_changed', pose_changes=_proof_motion_details(
+                        row, self._stamp(self.frame, shell, target), self.frame))
             return None
         scatter = self._scatter_blocks.get(key[:3])
         if scatter is not None:
@@ -533,6 +537,9 @@ class AttackPolicy(object):
                         (row.get('line_stamp') or (None,))[0] == self.frame['scene'])
         if (require_line and not static_world and row.get('line_stamp') !=
                 self._line_stamp(self.frame, row.get('line_region'))):
+            if row.get('stationary_plan') and combat_detail_enabled():
+                stationary_plan.trace_plan_use(self.runtime, 'plan_row', row,
+                    self.runtime.now, 'lane_stamp_changed')
             if key == self.selected and combat_detail_enabled():
                 runtime = self.runtime
                 combat_detail(runtime, 'current_point_proof', runtime.actor_id, runtime.now,
@@ -546,6 +553,9 @@ class AttackPolicy(object):
         plan_current = getattr(self.evaluator, 'stationary_plan_current', None)
         if (plan is not None and callable(plan_current) and
                 not plan_current(self.frame, plan.get('proof'))):
+            if combat_detail_enabled():
+                stationary_plan.trace_plan_use(self.runtime, 'plan_row', row,
+                    self.runtime.now, 'stationary_plan_not_current')
             return None
         return row
 
@@ -3842,7 +3852,8 @@ class NativeAttackEvaluator(object):
                         reason=predicted['reach']['reason'],
                         solution=dict(predicted['solution'], source_pose=frame['pose'], mode=mode))
                 projection = planner.project(frame, shell, target, predicted, now, channel,
-                    deadline=self.atomic_deadline if channel == 'atomic' else None)
+                    deadline=self.atomic_deadline if channel == 'atomic' else None,
+                    diagnostic_key=key if combat_detail_enabled() else None)
                 proof = projection.get('proof') if isinstance(projection, dict) else None
                 if (isinstance(projection, dict) and projection.get('status') == 'proved' and
                         isinstance(proof, dict) and proof.get('proved') is True and
@@ -3866,6 +3877,8 @@ class NativeAttackEvaluator(object):
                     reported['stationary_progress'] = projection.get('progressing') is True
                     reported['stationary_progress_token'] = projection.get('progress_token')
                     reported['stationary_verified_arcs'] = projection.get('verified_arcs', 0)
+                    if combat_detail_enabled():
+                        reported['stationary_diagnostic'] = projection.get('diagnostic')
             if channel == 'atomic':
                 # Keep the actual observation cache separate from the priced
                 # future ray. A later evaluation of this same atomic job

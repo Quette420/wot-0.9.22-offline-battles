@@ -1916,6 +1916,14 @@ class FullPlayerRuntime(MissionControl, CombatControl):
         sender.turn = float(command.get('turn', 0.))
         sender.handbrake = bool(command.get('brake', False))
         sender.send_current()
+        if combat_detail_enabled() and self.state.get('siege_state') == siege_mechanics.ENABLED:
+            from .stationary_plan import trace_plan_use
+            candidate = self._siege_aim_candidate or (self.combat_stop.pivot or {}).get('candidate')
+            trace_plan_use(self, 'native_input', candidate, self.now,
+                (self.combat_stop.receipt.get('reason'), bool(abs(sender.turn) > 1.e-7)),
+                throttle=sender.forward, turn=sender.turn, brake=sender.handbrake,
+                native_turn_speed=getattr(self.owner, '_local_turn_speed', None),
+                siege_reason=(getattr(self.siege_aim, 'receipt', None) or {}).get('reason'))
 
     def _neutral_drive(self):
         sender = getattr(self.owner, '_sender', None)

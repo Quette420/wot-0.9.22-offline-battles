@@ -243,7 +243,12 @@ class StationaryPlanner(object):
         native_pose = native_source_pose(runtime, native_origin)
         if (any(native_pose[index] != frame['pose'][index] for index in (0, 1, 2, 4, 5, 6)) or
                 frame['identity'] != tuple(observation(runtime).weapon_identity()) + (id(descriptor.gun),)):
-            raise _Deferred('stationary_native_source_changed')
+            error = _Deferred('stationary_native_source_changed')
+            if combat_detail_enabled():
+                error.diagnostic = dict(frame_pose=frame['pose'], native_pose=native_pose,
+                    frame_identity=frame['identity'], native_identity=
+                    tuple(observation(runtime).weapon_identity()) + (id(descriptor.gun),))
+            raise error
         motion = _native_motion(runtime)
         state = runtime.state
         if (motion[1] or any(abs(value) > 1.e-6 for value in motion[2:5]) or
@@ -885,7 +890,7 @@ class StationaryPlanner(object):
                     shell=shell.get('shell_identity'), target=target['key'],
                     sample_point=tuple(raw_prediction['sample_point']),
                     epoch=self._epoch_serial, pending=error.reason,
-                    verified_arcs=len(receipts))
+                    verified_arcs=len(receipts), guard=getattr(error, 'diagnostic', None))
                 trace_plan_use(self.runtime, 'plan_pending',
                     dict(key=diagnostic_key, stationary_diagnostic=result['diagnostic']),
                     now, error.reason)
@@ -913,13 +918,14 @@ class StationaryPlanner(object):
         if (not isinstance(proof, dict) or proof.get('proved') is not True or
                 proof.get('kind') != 'native_stationary_point_plan'):
             return False
-        current, error_text = None, None
+        current, error_text, guard = None, None, None
         try:
             current = self._dependencies(frame)[0]
             valid = proof['dependencies'] == current
             reason = 'current' if valid else 'dependencies_changed'
         except _Deferred as error:
             valid, reason = False, error.reason
+            guard = getattr(error, 'diagnostic', None)
         except (AttributeError, TypeError, ValueError, KeyError, IndexError,
                 RuntimeError, OverflowError, ZeroDivisionError) as error:
             valid, reason = False, 'contract_' + type(error).__name__
@@ -934,5 +940,5 @@ class StationaryPlanner(object):
             trace_plan_use(self.runtime, 'plan_current',
                 dict(key=diagnostic.get('producer_key'), stationary_plan=dict(proof=proof)),
                 self.runtime.now, (reason, tuple(sorted(changes))),
-                valid=bool(valid), changes=changes, error=error_text)
+                valid=bool(valid), changes=changes, error=error_text, guard=guard)
         return valid

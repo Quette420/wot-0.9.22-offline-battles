@@ -88,6 +88,25 @@ class StationaryPlanDiagnosticTests(unittest.TestCase):
         self.assertFalse(check['valid'])
         self.assertFalse(result['proof']['fire_permission'])
 
+    def test_stale_source_rejection_records_both_exact_muzzle_observations(self):
+        scene = self.scene()
+        with mock.patch.dict(os.environ, WOT_OFFLINE_COMBAT_DIAGNOSTICS='1'), \
+                mock.patch.object(stationary_plan, 'combat_detail') as detail:
+            frame, shell, target, key, result = self.plan(scene)
+            old_pose = frame['pose']
+            stale = list(old_pose)
+            stale[2] = tuple(value + .00001 for value in old_pose[2])
+            frame = dict(frame, pose=tuple(stale))
+            self.assertFalse(scene.planner.current(frame, result['proof']))
+            payload = detail.call_args[0][5]()
+        self.assertEqual('stationary_native_source_changed', detail.call_args[0][4][0])
+        self.assertEqual(frame['pose'], payload['guard']['frame_pose'])
+        self.assertEqual(old_pose, payload['guard']['native_pose'])
+        self.assertEqual(payload['guard']['frame_identity'],
+                         payload['guard']['native_identity'])
+        self.assertFalse(payload['valid'])
+        self.assertFalse(result['proof']['fire_permission'])
+
 
 if __name__ == '__main__':
     unittest.main()

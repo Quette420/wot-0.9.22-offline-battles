@@ -2547,8 +2547,8 @@ resources resolved 12 of those skips. CPython 2.7 compiled all 265 client
 modules in the offline runtime.
 
 The Windows test file is `wot_PR119_b36bb763_Windows_2026-11-20.zip`
-(68,851,765 bytes). SHA-256 is
-`46f0206b9a060fe1e607942b149ae6a5365ab2ba66cb17ca5a7e482beb0667e8`.
+(68,233,237 bytes). SHA-256 is
+`34646d76a608049db4aef59efb461b95c22a5625e29fe66cea1b9ac1d4346e2c`.
 The outer archive, embedded client ZIP and game mod passed CRC
 verification. The tested runtime identifies itself as
 `local-pr119-b36bb763`.

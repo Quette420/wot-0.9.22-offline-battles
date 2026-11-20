@@ -345,7 +345,7 @@ _ZH = {
     'Battle could not start and the lobby was not restored (%s).': u'无法开始战斗，且未能返回车库（%s）。',
     'LAN room connection lost (%s). Click Battle! to rejoin.': u'房间连接已断开（%s），点击战斗按钮可重新加入。',
     'The LAN room could not be rejoined.': u'无法重新加入房间。',
-    'Joining LAN room at %s...': u'正在加入房间 %s...',
+    'Joining LAN room at %s...': u'正在加入房间（%s）…',
     'Still connecting to LAN room at %s. Opening server settings.': u'仍在连接房间 %s，正在打开服务器设置。',
     '+%d more': u'另有 %d 人',
     'SELECT A MAP, THEN CLICK CREATE TO START': u'选择地图，然后点击创建开始战斗',

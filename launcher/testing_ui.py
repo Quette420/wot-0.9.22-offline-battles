@@ -373,6 +373,7 @@ class TestingPanel:
             'not_live': ('The player is not in a live battle.', '玩家当前不在可控制的战斗中。'),
             'no_ammo': ('No ammunition remains.', '弹药耗尽。'),
             'no_target': ('No valid target.', '没有有效目标。'),
+            'idle': ('No active task.', '当前没有任务。'),
             'timeout': ('The command timed out.', '命令超时。'),
             'replaced': ('Replaced by a new command.', '已被新命令替换。'),
             'manual': ('Manual control.', '当前为手动控制。'),
@@ -452,13 +453,16 @@ class TestingPanel:
             'progress': ('Progress', '进度'), 'holding': ('Holding', '驻守中'),
             'aligned': ('Aligned', '已瞄准'), 'distance': ('Distance', '距离'),
             'point': ('Aim point', '瞄准点'), 'mode': ('Mode', '模式'),
+            'failure': ('Failure', '失败原因'),
+            'shot_point_source': ('Aim point source', '瞄准点来源'),
+            'source_verified': ('Aim point verified', '瞄准点已复核'),
             'fire_clear': ('Clear firing lane', '射界畅通'), 'reload': ('Reload', '装填'),
             'dispersion': ('Dispersion', '散布'), 'speed': ('Speed', '速度'), 'yaw': ('Yaw', '朝向'),
             'reachable': ('Ballistic solution', '弹道可达'), 'arc': ('Trajectory', '弹道'),
             'velocity': ('Target velocity', '目标速度'), 'client_mode': ('Client aiming', '客户端瞄准'),
             'condition': ('Condition', '条件'), 'matched': ('Matched', '符合条件'),
             'observed': ('Observed', '实际观察'), 'value': ('Observed value', '观察值'),
-            'compact_descr': ('compactDescr', 'compactDescr'),
+            'compact_descr': ('compactDescr', '物品编号（compactDescr）'),
             'known': ('Observation available', '观察可用'), 'stock': ('Mounted items', '已装配项目'),
             'stock_truncated': ('Shell list truncated', '弹种列表已截断'),
             'index': ('Shell index', '弹种索引'), 'ammo': ('Ammunition', '弹药'),
@@ -471,6 +475,8 @@ class TestingPanel:
             'targets': ('Valid targets', '有效目标'),
             'target_ids': ('Observed target IDs', '已观察目标ID'),
             'visible_targets': ('Visible targets', '可见目标'),
+            'visible_targets_truncated': ('Target list truncated', '可见目标列表已截断'),
+            'observed_at': ('Observed at', '观察时间'),
             'equipment_id': ('Equipment ID', '给养ID'), 'id': ('ID', 'ID'),
             'repair_all': ('All-target effect', '全目标效果'),
             'ready': ('Ready', '就绪'), 'uses_left': ('Uses left', '剩余使用次数'),
@@ -492,8 +498,10 @@ class TestingPanel:
         if isinstance(value, dict):
             return ' · '.join('%s: %s' % (
                 self._text(*names.get(key, (str(key), str(key)))),
-                self._reason_text(item) if key == 'reason' else self._state_text(item)
-                if key in ('action', 'objective', 'kind', 'phase', 'state', 'status', 'condition') else self._describe(item))
+                self._reason_text(item).rstrip('.。') if item and key in ('reason', 'failure')
+                else self._state_text(item) if key in (
+                    'action', 'objective', 'kind', 'phase', 'state', 'status', 'condition', 'shot_point_source')
+                else self._describe(item))
                 for key, item in value.items()) or self._text('Unavailable', '暂无')
         if isinstance(value, (list, tuple)):
             return ', '.join(self._describe(item) for item in value)
@@ -502,6 +510,8 @@ class TestingPanel:
     def _state_text(self, value):
         states = {
             'unknown': ('Unknown', '未知'), 'idle': ('Idle', '空闲'), 'empty': ('Empty', '无弹'),
+            'wait': ('Waiting', '等待中'), 'none': ('None', '无'),
+            'motion_only': ('Tracking only', '仅跟踪'), 'verified': ('Verified', '已复核'),
             'shell_empty': ('Selected shell empty', '当前弹种耗尽'), 'reloading': ('Reloading', '装填中'),
             'ready': ('Ready', '就绪'), 'busy': ('Busy', '忙碌'),
             'pending': ('Pending', '待执行'), 'accepted': ('Accepted', '已接受'),
@@ -863,7 +873,7 @@ class TestingPanel:
                 self.action_buttons.append(button)
 
         label(body, 'Commands require client receipts and admission within two seconds. Execution has a separate timeout. State checks only observe. Closing this panel requests Restore manual control (Stop); only Stop has no admission expiry.',
-              '命令须在两秒内被客户端接收并以客户端回执确认；执行超时另行计算。状态检查只做观察。关闭面板请求恢复手动（Stop），仅Stop不因接收延迟过期。')
+              '命令须在两秒内被客户端接收并返回回执，执行超时另行计算。状态检查只做观察。关闭面板会请求恢复手动控制。恢复手动命令不受接收时限限制。')
         state_body = section('Current client state', '客户端实际状态')
         for key, en, zh in (('connection', 'Connection', '连接'), ('control', 'Mode / enabled channels', '模式/已启用通道'),
                             ('mission', 'Task / phase', '任务/阶段'), ('target', 'Target / destination', '目标/目的地'),

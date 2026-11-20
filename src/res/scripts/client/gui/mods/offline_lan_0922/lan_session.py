@@ -8,7 +8,7 @@ import sys
 import time
 import traceback
 
-from gui.mods.offline_lan_0922.ui_i18n import as_text, failure_reason, tr
+from gui.mods.offline_lan_0922.ui_i18n import as_text, failure_reason, language, tr
 
 from gui.mods.offline_lan_0922 import config as port_config
 from gui.mods.offline_lan_0922 import queue_screen
@@ -1167,7 +1167,7 @@ class LANSession(object):
             return False
         if user_requested:
             self._status_notifier(
-                tr('Joining LAN room at %s...') % self._endpoint_value())
+                tr('Joining LAN room at %s...') % self._endpoint_value(display=True))
         return True
 
     def join(self, unused_map_id=None, unused_action_name=None):
@@ -1204,13 +1204,13 @@ class LANSession(object):
                         tr('The LAN room could not be joined.'))
             else:
                 self._status_notifier(
-                    tr('Joining LAN room at %s...') % self._endpoint_value())
+                    tr('Joining LAN room at %s...') % self._endpoint_value(display=True))
             return True
         if self.state in ('connecting', 'retrying'):
             self._status_notifier(
                 tr('Still connecting to LAN room at %s. '
                 'Opening server settings.') %
-                self._endpoint_value())
+                self._endpoint_value(display=True))
             self._open_connection_picker()
         elif self.state == 'waiting':
             # An explicit Battle click is the user's request to reopen a room
@@ -1250,10 +1250,11 @@ class LANSession(object):
             tr('You left the LAN room. Click Battle! to join again.'))
         return True
 
-    def _endpoint_value(self):
+    def _endpoint_value(self, display=False):
         return port_config.format_endpoint(
             self._config.get('host', '127.0.0.1'),
-            self._config.get('port', 28782))
+            self._config.get('port', 28782),
+            language=language() if display else 'en')
 
     @staticmethod
     def _player_label(player):
@@ -1287,7 +1288,7 @@ class LANSession(object):
         else:
             roster = tr(u'waiting for roster')
         lines = [
-            text_type(self._endpoint_value()),
+            text_type(self._endpoint_value(display=True)),
             tr(u'PLAYERS (%d): %s') % (len(players), roster),
         ]
         if self._is_local_host():
@@ -1922,7 +1923,7 @@ class LANSession(object):
         if len(labels) > len(shown):
             shown.append(tr(u'+%d more') % (len(labels) - len(shown)))
         lines = [
-            text_type(self._endpoint_value()),
+            text_type(self._endpoint_value(display=True)),
             tr(u'PLAYERS (%d): %s') % (len(players),
                                    u', '.join(shown) or tr(u'waiting for roster')),
         ]
@@ -2251,7 +2252,7 @@ class LANSession(object):
             self._pending_map = map_name
             self._status_notifier(
                 tr('Connecting to %s. The selected map will start automatically.') %
-                self._endpoint_value())
+                self._endpoint_value(display=True))
             self._close_picker_after_event()
             return True
         accepted = self._send_start_request(map_name)

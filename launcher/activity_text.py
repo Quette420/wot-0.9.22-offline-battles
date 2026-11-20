@@ -24,6 +24,7 @@ _ACTIVITY_ZH = {
     "The replay contains an unsupported gameplay record.": "录像包含无法播放的战斗记录。",
     "The replay file changed during validation. Retry after saving finishes.": "校验期间录像文件发生变化。请等待保存完成后重试。",
     "REPLAY_ENTRY validating selected recording...": "正在校验所选录像…",
+    "REPLAY_ENTRY validating records=%d logical_bytes=%d": "正在校验录像，已读取 %d 条记录，解压后共 %d 字节…",
     "REPLAY_ENTRY valid map=%s bots=%s records=%s duration=%.2fs; server=False worker=False": "录像已通过校验。地图 %s，BOT 数量 %s，记录数 %s，时长 %.2f 秒。回放无需服务器或模拟端。",
     "REPLAY_ENTRY launch visible-only; automatic replay after garage load.": "正在启动回放客户端，车库加载后将自动播放录像。",
     "Vehicle profiles could not be loaded: %s": "无法加载车辆属性方案：%(detail)s",

@@ -208,7 +208,7 @@ class TestingPanelTests(unittest.TestCase):
         self.assertIn('awaiting completion', panel.status_labels['result'].options['text'])
         self.receipt(panel, command, 'completed', 'shot_fired')
         self.assertIn('Completed', panel.status_labels['result'].options['text'])
-        self.assertIn('shot_fired', panel.status_labels['result'].options['text'])
+        self.assertIn('The client fired a shot.', panel.status_labels['result'].options['text'])
         self.status(panel, live=False, reason='dead')
         self.assertTrue(all(button.options['state'] == ('normal' if button._control_action in
                             testing_ui.player_control_transport.READ_ONLY_ACTIONS | {'stop'} and

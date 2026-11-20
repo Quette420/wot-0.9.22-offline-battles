@@ -64,6 +64,26 @@ ACTION_LABELS = {
     'set_siege': ('Set requested siege mode', '设置指定攻城模式'),
 }
 
+EQUIPMENT_LABELS = {
+    'engineHealth': ('Engine', '发动机'),
+    'ammoBayHealth': ('Ammunition rack', '弹药架'),
+    'fuelTankHealth': ('Fuel tank', '油箱'),
+    'radioHealth': ('Radio', '电台'),
+    'leftTrackHealth': ('Left track', '左履带'),
+    'rightTrackHealth': ('Right track', '右履带'),
+    'gunHealth': ('Gun', '火炮'),
+    'turretRotatorHealth': ('Turret ring', '炮塔座圈'),
+    'surveyingDeviceHealth': ('Observation device', '观察装置'),
+    'commander': ('Commander', '车长'),
+    'driver': ('Driver', '驾驶员'),
+    'gunner1': ('Gunner 1', '炮手 1'),
+    'gunner2': ('Gunner 2', '炮手 2'),
+    'loader1': ('Loader 1', '装填手 1'),
+    'loader2': ('Loader 2', '装填手 2'),
+    'radioman1': ('Radio operator 1', '通信兵 1'),
+    'radioman2': ('Radio operator 2', '通信兵 2'),
+}
+
 
 class TestingPanel:
     def __init__(self, app, parent, settings):
@@ -164,6 +184,10 @@ class TestingPanel:
             self.control_window.title('玩家测试控制' if chinese else 'Player test control')
             for widget, en, zh in self.control_labels:
                 widget.config(text=zh if chinese else en)
+            target = self.equipment_target.get()
+            self.equipment_target_box.config(values=[''] + [
+                self.equipment_target.display(value) for value in sorted(player_control_transport.EQUIPMENT_TARGETS)])
+            self.equipment_target.set(target)
             self._update_control_view(poll=False)
 
     def _select(self, unused=None):
@@ -364,6 +388,9 @@ class TestingPanel:
             'start_failed': ('Takeover could not start.', '无法开始接管。'),
             'command_timeout': ('The command timed out.', '命令超时。'),
             'execution_error': ('The client reported an execution error.', '客户端报告执行异常。'),
+            'release_pending': ('Waiting for previous control to be released.', '正在等待释放之前的控制权。'),
+            'trigger_rejected': ('The client rejected the firing request.', '客户端拒绝了开火请求。'),
+            'identity_changed': ('The player or battle changed.', '玩家或对局已变化。'),
             'status_published': ('Client status refreshed.', '客户端状态已刷新。'),
             'halted': ('The hull is stopped with the brake held.', '车体已停车并保持制动。'),
             'active': ('Automatic takeover is active.', '自动接管已启用。'),
@@ -377,6 +404,7 @@ class TestingPanel:
             'no_navigation_progress': ('The vehicle made no navigation progress.', '战车未能取得行驶进展。'),
             'inside_flag_circle': ('Inside the capture circle.', '已进入占领圈。'),
             'shot_committed': ('Projectiles were committed locally; flight and combat observations are separate.', '弹体已在本地提交；飞行与战斗结果另行显示。'),
+            'shot_fired': ('The client fired a shot.', '客户端已开火。'),
             'projectile_launch_rejected': ('The projectile launch was later rejected.', '弹体发射随后被拒绝。'),
             'condition_observed': ('The requested condition was observed.', '已观察到指定条件成立。'),
             'assertion_failed': ('The observed state does not satisfy the assertion.', '实际状态不满足断言。'),
@@ -398,7 +426,8 @@ class TestingPanel:
         if not reason:
             return ''
         pair = descriptions.get(str(reason))
-        return self._text(*pair) if pair else str(reason)
+        return self._text(*pair) if pair else self._text(
+            'See the diagnostic logs for details.', '详情见诊断日志。')
 
     def _describe(self, value):
         names = {
@@ -476,6 +505,7 @@ class TestingPanel:
             'shell_empty': ('Selected shell empty', '当前弹种耗尽'), 'reloading': ('Reloading', '装填中'),
             'ready': ('Ready', '就绪'), 'busy': ('Busy', '忙碌'),
             'pending': ('Pending', '待执行'), 'accepted': ('Accepted', '已接受'),
+            'running': ('Running', '执行中'),
             'completed': ('Completed', '已完成'), 'failed': ('Failed', '失败'),
             'cancelled': ('Cancelled', '已取消'), 'holding': ('Holding', '驻守中'),
             'acquiring': ('Acquiring aim source', '正在取得瞄准源'),
@@ -964,10 +994,11 @@ class TestingPanel:
         equipment_target_label = tk.Label(equipment_target_row, anchor='w')
         equipment_target_label.pack(side='left')
         self.control_labels.append((equipment_target_label, 'Repair / crew target (blank for all-target): ', '修理/成员目标（全目标时留空）：'))
-        self.equipment_target = tk.StringVar(value='')
-        self.app._ttk.Combobox(equipment_target_row, state='readonly', width=24,
-            textvariable=self.equipment_target,
-            values=[''] + sorted(player_control_transport.EQUIPMENT_TARGETS)).pack(side='left', fill='x', expand=True)
+        self.equipment_target = ui_layout.ChoiceVariable(
+            tk, lambda value: self._text(*EQUIPMENT_LABELS[value]), player_control_transport.EQUIPMENT_TARGETS)
+        self.equipment_target_box = self.app._ttk.Combobox(
+            equipment_target_row, state='readonly', width=24, textvariable=self.equipment_target)
+        self.equipment_target_box.pack(side='left', fill='x', expand=True)
         self.equipment_use_active = tk.BooleanVar(value=False)
         use_active = tk.Checkbutton(native_body, variable=self.equipment_use_active, anchor='w')
         use_active.pack(fill='x')

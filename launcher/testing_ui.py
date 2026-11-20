@@ -93,8 +93,6 @@ class TestingPanel:
         parent = content
         self.vars = {key: tk.BooleanVar(value=bool(settings.get(key, False)))
                      for key in ('logs', 'collision', 'control', 'drive', 'fire', 'consumables')}
-        for key in ('drive', 'fire', 'consumables'):
-            self.vars[key].set(bool(settings.get(key, True)))
         self.scene = tk.StringVar()
         self.scene_id = settings.get('scene', 'normal')
         self.labels = []

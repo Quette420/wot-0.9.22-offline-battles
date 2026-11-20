@@ -7,21 +7,18 @@ You supply your own client. The client still provides the maps, vehicles,
 rendering, HUD and physics. This repository provides the client mod, the bot
 and battle logic, a small LAN server and a launcher.
 
-Current release: **v1.1.1** — [release notes](docs/releases/v1.1.1.md).
+Current release: **v1.2.0** — [release notes](docs/releases/v1.2.0.md).
 
 ### Testing controls in the launcher
 
 The **Testing** tab beside Bot tactics combines diagnostic logs, test scenes,
-and optional player automatic control. Its three areas are independent. Use
-the regular Start button after choosing settings; the normal and diagnostic
-outer launcher entrances remain available. Dedicated scene-launch buttons are
-replaced by the scene selector. Network/replay launches never inherit a
-single-player fixture.
+and optional player automatic control. Choose settings in the tab and use
+the regular Start button. The scene selector applies to single-player launches.
 
-With player control enabled, every battle starts under manual control. The
-physical grave key left of `1` toggles takeover; chat/input/menu focus suppresses
-that shortcut. Player decisions and native input run in the visible client,
-with private navigation, missions, targeting, ammunition feedback and equipment
+When **Start automatic control at battle start** is enabled, the selected
+channels take over once the battle is ready. The grave key left of `1`
+toggles takeover from the battle controls. Player decisions and native input
+run in the visible client, with private navigation, missions, targeting, ammunition feedback and equipment
 state. Shared services provide static map geometry and native mechanics. The
 room's required worker continues to own Bots and world simulation; it does not
 execute player commands or player decisions.
@@ -84,9 +81,9 @@ does not execute the visible player's decisions.
 | Initial target | Ordinary acquisition starts with the nearest living enemy; exactly equal distance is broken by lower armour. Point-by-point penetration validation remains authoritative. A valid current penetration engagement is not replaced by an attacker bonus, player preference or background next-shot proposal. |
 | Artillery target | Reachable targets are ranked by actual HE damage estimates from proved arcs and contact geometry, not nominal shell damage or the old target score. Native trajectory, obstruction and launch checks still apply. |
 | Aim and movement | Common hull, turret, artillery and firing-position laws request input through the actor's physical binding. The existing native owner arbitrates final movement and firing; a predicted gun angle is not a physical firing receipt. |
-| Current ammunition | `AttackPolicy` validates the mounted shell first. The first executable penetration candidate stops travel and starts aiming without waiting for background alternatives. A still-valid current-shell penetration proof obstructed by another vehicle or the world retains its ammunition ownership. |
-| Global search | Ordinary firing-position recovery is separate from the eight-second penetration search. The latter requires complete, fresh failure evidence for all relevant enemies and points in the required ammunition domain. Blocked, mechanically unavailable, pending and unknown points are not armour failures. |
-| Background and HE | Independent bounded work compares all stocked shells, visible enemies and relevant points for the next trigger or magazine. HE penetration and fallback are separate candidates; valid zero-damage HE contact is allowed in fallback. Pose changes invalidate evidence. |
+| Current ammunition | `AttackPolicy` reviews the mounted shell first. An actionable opportunity on the same target with the same round must persist for two seconds to take over ordinary route movement. A completed penetration review can advance to the next stocked penetration round. |
+| Firing-position recovery | An actual obstruction or mechanical limit can admit a finite recovery for the selected target, round and point. The new position is checked again on arrival. If recovery fails, control returns to the original task. |
+| Next load and HE | The next load is prepared separately and takes effect at the real reload boundary. Eligible HESH enters the penetration sequence. HE fallback selects a low-penetration stocked HE and compares legal contacts on the held target by expected vehicle HP loss, including valid zero-damage contacts. |
 | Trigger admission | The shared `TriggerAdmission` proves only a new automatic trigger's first physical launch. It freezes that launch's scatter draw through pending proof and rechecks identity and actual geometry before commit. It has no tactical burst-tail continuation or cancellation operation. |
 | Physical firing | Manual control and Bots use the same trigger contract. Every shell independently samples the actual gun pose and dispersion, consumes ammunition, receives a unique projectile identity and settles its own collision. Stop, a new blocker or target loss cannot cancel the tail of a committed trigger. |
 | Ownership | Sharing code does not share actor state or physics. The foreground binding reads actual vehicle/equipment state and sends ordinary native input; the Bot binding uses that Bot's worker-owned state. Neither advances another actor or creates shadow physics. |

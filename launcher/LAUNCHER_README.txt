@@ -1,4 +1,4 @@
-wot-0.9.22-offline-battles v1.1.1
+wot-0.9.22-offline-battles v1.2.0
 
 Supported client: Chinese HD World of Tanks 0.9.22.0.1 #1513 (32-bit).
 The launcher and bundled server require 64-bit Windows.
@@ -71,8 +71,9 @@ without changing collision queries. Errors and
 lifecycle messages remain enabled after the diagnostic budget is exhausted.
 
 The same Testing tab enables optional player automation and its mouse control
-panel. Every battle starts manual; the grave key left of 1 toggles takeover
-outside chat, menu and text input. Driving, aim/fire and consumables are
+panel. With Start automatic control at battle start checked, the selected
+channels take over when the battle is ready. The grave key left of 1 toggles
+takeover from the battle controls. Driving, aim/fire and consumables are
 independent switches. The panel offers Attack, Return to base, Defend base,
 Hold position, Capture base, Halt, Release to manual and the existing bounded
 drive, gun, held-aim, equipment and siege test commands. A submitted command is
@@ -135,7 +136,7 @@ assignments. The vehicle modifier has aligned nation/type/tier and
 vehicle/modification-category/field rows, using localized garage-order nations.
 
 English release notes:
-https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.1.1
+https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.2.0
 
 This mod is free; resale is prohibited. World of Tanks game assets are not
 included. This unofficial project is not endorsed by Wargaming.

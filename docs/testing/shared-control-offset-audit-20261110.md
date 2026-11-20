@@ -2552,3 +2552,79 @@ The Windows test file is `wot_PR119_b36bb763_Windows_2026-11-20.zip`
 The outer archive, embedded client ZIP and game mod passed CRC
 verification. The tested runtime identifies itself as
 `local-pr119-b36bb763`.
+
+## November 20 follow-up — Stalingrad worker time and route detours
+
+The Windows HD #1513 comparison used the same Stalingrad map, 29 Bot
+vehicles, team slots, difficulty presets, tactical profile and player
+FV4005. Its rack was 7 AP Mk.1, 7 HESH Mk.1 and 6 HE Mk.1. All three runs
+used driving and firing automation with detailed diagnostics. The reverted
+`a38d0828` reference contains the `8200ad88` runtime. The two baseline
+rounds were stopped after the comparison window. The repaired round ended
+by base capture.
+
+| Runtime | HUD PING samples at +60 through +135 s | HUD median / max | Local server RTT median | Longest traced worker interval |
+| --- | --- | --- | ---: | ---: |
+| Reverted reference | 607, 769, 612, 708, 813 | 708 / 813 ms | 9.3 ms | 891 ms |
+| `b36bb763` | 674, 567, 570, 547, 570 | 570 / 674 ms | 10.1 ms | 792 ms |
+| `9b9bddc8` | 522, 394, 269, 607 | 458 / 607 ms | 11.8 ms | 604 ms |
+
+The HUD samples reflect the hidden worker callback interval during combat.
+The two baselines show three to five physical slices grouped in slow
+callbacks. The repaired trace shows an individual control decision slice
+can still exceed 500 ms. Its replay advances the Bot source clock by
+75.871 seconds over 75.733 seconds of authority wall time in the matched
+window, with 313 distinct source samples and no time reversals. The
+highest selected-target lane due age in the diagnostic captures goes
+from 3.118 seconds on `b36bb763` to 1.379 seconds on `9b9bddc8`.
+
+The shared attack policy grants background work before visiting stale,
+blocked lanes. It visits up to four point keys per admitted check and
+rotates through that actor's queue. The worker carries unfinished physical
+time across render callbacks and keeps the original decision for those
+slices. Published pose clocks follow the physical time actually integrated.
+The same fixed rotation bounds are reused inside a single checked sweep.
+
+A separate Stalingrad fixture seeded the route cursors and poses from the
+report. It ran on the native client and worker and recorded their existing
+navigation decisions. For the foreground fixture the two preplaced wrecks
+had allied visibility and kept the reported vehicle models, coordinates
+and headings. At `class_td_city` index 8, FV4005 completed the bypass
+around the Grille 15 and used the clear connector
+`(-341.854, 0.000, -6.943)`. It took the index-9 order after its pose was
+7.96 m into the outgoing direction. It also passed the Canon d'assaut 105
+wreck at index 12 and entered index 13 at 4.41 m into the outgoing
+direction. Bot #25 passed the same index-12 wreck in the original
+opposing-team setup. It entered index 13 at 5.80 m into the outgoing
+direction. The drive-only FV4005 fixture opened with slot 1 AP. The
+unmodified 15-versus-15 FV4005 run opened with HESH and resolved three
+HESH shots followed by two AP shots.
+
+After each complete Stalingrad and Redshire result, returning to the
+garage and closing the launcher recorded `WORKER LEAVE`. Deliberately
+stopping the hidden worker during the isolated, active fixture still
+reported `WORKER FAILURE` and produced one `worker_disconnected` result.
+
+The built-in 15-versus-15 Redshire mobile combat round used an FV215b
+(183). It ended by base capture. Twenty-seven Bots settled 163 projectiles
+with 115 vehicle hits. The player loaded HESH at the start and resolved
+two AP shots after automatic shell selection. Across 35 active samples,
+the HUD PING median and maximum were 62 and 266 ms.
+
+Windstorm completed by base capture with one player Strv S1 and 29
+elite Strv S1 Bots confirmed in the native replay. The player loaded
+20/20/10, entered Siege mode and resolved two APCR shots. Twenty-five
+Bots settled 85 projectiles with 81 vehicle hits. Across 30 active
+samples, the HUD PING median and maximum were 142 and 395 ms.
+
+The 73 relevant test files passed 2,679 tests in isolated reference
+interpreters. The complete Bot runtime, route handoff and worker
+lifecycle group also passed its focused 729-test run. The Windows
+archive passed CRC checks at each archive layer, PE architecture
+validation, source equivalence for all 266 CPython 2.7 client modules
+and the 269 staged server/shared source comparisons.
+
+The local Windows archive is `wot_PR119_9b9bddc8_Windows_2026-11-20.zip`
+(68,235,731 bytes). It identifies itself as `local-pr119-9b9bddc8`.
+SHA-256 is
+`0003f5ddcc4197efc4eb1efc0e51b6fc223c75314f4cc49ba3a459b5d358ae97`.

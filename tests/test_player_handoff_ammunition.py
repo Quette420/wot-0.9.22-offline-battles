@@ -187,7 +187,8 @@ class HandoffAmmunitionTests(unittest.TestCase):
         self.assertIn('current_shot_navigation_owned', reasons)
         for component in ('chassis', 'hull', 'turret', 'gun'):
             getattr(original.typeDescriptor, component).materials[0].armor = 10.
-        # A real new target pose invalidates its old plate observation.
+        # Replace the armour data while leaving the driving scenario intact.
+        scene.battle._records['bot:%s' % original.id]['armor_revision'] = 1
         scene.pose(original, (45.1, 0., 85.))
         for unused in range(100):
             scene.tick()

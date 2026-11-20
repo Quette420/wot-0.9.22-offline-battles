@@ -26,6 +26,8 @@ PENETRATION_PROBABILITY = .65
 # Resolving a structural penetration at this multiplier proves at least 65%
 # under that law, without drawing a prospective shot's random penetration.
 PENETRATION_FACTOR_65 = .9679810530375992
+ARMOUR_REVIEW_ANGLE = math.radians(30.)
+ARMOUR_REVIEW_COSINE = math.cos(ARMOUR_REVIEW_ANGLE)
 FOREGROUND_CANDIDATES = 2
 BACKGROUND_CANDIDATES = 2
 WORLD_CHORDS_PER_FRONTIER = 12
@@ -111,6 +113,30 @@ def _mechanical(descriptor, direction, body):
 def _matrix_signature(matrix):
     return (_point(matrix.translation), float(matrix.yaw),
             float(matrix.pitch), float(matrix.roll))
+
+
+def _armour_reference(position, target_pose):
+    if target_pose is None:
+        return None
+    centre, yaw = target_pose[2][:2]
+    dx, dy, dz = (centre[i] - position[i] for i in range(3))
+    length = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if not length > 0. or math.isinf(length) or math.isnan(yaw) or math.isinf(yaw):
+        return None
+    return (dx / length, dy / length, dz / length, yaw)
+
+
+def _armour_angles_current(anchor, observed):
+    if anchor is None or observed is None:
+        return False
+    if anchor == observed:
+        return True
+    ax, ay, az, yaw = anchor
+    bx, by, bz, current_yaw = observed
+    delta = abs((current_yaw - yaw + math.pi) % (2. * math.pi) - math.pi)
+    # Treat the exact boundary as a recheck despite normalisation round-off.
+    return (delta < ARMOUR_REVIEW_ANGLE - 1.e-12 and
+            ax * bx + ay * by + az * bz > ARMOUR_REVIEW_COSINE + 1.e-12)
 
 
 def native_source_pose(runtime, origin=None):
@@ -520,6 +546,8 @@ class AttackPolicy(object):
     def _current(self, job, require_line=False):
         key, shell, target, unused_sample, unused_mode = job
         row = self.rows.get(key)
+        if row is not None and not (row.get('armour_review') or {}).get('valid', True):
+            return None
         if row is None or row.get('pose_stamp') != self._stamp(self.frame, shell, target):
             if row is not None and row.get('stationary_plan') and combat_detail_enabled():
                 stationary_plan.trace_plan_use(self.runtime, 'plan_row', row, self.runtime.now,
@@ -571,7 +599,15 @@ class AttackPolicy(object):
         if cached is None:
             return row
         geometry, previous = cached
+        review = previous.get('armour_review')
+        # A completed negative plate result is still useful to the ordered
+        # sweep. A cached positive result still needs a current trajectory.
+        if (review is not None and review['valid'] and self.frame.get('ordered') and
+                previous.get('mode') == 'penetration' and previous.get('armor') == 'failed' and
+                previous['line_stamp'][0] == self.frame['scene']):
+            return previous
         if (previous['pose_stamp'][4] != self._stamp(self.frame, shell, target)[4] or
+                review is not None and not review['valid'] or
                 not _same_ranking_geometry(geometry, _ranking_geometry(self.frame, target))):
             self._next_rows.pop(key, None)
             return row
@@ -1200,9 +1236,12 @@ class AttackPolicy(object):
     def _he_observation_identity(self, job):
         # Normal motion revokes firing rows, not a finite ranking pass. A
         # different shell, entity or sample layout cannot inherit that pass.
-        unused_key, shell, target, unused_sample, unused_mode = job
-        return (self.frame['identity'], shell.get('signature'),
-                target.get('sample_identity'), target.get('samples'))
+        key, shell, target, unused_sample, unused_mode = job
+        book = getattr(self.evaluator, 'armour_reviews', None)
+        review = book.get(key[:3]) if book is not None else None
+        return (self.frame['identity'], shell.get('signature'), target.get('sample_identity'),
+                target.get('samples'), self.frame.get('scene'), self.frame.get('debris'),
+                review['receipt']['sequence'] if review is not None else None)
 
     def _choose_current_he(self, reason, candidate):
         """Qualify a completed comparison's actual, uncommitted aim only."""
@@ -2348,6 +2387,7 @@ class AttackPolicy(object):
                         loaded=loaded, clip=frame['clip'], proposed=result.get('shell_index'),
                         candidate=(result.get('candidate') or {}).get('key'),
                          he_comparison=self.he_comparison,
+                          native_cache=dict(getattr(self.evaluator, 'cache_observations', {})),
                         points=tuple((row['sample'], row['mode'], row['line'], row['armor'],
                                       row.get('reason'), (row.get('blocker') or {}).get('actor_key'),
                                        row.get('mechanical'), row.get('stationary_pending'),
@@ -2648,6 +2688,7 @@ class AttackPolicy(object):
         ordered = self.ordered_load()
         if ordered is not None:
             self._background_at = now
+            self._used['background'] = 0
             if self._scatter_blocks and not self.frame.get('trigger_active') and not self.frame.get('reloading'):
                 held = ordered.target if ordered.loaded_he else None
                 due = {key: block['retry_at'] for key, block in self._scatter_blocks.items()
@@ -2657,8 +2698,9 @@ class AttackPolicy(object):
                     job = next((job for job in self._jobs(shell_index=review[0])
                                 if job[0][:3] == review), None)
                     if job is not None:
-                        self._used['background'] = 0
                         self._evaluate(job, now, 'background')
+            if not self._used['background'] and not self.frame.get('trigger_active'):
+                ordered.refresh_blocked_lane(self, now)
             self.next_plan, self.next_status = self.next_at_edge()
             self.next_shell = (self.next_plan or {}).get('shell_index')
             return self.next_shell
@@ -2987,8 +3029,11 @@ class NativeAttackEvaluator(object):
         self.jobs = {}
         self.predictions = {}
         self.armour_rays = {}
+        self.armour_reviews = {}
+        self.armour_review_sequence = 0
         self.hostile_bounds = {}
-        self.cache_observations = dict(armour_batches=0, armour_ray_reuses=0)
+        self.cache_observations = dict(armour_batches=0, armour_ray_reuses=0,
+                                       armour_result_reuses=0, armour_angle_expirations=0)
         self._identity = None
         self._at = None
         self._budgets = {}
@@ -3043,8 +3088,8 @@ class NativeAttackEvaluator(object):
 
         This performs at most one ballistic prediction and two reads of the
         selected target pose. It does no world/armour work, ranking, sample
-        search, or policy-clock mutation. TriggerAdmission proves the actual
-        centre ray, armour/HE contact and scattered path from the result.
+        search, or policy-clock mutation. TriggerAdmission uses the result to
+        verify the current trajectory, rather than repeating armour selection.
         """
         receipt = dict(status='pending', reason='intent_unavailable',
                        work=dict(predictions=0, world_chords=0, armour_batches=0))
@@ -3080,6 +3125,14 @@ class NativeAttackEvaluator(object):
                 return None
             shot = gun.shots[index]
             shell = dict(index=index, shot=shot, signature=_shell_signature(index, shot))
+            review = candidate.get('armour_review')
+            if review is not None and (not review['valid'] or
+                    review['weapon'] != (identity, shell['signature']) or
+                    review['target'] != target.get('sample_identity') or
+                    not _armour_angles_current(review['anchor'], _armour_reference(pose[0], target['pose']))):
+                review['valid'] = False
+                receipt['reason'] = 'armour_review_pending'
+                return None
             frame = dict(identity=identity, pose=pose, planning_pose=_planning_pose(pose),
                          origin=pose[2], body=pose[1], descriptor=descriptor)
             receipt['work']['predictions'] = 1
@@ -3131,8 +3184,12 @@ class NativeAttackEvaluator(object):
             self.jobs.clear()
             self.predictions.clear()
             self.armour_rays.clear()
+            for entry in self.armour_reviews.values():
+                entry['receipt']['valid'] = False
+            self.armour_reviews.clear()
             self.hostile_bounds.clear()
-            self.cache_observations = dict(armour_batches=0, armour_ray_reuses=0)
+            for name in self.cache_observations:
+                self.cache_observations[name] = 0
             self._identity = identity
         # Admission changes revoke policy authority, not identical physical
         # observations of a target that remains admitted. Domain pruning below
@@ -3145,25 +3202,18 @@ class NativeAttackEvaluator(object):
             row, observed = self._target_observation(raw, now)
             if observed is not None:
                 observations[row['key']] = observed
+                row['armour_reference'] = _armour_reference(pose[0], row['pose'])
             targets.append(row)
         self.observations = observations
         shells = []
         vehicle_name = str(_field(descriptor.type, 'name', '') or '')
         nation = vehicle_name.split(':', 1)[0] if ':' in vehicle_name else None
-        gun_identity = self._mounted_identity(nation, _field(descriptor.gun, 'name'))
+        gun_identity = ammunition_validation.mounted_identity(nation, _field(descriptor.gun, 'name'))
         for index, shot in enumerate(gun.shots):
             try:
-                piercing = float(combat_rules.range_piercing(shot, 0.))
-                native_shell = combat_rules.legacy_shot(shot).get('shell') or {}
-                shell_identity = self._mounted_identity(nation, native_shell.get('name'))
-                validation = ammunition_validation.validation_mode(
-                    gun_identity, shell_identity, native_shell.get('kind'))
-                shells.append(dict(index=index, is_he=combat_rules.is_he(shot),
-                                   piercing=piercing, shot=shot,
-                                   nominal_damage=combat_rules.shell_nominal_damage(shot),
-                                   gun_identity=gun_identity, shell_identity=shell_identity,
-                                   validation_mode=validation,
-                                   signature=_shell_signature(index, shot)))
+                row = ammunition_validation.mounted_round(index, shot, nation, gun_identity)
+                row['signature'] = _shell_signature(index, shot)
+                shells.append(row)
             except (AttributeError, TypeError, ValueError, KeyError, IndexError):
                 # A stocked but malformed shell still belongs to the domain.
                 # Silently dropping it would forge "all ammunition failed".
@@ -3219,6 +3269,20 @@ class NativeAttackEvaluator(object):
         target_poses = dict((target['key'], (target['pose'], target['velocity']))
                             for target in targets)
         signatures = dict((shell['index'], shell['signature']) for shell in shells)
+        references = dict((target['key'], (target.get('sample_identity'),
+                                          target.get('armour_reference'))) for target in targets)
+        for key, entry in list(self.armour_reviews.items()):
+            review = entry['receipt']
+            sample_identity, reference = references.get(key[1], (None, None))
+            same_point = (key in valid and review['weapon'][1] == signatures[key[0]] and
+                          review['target'] == sample_identity)
+            if not review['valid'] or not same_point or not _armour_angles_current(review['anchor'], reference):
+                if same_point and reference is not None and review['valid']:
+                    self.cache_observations['armour_angle_expirations'] += 1
+                review['valid'] = False
+                self.armour_reviews.pop(key)
+                self.jobs.pop(key, None)
+                self.armour_rays.pop(key, None)
         for key in list(self.armour_rays):
             if key not in valid:
                 self.armour_rays.pop(key, None)
@@ -3235,15 +3299,6 @@ class NativeAttackEvaluator(object):
                     stamp[2] != signatures.get(key[0])):
                 self.predictions.pop(key, None)
         return frame
-
-    @staticmethod
-    def _mounted_identity(nation, name):
-        if not nation or not name:
-            return None
-        name = str(name)
-        if ':' in name:
-            return name if name.split(':', 1)[0] == nation else None
-        return nation + ':' + name
 
     def _scene_stamp(self):
         owner = self.owner
@@ -3819,6 +3874,24 @@ class NativeAttackEvaluator(object):
     def evaluate_lane(self, frame, shell, target, sample, mode, now, channel):
         return self.evaluate(frame, shell, target, sample, mode, now, channel, line_only=True)
 
+    def _probe_armour(self, frame, shell, target, sample, predicted, job, channel, result):
+        if job['armour'] is not None:
+            return job['armour']
+        if channel == 'atomic' and (self.atomic_clock() >= self.atomic_deadline or
+                self.atomic_receipt['armour_collision_batches'] >= ATOMIC_ARMOUR_BATCHES):
+            self.atomic_receipt['reason'] = 'atomic_armour_budget_exhausted'
+            result.update(review_pending=True, reason='atomic_armour_budget_exhausted')
+            return None
+        previous_batches = self.cache_observations['armour_batches']
+        job['armour'] = self._armour_geometry(frame, shell, target, predicted['sample_point'],
+            predicted['direction'], predicted['flight'], sample=sample)
+        if channel == 'atomic':
+            self.atomic_receipt['armour_collision_batches'] += (
+                self.cache_observations['armour_batches'] - previous_batches)
+        if job['armour'] is None:
+            result['reason'] = 'native_armour_unknown'
+        return job['armour']
+
     def evaluate(self, frame, shell, target, sample, mode, now, channel, world_limit=None,
                  line_only=False):
         result = dict(armor='unknown', line='unknown', mechanical='unknown',
@@ -3903,7 +3976,6 @@ class NativeAttackEvaluator(object):
             solution = dict(predicted['solution'], source_pose=frame['pose'], mode=mode,
                             penetration_threshold=(None if mode == 'he_fallback' else
                                                    PENETRATION_FACTOR_65))
-            sample_point, direction, flight = predicted['sample_point'], predicted['direction'], predicted['flight']
             result['mechanical'] = reach['status']
             result['solution'] = solution
             result['line_region'] = predicted['line_region']
@@ -4003,47 +4075,60 @@ class NativeAttackEvaluator(object):
                 # bypass the native actuator's rotation checks after admission.
                 if ordered_he:
                     result['he_route_review'] = True
-            if job['armour'] is None:
-                if channel == 'atomic':
-                    if (self.atomic_clock() >= self.atomic_deadline or
-                            self.atomic_receipt['armour_collision_batches'] >= ATOMIC_ARMOUR_BATCHES):
-                        self.atomic_receipt['reason'] = 'atomic_armour_budget_exhausted'
-                        result.update(review_pending=True, reason='atomic_armour_budget_exhausted')
-                        return reported
-                previous_batches = self.cache_observations['armour_batches']
-                job['armour'] = self._armour_geometry(evaluated_frame, shell, target, sample_point,
-                                                      direction, flight, sample=sample)
-                if channel == 'atomic':
-                    self.atomic_receipt['armour_collision_batches'] += (
-                        self.cache_observations['armour_batches'] - previous_batches)
-            if job['armour'] is None:
-                result['reason'] = 'native_armour_unknown'
-                return reported
+            reference = target.get('armour_reference') if evaluated_frame is frame else None
+            review = self.armour_reviews.get(key[:3]) if reference is not None else None
+            if review is not None and not review['receipt']['valid']:
+                review = None
+                job['armour'] = None
+            if review is None:
+                armour = self._probe_armour(evaluated_frame, shell, target, sample, predicted,
+                                             job, channel, result)
+                if armour is None:
+                    return reported
+                contact = armour.get('armor_contact') or {}
+                review = dict(penetration=armour['penetration'],
+                              structural=contact.get('layer') == 'structural', he=None)
+                if reference is not None:
+                    self.armour_review_sequence += 1
+                    review['receipt'] = dict(anchor=reference, target=target['sample_identity'],
+                        weapon=(frame['identity'], shell['signature']),
+                        sequence=self.armour_review_sequence, valid=True)
+                    self.armour_reviews[key[:3]] = review
+            else:
+                self.cache_observations['armour_result_reuses'] += 1
+            if reference is not None:
+                result['armour_review'] = review['receipt']
+            penetration = review['penetration']
             if ordered_he and mode == 'penetration':
-                contact = job['armour'].get('armor_contact') or {}
-                if contact.get('layer') == 'structural' and combat_rules.he_radius(shot) > 0.:
+                if review['structural'] and combat_rules.he_radius(shot) > 0.:
                     result['route_he_contact'] = True
-            if (ordered_he and mode == 'he_fallback' and
-                    job['armour']['penetration']['armor'] == 'passed'):
-                result.update(job['armour']['penetration'], reason='he_penetration_reopened')
+            if ordered_he and mode == 'he_fallback' and penetration['armor'] == 'passed':
+                result.update(penetration, reason='he_penetration_reopened')
                 return reported
             he_lay = (route_lay and not ordered_he and
-                      job['armour']['penetration']['armor'] == 'failed' and
+                      penetration['armor'] == 'failed' and
                       ammunition_validation.shell_mode(shell) == ammunition_validation.SINGLE_POINT)
             if mode == 'he_fallback' or he_lay:
                 blast_stamp = frame['scene'], frame['debris']
-                if job['he'] is None or job['he'][0] != blast_stamp:
-                    damage = self._he_damage(shell, target, job['armour'],
+                blast_cache = review if reference is not None else job
+                if blast_cache['he'] is None or blast_cache['he'][0] != blast_stamp:
+                    # Score a new blast from a real contact at this pose. Its
+                    # penetration disposition comes from the scoped review.
+                    armour = self._probe_armour(evaluated_frame, shell, target, sample, predicted,
+                                                 job, channel, result)
+                    if armour is None:
+                        return reported
+                    damage = self._he_damage(shell, target, dict(armour, penetration=penetration),
                                              allow_penetration=not ordered_he)
-                    if damage.get('contact') is True:
-                        job['he'] = (blast_stamp, damage)
+                    if damage.get('contact') is not None:
+                        blast_cache['he'] = (blast_stamp, damage)
                 else:
-                    damage = job['he'][1]
+                    damage = blast_cache['he'][1]
                 if he_lay:
                     # Ordinary HE has one penetration/contact sample per
                     # enemy. Preserve the actual hull limitation and publish
                     # this positive contact only for movement qualification.
-                    result.update(job['armour']['penetration'])
+                    result.update(penetration)
                     score = damage.get('expected_damage')
                     if (damage.get('contact') is True and score is not None and
                             not math.isnan(score) and not math.isinf(score) and score > 0.):
@@ -4051,7 +4136,7 @@ class NativeAttackEvaluator(object):
                 else:
                     result.update(damage)
             else:
-                result.update(job['armour']['penetration'])
+                result.update(penetration)
             result['reason'] = ('verified' if result['armor'] == 'passed' else
                                 'armour_failed' if result['armor'] == 'failed' else
                                 'native_armour_unknown')

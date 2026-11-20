@@ -23,6 +23,48 @@ class OrderedPlayerAttackTests(unittest.TestCase):
         self.assertEqual('firing_position',second['action'])
         self.assertIs(second['candidate'],scene.policy.current_row(second['candidate']))
 
+    def test_reopened_point_is_reviewed_without_interrupting_the_current_aim(self):
+        scene = self.siege_he(2)
+        scene.value(2, line='friendly_blocked', armor='unknown')
+        scene.passed(2, sample=1)
+        first = scene.tick(0.)
+        self.assertEqual(1, first['candidate']['sample'])
+        ordered = scene.policy.ordered_load()
+        key = (2, ('bot', 1), 0, 'penetration')
+        self.assertIn(key, ordered.blocked_lanes)
+        scene.frame['line_revision'] += 1
+        scene.passed(2)
+        result = scene.tick(.2)
+        self.assertEqual(1, result['candidate']['sample'])
+        self.assertNotIn(key, ordered.blocked_lanes)
+        self.assertIn(('background', 2, ('bot', 1), 0, 'penetration'),
+                      [row[1:] for row in scene.calls])
+
+    def test_block_during_he_comparison_is_rechecked_for_the_same_enemy(self):
+        scene = self.siege_he(2)
+        scene.value(2, mode='he_fallback', line='friendly_blocked')
+        scene.he(100., sample=1)
+        decision = scene.tick(0.)
+        if decision['action'] != 'aim':
+            decision = scene.tick(.1)
+        ordered = scene.policy.ordered_load()
+        key = (2, ('bot', 1), 0, 'he_fallback')
+        self.assertEqual((2, ('bot', 1), 1, 'he_fallback'), decision['candidate']['key'])
+        self.assertIn(key, ordered.blocked_lanes)
+
+        scene.frame['line_revision'] += 1
+        scene.he(200.)
+        scene.policy.frame = scene.snapshot(.2)
+        scene.policy.background(.2)
+
+        self.assertNotIn(key, ordered.blocked_lanes)
+        self.assertIn(('background',) + key, [row[1:] for row in scene.calls])
+        retained = scene.tick(.3)['candidate']
+        self.assertEqual(decision['candidate']['key'], retained['key'])
+        scene.policy.shot_committed(dict(shell_index=2),
+            dict(player_control=dict(automatic=True, candidate=retained)))
+        self.assertEqual(key, scene.tick(.4)['candidate']['key'])
+
     def siege_he(self, points, movable=True):
         scene = Observations(targets=2, points=points, he_validation='single_point')
         owner = SimpleNamespace(combat_owned=True, stop_allowed=movable,

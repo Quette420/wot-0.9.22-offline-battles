@@ -83,6 +83,9 @@ class HEVerificationFlowTests(unittest.TestCase):
 
     @staticmethod
     def move_target_with_armor(scene, target, armor, offset):
+        if target.typeDescriptor.hull.materials[0].armor != armor:
+            record = scene.battle._records['bot:%s' % target.id]
+            record['armor_revision'] = record.get('armor_revision', 0) + 1
         for name in ('chassis', 'hull', 'turret', 'gun'):
             getattr(target.typeDescriptor, name).materials[0].armor = armor
         scene.pose(target, (20. + offset, 0., 40.))

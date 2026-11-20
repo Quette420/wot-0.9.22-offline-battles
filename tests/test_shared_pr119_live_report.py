@@ -381,6 +381,7 @@ class StableRouteAttackTests(unittest.TestCase):
         # A busy callback can only fit the normal foreground probes.
         policy.atomic_time_budget = 0.
         saw_blocker = False
+        saw_comparison_pending = False
         for step in range(40):
             if step == 17:
                 front = scene.eligible_enemy(60, armor=300.)
@@ -400,15 +401,20 @@ class StableRouteAttackTests(unittest.TestCase):
             saw_blocker = saw_blocker or any(
                 row.get('reason') == 'planned_front_vehicle' and
                 row['blocker']['actor_key'] == ('bot', 60) for row in policy.rows.values())
-            self.assertFalse(scene.launches())
+            if policy.he_comparison['pending']:
+                saw_comparison_pending = True
+                self.assertFalse(scene.launches())
+            if scene.launches():
+                break
         self.assertTrue(saw_blocker)
+        self.assertTrue(saw_comparison_pending)
 
         scene.battle._local_speed = 0.
         for unused in range(25):
-            scene.tick(.125)
-            self.assertTrue(owner.combat_owned, owner.receipt)
             if scene.launches():
                 break
+            scene.tick(.125)
+            self.assertTrue(owner.combat_owned, owner.receipt)
         self.assertEqual(1, owner._episode)
         self.assertEqual([0], [shot['shell_index'] for shot in scene.launches()])
         self.assertEqual(('bot', 50), policy.decision['candidate']['target_key'])

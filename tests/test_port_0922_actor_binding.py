@@ -499,14 +499,11 @@ class WorkerFirstEdgeAdmissionTests(unittest.TestCase):
         self.addCleanup(self.binding.close)
         self.target = dict(self.scene.candidate['target'])
         self.binding.observe(self.scene.now, [self.target])
-        solution = dict(self.scene.candidate['solution'], source_pose=self.binding.source_pose())
-        self.candidate = dict(self.scene.candidate, solution=solution, target=self.target)
         self.binding.combat_stop.active = True
         self.binding.combat_stop.combat_owned = True
         self.binding.combat_stop.stop_allowed = True
         self.binding.combat_stop.targets = (self.target,)
-        self.binding.attack_policy._choose('aim', 'observed_native_plate', self.candidate)
-        self.binding.weapon.observe(dict(_ballistic_solution=solution), self.target)
+        self.candidate = self.prove_worker_point(self.binding, self.scene.candidate['sample'])
         # NEXT selection itself is tested above and by the shared policy
         # suite. The fixture fixes only that unrelated background workload;
         # context admission, native matrices/BSP/plates and scatter are real.
@@ -523,6 +520,17 @@ class WorkerFirstEdgeAdmissionTests(unittest.TestCase):
             self.addCleanup(item.stop)
         # Opposite to this BOT: source-scoped team checks must still succeed.
         self.battle.client.team = 2
+
+    def prove_worker_point(self, binding, sample):
+        policy = binding.attack_policy
+        policy.frame = policy.evaluator.snapshot(self.scene.now)
+        job = next(job for job in policy._jobs(shell_index=binding.gun.shot_index)
+                   if job[0][1] == ('bot', self.target['network_id']) and job[3] == sample)
+        row = policy._evaluate(job, self.scene.now, 'foreground')
+        self.assertTrue(policy._executable(row), row)
+        policy._choose('aim', 'observed_native_plate', row)
+        binding.weapon.observe(dict(_ballistic_solution=row['solution']), self.target)
+        return row
 
     def prepare(self, receipt=None):
         verdict = None
@@ -578,14 +586,10 @@ class WorkerFirstEdgeAdmissionTests(unittest.TestCase):
         self.engine._actor_controls[12] = binding
         self.addCleanup(binding.close)
         binding.observe(self.scene.now, [self.target])
-        solution = dict(self.candidate['solution'], origin=origin, yaw=yaw,
-            pitch=pitch, flight_time=flight, source_pose=binding.source_pose())
-        candidate = dict(self.candidate, solution=solution)
         binding.combat_stop.active = binding.combat_stop.combat_owned = True
         binding.combat_stop.stop_allowed = True
         binding.combat_stop.targets = (self.target,)
-        binding.attack_policy._choose('aim', 'observed_native_plate', candidate)
-        binding.weapon.observe(dict(_ballistic_solution=solution), self.target)
+        self.prove_worker_point(binding, self.candidate['sample'])
         plan = mock.patch.object(binding, '_apply_next_shell', return_value=None)
         plan.start()
         self.addCleanup(plan.stop)

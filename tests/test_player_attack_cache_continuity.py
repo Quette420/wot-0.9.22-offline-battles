@@ -5,6 +5,7 @@ float32 vector fixture models storage at the native Vector3 boundary, rather
 than rounding planning poses or manufacturing an already-passed evaluation.
 These counts describe deterministic work, not native-client wall-clock time.
 """
+import math
 import struct
 from types import SimpleNamespace
 import unittest
@@ -14,7 +15,7 @@ import test_player_fire_admission_complete as native_fire
 from test_player_rebuilt_attack_policy import Observations
 from gui.mods.offline_lan_0922 import combat_rules
 from gui.mods.offline_lan_0922.vehicle_control.attack_policy import (
-    AttackPolicy, NativeAttackEvaluator)
+    AttackPolicy, NativeAttackEvaluator, _armour_angles_current, _armour_reference)
 from gui.mods.offline_lan_0922.vehicle_control import ammunition_validation
 
 
@@ -69,7 +70,7 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
             for material in getattr(self.target.typeDescriptor, name).materials.values():
                 material.armor = 10000.
 
-    def test_sub_native_ray_jitter_recomputes_proof_without_recurring_collision(self):
+    def test_sub_native_ray_jitter_reuses_completed_armour_without_reusing_line_proof(self):
         self.harden()
         with mock.patch.object(combat_rules, 'resolve_armor_contact',
                                wraps=combat_rules.resolve_armor_contact) as resolve:
@@ -78,7 +79,6 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
             calls, batches = self.native_hits, self.evaluator.cache_observations['armour_batches']
             self.assertGreater(calls, 0)
             previous_job = self.evaluator.jobs[previous['key'][:3]]
-            distances = [resolve.call_args.args[1]]
             for index in range(1, 9):
                 # This value changes the physical/policy source observation.
                 # The native collider still receives exactly the same floats.
@@ -91,16 +91,12 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
                 current_job = self.evaluator.jobs[current['key'][:3]]
                 self.assertIsNot(previous_job, current_job)
                 self.assertIsNot(previous, current)
-                distances.append(resolve.call_args.args[1])
                 previous, previous_job = current, current_job
             self.assertEqual(calls, self.native_hits)
             self.assertEqual(batches, self.evaluator.cache_observations['armour_batches'])
-            self.assertEqual(8, self.evaluator.cache_observations['armour_ray_reuses'])
-            self.assertEqual(9, resolve.call_count)
-            self.assertGreater(len(set(distances)), 1,
-                               'range must be resolved again, not reused with the hit list')
+            self.assertEqual(1, resolve.call_count)
 
-    def test_real_source_ray_change_requeries_collision_and_retires_negative(self):
+    def test_muzzle_change_updates_ray_without_retesting_armour(self):
         self.harden()
         old = self.evaluate_point()
         calls = self.native_hits
@@ -109,11 +105,11 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
         self.assertIsNone(self.policy.current_row(old))
         current = self.evaluate_point()
         self.assertEqual('failed', current['armor'])
-        self.assertGreater(self.native_hits, calls)
+        self.assertEqual(calls, self.native_hits)
         self.assertNotEqual(old['pose_stamp'], current['pose_stamp'])
         self.assertEqual(0, self.evaluator.cache_observations['armour_ray_reuses'])
 
-    def test_native_target_turret_change_requeries_collision(self):
+    def test_turret_animation_retires_the_old_path_but_keeps_armour(self):
         self.harden()
         old = self.evaluate_point()
         calls = self.native_hits
@@ -122,8 +118,55 @@ class NativeCacheContinuityTests(native_fire.AutomaticFireScene):
         self.assertIsNone(self.policy.current_row(old))
         current = self.evaluate_point()
         self.assertEqual('failed', current['armor'])
-        self.assertGreater(self.native_hits, calls)
+        self.assertEqual(calls, self.native_hits)
         self.assertNotEqual(old['pose_stamp'][2], current['pose_stamp'][2])
+
+    def test_heading_accumulates_from_the_last_completed_armour_observation(self):
+        self.harden()
+        old = self.evaluate_point()
+        centre = tuple(self.target.position)
+
+        def turn(degrees):
+            self.target.matrix.setRotateY(math.radians(degrees))
+            self.target.matrix.translation = centre
+
+        for heading in (12, 24, 29):
+            turn(heading)
+            self.assertIs(old['armour_review'], self.evaluate_point()['armour_review'])
+        turn(30.01)
+        self.snapshot()
+        self.assertFalse(old['armour_review']['valid'])
+        turn(25)
+        current = self.evaluate_point()
+        self.assertIsNot(old['armour_review'], current['armour_review'])
+        turn(54)
+        self.assertIs(current['armour_review'], self.evaluate_point()['armour_review'])
+        turn(55.01)
+        refreshed = self.evaluate_point()
+        self.assertIsNot(current['armour_review'], refreshed['armour_review'])
+
+    def test_vehicle_centres_use_spatial_angle_and_heading_wraps(self):
+        def reference(elevation, yaw):
+            pitch = math.radians(elevation)
+            centre = (0., math.sin(pitch), math.cos(pitch))
+            return _armour_reference((0., 0., 0.), (None, None, (centre, math.radians(yaw))))
+
+        anchor = reference(0, 179)
+        self.assertTrue(_armour_angles_current(anchor, reference(29, -179)))
+        self.assertFalse(_armour_angles_current(anchor, reference(30, -179)))
+        self.assertFalse(_armour_angles_current(anchor, reference(0, -151)))
+
+    def test_same_point_has_independent_results_for_each_actual_shell(self):
+        self.harden()
+        first = self.evaluate_point()
+        self.assertEqual('failed', first['armor'])
+        self.observed_runtime.gun.shots[1].piercingPower = (50000., 50000.)
+        self.snapshot()
+        job = next(job for job in self.policy._jobs(shell_index=1)
+                   if job[2]['entity'] is self.target and job[3] == first['sample'])
+        second = self.policy._evaluate(job, self.now, 'foreground')
+        self.assertEqual('passed', second['armor'])
+        self.assertIsNot(first['armour_review'], second['armour_review'])
 
     def test_armor_revision_cannot_retain_a_now_false_negative(self):
         self.harden()

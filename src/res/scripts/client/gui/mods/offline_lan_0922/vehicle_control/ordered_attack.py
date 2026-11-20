@@ -35,6 +35,8 @@ class OrderedAttack(object):
         self.blocked_origin = None
         self.blocked_revisit = False
         self.blocked_points = {}
+        self.blocked_lanes = set()
+        self.blocked_cursor = 0
         self.cursor = 0
         self.committed_shell = None
         self.committed_rounds = 0
@@ -67,6 +69,8 @@ class OrderedAttack(object):
         self.covered.intersection_update(live)
         self.checked_lanes.intersection_update(live)
         self.blocked_targets.intersection_update(live)
+        if self.blocked_lanes:
+            self.blocked_lanes = {key for key in self.blocked_lanes if key[1] in live}
         for key in list(self.blocked_points):
             if key not in live:
                 self.blocked_points.pop(key)
@@ -99,6 +103,8 @@ class OrderedAttack(object):
             self.blocked_revisit = False
             self.cursor = 0
             self.blocked_points.clear()
+            self.blocked_lanes.clear()
+            self.blocked_cursor = 0
         if self.target not in live:
             self.target, self.sample, self.he_sample = None, None, None
 
@@ -300,6 +306,8 @@ class OrderedAttack(object):
                     for unused in policy._ordered_point_slice((winner,), now):
                         pass
                 policy._collect_current_he_observations((winner,), observations)
+        for job in jobs:
+            self._track_blocked_lane(policy, job, policy._current(job, require_line=True))
         fence = getattr(policy.evaluator, 'fence', None)
         if policy._frame_invalid or callable(fence) and not fence(policy.frame):
             policy.rows.clear()
@@ -410,11 +418,45 @@ class OrderedAttack(object):
         inspected = self._blocked_pass(policy, jobs)
         return bool(jobs) and all(job[3] in inspected for job in jobs)
 
+    def _track_blocked_lane(self, policy, job, row):
+        blocked = policy._obstructed_lane(row) is not None
+        if blocked:
+            self.blocked_lanes.add(job[0])
+        elif row is not None and row.get('line') == 'clear':
+            self.blocked_lanes.discard(job[0])
+        return blocked
+
     def _record_blocked_point(self, policy, inspected, job, row):
-        if policy._obstructed_lane(row) is not None:
+        if self._track_blocked_lane(policy, job, row):
             inspected.add(job[3])
         elif row is not None and row.get('line') == 'clear':
             inspected.discard(job[3])
+
+    def refresh_blocked_lane(self, policy, now):
+        # Keep actual obstructions in the regular lane rotation even when an
+        # available point completes the foreground pass and is being aimed.
+        if not self.blocked_lanes:
+            return
+        index = policy.frame['loaded']
+        live = [job for job in policy._jobs(shell_index=index) if job[0] in self.blocked_lanes]
+        if self.loaded_he and any(key[3] == 'he_fallback' for key in self.blocked_lanes):
+            live.extend(job for job in policy._jobs('he_fallback', index)
+                        if job[0][1] == self.target and job[0] in self.blocked_lanes)
+        self.blocked_lanes.intersection_update(job[0] for job in live)
+        jobs = [job for job in live if policy._current(job, require_line=True) is None]
+        if not jobs or not policy._optional_work_budget(now).background(policy._work_actor(), 1):
+            return
+        index = self.blocked_cursor % len(jobs)
+        self.blocked_cursor += 1
+        job = jobs[index]
+        row = policy._evaluate(job, now, 'background')
+        target = job[0][1]
+        if row.get('line') == 'clear':
+            self.blocked_lanes.discard(job[0])
+            if target in self.blocked_points:
+                self.blocked_points[target][1].discard(job[3])
+            self.covered.discard(target)
+            policy._current_he_observations.pop(job[0][:3] + ('he_fallback',), None)
 
     @staticmethod
     def _can_lay(policy, row, mode):

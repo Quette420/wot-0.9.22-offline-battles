@@ -10,6 +10,7 @@ import copy
 import io
 import math
 import unittest
+from unittest import mock
 
 from test_player_combat_ownership import OwnershipScene
 from shared_multi_bot_scene import MultiBotScene
@@ -228,16 +229,19 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
         # that query only the separate, off-line competitor moves; neither
         # the source nor this trigger's target changes inside the callback.
         scene.native_position((.1, 0., 0.))
-        tester = scene.initial.typeDescriptor.hull.hitTester
+        evaluator = scene.runtime.attack_policy.evaluator
+        evaluate = evaluator.evaluate
         callbacks = []
 
-        def move_other_during_query():
-            tester.on_hit = None
-            callbacks.append(True)
-            scene.pose(other, (-32., 0., 40.))
+        def move_other_during_query(*args, **kwargs):
+            row = evaluate(*args, **kwargs)
+            if not callbacks and args[2]['entity'] is scene.initial:
+                callbacks.append(True)
+                scene.pose(other, (-32., 0., 40.))
+            return row
 
-        tester.on_hit = move_other_during_query
-        scene.observe_control()
+        with mock.patch.object(evaluator, 'evaluate', side_effect=move_other_during_query):
+            scene.observe_control()
         policy = scene.runtime.attack_policy
         self.assertEqual([True], callbacks)
         self.assertFalse(policy._frame_invalid)
@@ -259,11 +263,14 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
                 self.acquire(scene)
                 friendly = scene.vehicle(9, (-30., 0., 20.), team=1)
                 scene.native_position((.1, 0., 0.))
-                tester = scene.initial.typeDescriptor.hull.hitTester
+                evaluator = scene.runtime.attack_policy.evaluator
+                evaluate = evaluator.evaluate
                 callbacks = []
 
-                def move_during_query():
-                    tester.on_hit = None
+                def move_during_query(*args, **kwargs):
+                    row = evaluate(*args, **kwargs)
+                    if callbacks or args[2]['entity'] is not scene.initial:
+                        return row
                     callbacks.append(True)
                     if changed == 'source':
                         scene.native_position((.4, 0., 0.))
@@ -271,9 +278,10 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
                         scene.pose(scene.initial, (22., 0., 40.))
                     else:
                         scene.pose(friendly, (10., 0., 20.))
+                    return row
 
-                tester.on_hit = move_during_query
-                scene.observe_control()
+                with mock.patch.object(evaluator, 'evaluate', side_effect=move_during_query):
+                    scene.observe_control()
                 policy = scene.runtime.attack_policy
                 self.assertEqual([True], callbacks)
                 self.assertTrue(policy._frame_invalid)
@@ -461,6 +469,7 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
         self.assertEqual(('bot', 13), candidate.get('target_key'))
         self.assertFalse([row for row in scene.launches_observed if row['id'] == 12])
         key = candidate['key']
+        review = candidate['armour_review']
         scene.engine.states[14].update(alive=True, health=1000., x=-40., z=40.)
         for name in ('chassis', 'hull', 'turret', 'gun'):
             getattr(scene.descriptors['14'], name).materials[0].armor = 10.
@@ -470,9 +479,11 @@ class SharedCurrentHEExecutionTests(unittest.TestCase):
             events = [row for row in scene.launches_observed if row['id'] == 12]
             if events:
                 break
-            self.assertEqual('aim', policy.decision['action'], policy.status())
-            self.assertEqual(key, policy.decision['candidate']['key'])
-            self.assertTrue(policy._executable_current(policy.decision['candidate'], 'he_fallback'))
+            self.assertEqual(key[1], policy.ordered.target)
+            if review['valid']:
+                self.assertEqual('aim', policy.decision['action'], policy.status())
+                self.assertEqual(key, policy.decision['candidate']['key'])
+                self.assertTrue(policy._executable_current(policy.decision['candidate'], 'he_fallback'))
             self.assertEqual({13, 14}, {row['network_id'] for row in binding.combat_targets()})
         self.assertTrue(events, policy.status())
         self.assertEqual(13, events[0]['evidence']['target'])

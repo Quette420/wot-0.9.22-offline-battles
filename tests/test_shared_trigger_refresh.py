@@ -104,7 +104,7 @@ class FinalPoseTriggerTests(unittest.TestCase):
         self.assertTrue(fixture.fire(), binding._admission().receipt)
         self.assertEqual([19, 10], binding.gun.ammo)
 
-    def test_changed_armour_is_reproved_instead_of_relabeling_old_success(self):
+    def test_changed_armour_requires_a_new_planner_review(self):
         fixture = self.worker()
         self.turn_worker(fixture)
         self.assertEqual('passed', fixture.candidate['armor'])
@@ -114,7 +114,8 @@ class FinalPoseTriggerTests(unittest.TestCase):
                 material.armor = 5000.
         fixture.battle._records['bot:42']['armor_revision'] = 1
         self.assertFalse(fixture.fire())
-        self.assertEqual('auto_actual_barrel_armour', fixture.binding._last_fire_failure)
+        self.assertEqual('armour_review_pending',
+            fixture.binding.attack_policy.evaluator.trigger_refresh_receipt['reason'])
         self.assertEqual([20, 10], fixture.binding.gun.ammo)
         self.assertFalse(fixture.engine._pending_launches)
         self.assertFalse(fixture.engine._burst_states[11].active)

@@ -15,7 +15,7 @@ from unittest import mock
 import test_port_0922_battle_runtime as f
 import test_port_0922_player_burst as burst_tests
 import test_player_full_runtime as full_tests
-from gui.mods.offline_lan_0922 import ballistics, gun_mechanics, shot_geometry
+from gui.mods.offline_lan_0922 import ballistics, combat_rules, gun_mechanics, shot_geometry
 from gui.mods.offline_lan_0922.vehicle_control.player_binding import PlayerControl
 from gui.mods.offline_lan_0922.vehicle_control.native_aim import (
     NativeAimGeometry, mechanical_reach)
@@ -808,33 +808,23 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
         self.assertEqual('auto_friendly_lane', self.admission.receipt['reason'])
         self.assert_unspent()
 
-    def test_first_trigger_rechecks_armor_not_only_candidate_boolean(self):
+    def test_first_trigger_uses_verified_armour_until_a_review_is_due(self):
         for name in ('chassis', 'hull', 'turret', 'gun'):
             getattr(self.target.typeDescriptor, name).materials[0].armor = 10000.
         self.assertEqual('passed', self.candidate['armor'])
-        self.assertFalse(self.fire())
-        self.assertEqual('auto_actual_barrel_armour', self.admission.receipt['reason'])
-        self.assert_unspent()
+        self.assertTrue(self.fire(), self.admission.receipt)
+        self.assertEqual(1, len(self.launches()))
 
-    def test_actual_barrel_refusal_details_require_the_diagnostic_checkbox(self):
+    def test_armour_identity_change_requires_new_selection_before_fire(self):
         for name in ('chassis', 'hull', 'turret', 'gun'):
             getattr(self.target.typeDescriptor, name).materials[0].armor = 10000.
-        for enabled in (False, True):
-            with self.subTest(detailed=enabled):
-                self.admission.reset()
-                with mock.patch(ADMISSION+'.combat_detail_enabled', return_value=enabled), \
-                        mock.patch(ADMISSION+'.combat_detail') as detail:
-                    self.assertFalse(self.fire())
-                self.assertEqual('auto_actual_barrel_armour', self.admission.receipt['reason'])
-                self.assert_unspent()
-                self.assertEqual(enabled,detail.called)
-                if enabled:
-                    self.assertEqual('actual_barrel_refusal',detail.call_args.args[1])
-                    payload=detail.call_args.args[-1]()
-                    self.assertEqual(self.target.id,payload['target_engine'])
-                    self.assertEqual('auto_actual_barrel_armour',payload['refusal'])
-                    self.assertNotEqual(2,payload['contact']['armor']['result'])
-                    self.assertEqual(3,len(payload['barrel_direction']))
+        self.battle._records['bot:%s' % self.target.id]['armor_revision'] = 1
+        with mock.patch.object(combat_rules, 'resolve_armor_contact') as resolve:
+            self.assertFalse(self.fire())
+        self.assertEqual('armour_review_pending',
+            self.runtime.attack_policy.evaluator.trigger_refresh_receipt['reason'])
+        resolve.assert_not_called()
+        self.assert_unspent()
 
     def test_actual_world_refusal_records_the_blocking_chord_only_with_opt_in(self):
         self.world = [((-10., -10., 50.), (10., 10., 50.1))]
@@ -1273,7 +1263,7 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
         frame = evaluator.snapshot(self.now)
         target = next(row for row in frame['targets'] if row['entity'] is self.target)
         with mock.patch(module, return_value=(track, hull)):
-            for caliber, layer in ((90., None), (150., 'structural')):
+            for caliber in (90., 150.):
                 proof['shot'] = dict(shell=dict(kind='ARMOR_PIERCING', caliber=caliber),
                                     piercingPower=(300., 300.), maxDistance=400.,
                                     speed=1000., gravity=0.)
@@ -1282,7 +1272,7 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
                 self.assertEqual('failed' if caliber == 90. else 'passed', scored['armor'])
                 hit = self.admission._contact(proof, (0., 2., 90.), (0., 2., 100.), .09, .1,
                                               centre=True)
-                self.assertEqual(layer, (hit['contact'] or {}).get('layer'))
+                self.assertNotIn('contact', hit)
                 self.assertAlmostEqual(.2, hit['fraction'])
                 sampled = self.admission._contact(proof, (0., 2., 90.),
                                                    (0., 2., 100.), .09, .1)
@@ -1331,7 +1321,7 @@ class AutomaticFireAdmissionTests(AutomaticFireScene):
             self.assertEqual(0., self.candidate['expected_damage'])
             self.step()
             self.assertTrue(self.fire(), self.admission.receipt)
-            self.assertGreater(blast.call_count, 1)
+            self.assertEqual(1, blast.call_count)
 
     def _hydraulic(self):
         desc = self.entity.typeDescriptor

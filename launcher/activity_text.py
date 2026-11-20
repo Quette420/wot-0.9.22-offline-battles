@@ -200,8 +200,11 @@ _ACTIVITY_ZH = {
     "Reset %d fully unlocked saves to current equipment defaults.": "已将 %d 份全解锁存档恢复为当前的默认装备配置。",
     "Enter the address of the PC that hosts the battle.": "请输入房主电脑的联机地址。",
     "The server address is invalid.": "服务器地址无效。",
-    "The port must be a number.": "端口必须为数字。",
-    "The port must be between 1 and 65535.": "端口必须在 1 到 65535 之间。",
+    "The server port must be a number.": "服务器端口必须为数字。",
+    "The server port must be 1-65535.": "服务器端口必须在 1 到 65535 之间。",
+    "Tanks per team must be a whole number from 1 to 15.": "每队车辆数必须是 1 到 15 之间的整数。",
+    "Tanks per team must be a number from 1 to 15.": "每队车辆数必须是 1 到 15 之间的数字。",
+    "Tanks per team must be 1-15.": "每队车辆数必须在 1 到 15 之间。",
     "Player test control is available after starting with automatic control enabled.": "启用玩家自动控制并启动游戏后，即可使用玩家测试控制。",
     "Player test control %s was not submitted: %s%s": "玩家测试命令 %s 提交失败：%s%s",
 }

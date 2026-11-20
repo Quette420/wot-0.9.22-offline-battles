@@ -717,11 +717,14 @@ jobs:
           path: launcher/dist/wot-0.9.22-offline-battles/
           if-no-files-found: error
           overwrite: true
+
+  windows-launcher-download:
+    needs: windows-launcher
+    runs-on: windows-latest
+    steps:
       - name: Extract the actual download once
         uses: actions/download-artifact@v4
         with:
-          # Same-run name lookup stays on the Actions artifact service.
-          # An immediate REST ID lookup can return Not Found just after upload.
           name: wot-0.9.22-offline-battles-launcher
           path: ${{ runner.temp }}/launcher-download
       - name: Verify that the bundled servers run from the launcher

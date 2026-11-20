@@ -1744,8 +1744,7 @@ class LauncherWindow(object):
             self._personal_editor = dialog_type(self)
         except (save_ledger.SaveLedgerError, save_slots.SaveSlotError,
                 vehicle_overlays.VehicleOverlayError, OSError, ValueError) as error:
-            self._log(error)
-            self.save_dialog_feedback.config(text=self._t(str(error)))
+            self._log("The save editor could not be opened: %s" % error)
             return False
         return True
 

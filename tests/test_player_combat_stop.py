@@ -956,7 +956,7 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
                 siege_correction=pitch, hydraulic_pitch=pitch, needs_hydraulic=True,
                 siege_aim=True, source_verified=False, reachable=False))
 
-    def test_route_release_needs_a_new_clear_point_and_one_second(self):
+    def test_siege_review_failure_needs_changed_aim_geometry_and_one_second(self):
         scene = Scene(siege=siege_mechanics.DISABLED, admitted=False)
         scene.raw_order.update(combat_mode='route', move_position=(0., 0., 60.),
                                target_id=None, target_kind=None, face_position=(0., 0., 60.),
@@ -984,9 +984,63 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
         self.assertIsNone(scene.owner._route_confirmation)
         other = dict(scene.candidate, key=(0, ('bot', 2), 1, 'penetration'))
         scene.policy.rows[other['key']] = other
-        for moment in (12.5, 13., 13.375):
+        scene.position((8., 0., 0.))
+        scene.state.update(pitch=-.10, suspension_pitch=-.10)
+        for moment in (12.5, 13., 13.5, 14., 14.5):
             self.assertEqual(scene.raw_order, scene.apply(moment))
-        scene.apply(13.5)
+        self.assertIsNone(scene.owner._route_confirmation)
+        scene.state.update(terrain_pitch=.12, pitch=.12, suspension_pitch=0.)
+        for moment in (15., 15.5, 15.875):
+            self.assertEqual(scene.raw_order, scene.apply(moment))
+        scene.apply(16.)
+        self.assertTrue(scene.owner.waiting_for_siege())
+        self.assertEqual(scene.target, scene.owner._siege_point['target'])
+
+    def test_siege_lane_failure_retries_after_the_same_obstructed_ray_reopens(self):
+        scene = Scene(siege=siege_mechanics.ENABLED)
+        scene.raw_order.update(combat_mode='route', move_position=(0., 0., 60.),
+                               throttle_override=None, fire_allowed=False)
+        key = (0, ('bot', 2), 0, 'penetration')
+        scene.candidate.update(key=key, line='world_blocked', armor='unknown',
+            blocker=dict(kind='world'), line_stamp=('scene-1', 'blocked'),
+            solution=dict(origin=(0., 1., 0.), point=(0., 1., 80.)))
+        scene.policy.frame['scene'] = ('same-space', 1)
+        scene.policy.rows[key] = scene.candidate
+        scene.decide('navigate', candidate=False, reason='ordered_no_clear_lane')
+        scene.apply(1.)
+        self.assertFalse(scene.owner.combat_owned)
+        scene.native_mode(siege_mechanics.DISABLED)
+        scene.decide('wait', candidate=False, reason='siege_route_line_ready')
+        scene.candidate.update(line='clear', line_stamp=('scene-1', 'clear'))
+        for moment in (2., 2.5, 3., 3.5):
+            self.assertEqual(scene.raw_order, scene.apply(moment))
+        scene.policy.frame['scene'] = ('same-space', 2)
+        scene.candidate['line_stamp'] = ('scene-2', 'clear')
+        for moment in (4., 4.5, 4.875):
+            self.assertEqual(scene.raw_order, scene.apply(moment))
+        order = scene.apply(5.)
+        self.assertTrue(scene.owner.waiting_for_siege())
+        self.assertFalse(order['fire_allowed'])
+
+    def test_siege_lane_failure_is_target_scoped_across_samples_and_shells(self):
+        scene = Scene(siege=siege_mechanics.ENABLED)
+        scene.raw_order.update(combat_mode='route', move_position=(0., 0., 60.),
+                               throttle_override=None, fire_allowed=False)
+        scene.decide('navigate', candidate=False, reason='ordered_no_clear_lane')
+        scene.apply(1.)
+        self.assertFalse(scene.owner.combat_owned)
+        scene.native_mode(siege_mechanics.DISABLED)
+        scene.runtime.gun.shot_index = 1
+        blocked = dict(scene.candidate, key=(1, ('bot', 2), 7, 'penetration'),
+                       shell_index=1, line='clear')
+        other_target = dict(scene.target, id=3, network_id=3, position=(12., 0., 72.))
+        other = dict(blocked, target=other_target, key=(1, ('bot', 3), 0, 'penetration'))
+        scene.policy.rows = {row['key']: row for row in (blocked, other)}
+        scene.runtime._targets = (scene.target, other_target)
+        scene.decide('wait', candidate=False, reason='siege_route_line_ready')
+        for moment in (2., 2.5, 2.875):
+            self.assertEqual(scene.raw_order, scene.apply(moment))
+        scene.apply(3.)
         self.assertTrue(scene.owner.waiting_for_siege())
         self.assertEqual(other['key'], scene.owner._siege_point['key'])
 

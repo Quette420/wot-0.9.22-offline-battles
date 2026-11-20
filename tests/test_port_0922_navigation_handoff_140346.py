@@ -23,7 +23,7 @@ class HeightOwnershipTests(unittest.TestCase):
         self.runtime.navigator = self.nav
         self.runtime.baked_graph = graph
         self.runtime.states[20] = dict(id=20, team=2)
-        self.runtime._occupied_route_target = lambda *a: None
+        self.runtime._occupied_route_target = lambda *a, **kwargs: None
         self.runtime._route_lane_target = lambda bot,pos,goal,target,*a: target
         def f32(value):
             return struct.unpack('f', struct.pack('f', value))[0]

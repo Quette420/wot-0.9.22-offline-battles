@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import unittest
 from unittest import mock
@@ -28,6 +29,7 @@ class SupportLifecycleTests(unittest.TestCase):
         self.assertNotIn('_basic_support_datum',state)
         self.assertNotIn('_basic_support_handoff',state)
 
+    @mock.patch.dict(os.environ, {'WOT_OFFLINE_COMBAT_DIAGNOSTICS': '1'})
     def test_emitted_support_receipt_contains_actual_clearance_proof(self):
         runtime,state=self.scene(lambda x,z:0.)
         state.update(_basic_support_datum=.43,y=.43,airborne=False)

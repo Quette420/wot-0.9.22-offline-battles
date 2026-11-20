@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 try:
-    from . import ui_layout
+    from . import ui_layout, vehicle_class_labels
 except ImportError:
     import ui_layout
+    import vehicle_class_labels
 import copy
 from collections import Counter
 try:
@@ -15,8 +16,7 @@ except ImportError:
 
 SKILL_CHOICES = ((None, 'Random (mixed distribution)'), ('rookie', 'Rookie'),
                  ('regular', 'Regular'), ('veteran', 'Veteran'), ('elite', 'Elite'))
-CLASSES = ((None, 'All'), ('lightTank', 'Light tank'), ('mediumTank', 'Medium tank'),
-           ('heavyTank', 'Heavy tank'), ('AT-SPG', 'Tank destroyer'), ('SPG', 'SPG'))
+CLASSES = ((None, 'All'),) + vehicle_class_labels.CHOICES
 ZH = {
     'Exact Bot lineup: %s': '自定义 Bot 阵容：%s', 'Team 1 Bot': '队伍 1 Bot',
     'Team 2 Bot': '队伍 2 Bot', 'Nation': '国家', 'Type': '类型', 'Vehicle': '车辆',
@@ -24,8 +24,7 @@ ZH = {
     'Choose a filtered vehicle': '请选择筛选后的车辆',
     'Tier filters only narrow the vehicle lists; choose a vehicle to change a slot.':
     '级别仅筛选车辆列表；选择车辆后才修改槽位。',
-    'Difficulty': '难度', 'All': '全部', 'Light tank': '轻坦', 'Medium tank': '中坦',
-    'Heavy tank': '重坦', 'Tank destroyer': '坦歼', 'SPG': '自行火炮',
+    'Difficulty': '难度', 'All': '全部',
     'Random vehicle': '随机车辆', 'Empty / do not participate': '空槽／不参战',
     'Clear all slots in this team': '清空本队全部槽位',
     'Individual slot settings': '各槽位独立设置',
@@ -47,6 +46,7 @@ ZH = {
     'Slots keep their numbers. Humans replace enabled slots from first to last. Random difficulty is drawn once per Bot per round from the mixed distribution. Explicit tactics may override difficulty. Changes apply after saving and restarting the room.':
     '槽位编号保持不变。真人按有效槽位顺序替换 Bot。随机难度每局按混合分布为各 Bot 生成一次；明确的战术配置可覆盖难度。保存并重新开启房间后生效。',
 }
+ZH.update(vehicle_class_labels.CHINESE)
 RANDOM = '__random__'
 CLEAR = '__clear__'
 INDIVIDUAL = '__individual__'
@@ -111,7 +111,7 @@ class BotLineupEditorWindow:
         row = {}
         for column, field in enumerate(('nation', 'vehicle_class', 'tier', 'vehicle', 'skill'), 1):
             row[field] = self._tk.StringVar(value='')
-            width = {'nation': 16, 'vehicle_class': 15, 'tier': 6, 'vehicle': 25, 'skill': 24}[field]
+            width = {'nation': 16, 'vehicle_class': 20, 'tier': 6, 'vehicle': 25, 'skill': 24}[field]
             box = self._ttk.Combobox(frame, textvariable=row[field], state='readonly', width=width)
             box.grid(row=gridrow, column=offset+column, sticky='we', padx=3, pady=1)
             row[field+'_box'] = box

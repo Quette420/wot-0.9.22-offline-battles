@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 try:
-    from . import ui_layout
+    from . import ui_layout, vehicle_class_labels
 except ImportError:
     import ui_layout
+    import vehicle_class_labels
 import math
 import re
 
@@ -28,13 +29,7 @@ ALL_FILTER = "All"
 # editor shows for each.  A roster entry that carries no unique class tag or
 # no integer tier stays reachable, but only while the matching filter is
 # ``All``.
-VEHICLE_CLASS_LABELS = (
-    ("lightTank", "Light tank"),
-    ("mediumTank", "Medium tank"),
-    ("heavyTank", "Heavy tank"),
-    ("AT-SPG", "Tank destroyer"),
-    ("SPG", "SPG"),
-)
+VEHICLE_CLASS_LABELS = vehicle_class_labels.CHOICES
 
 
 _CHINESE = {
@@ -149,11 +144,7 @@ _CATEGORY_CHINESE = {
     "Radio": "电台", "Shell": "炮弹",
 }
 
-_VEHICLE_CLASS_CHINESE = {
-    "Light tank": "轻型坦克", "Medium tank": "中型坦克",
-    "Heavy tank": "重型坦克", "Tank destroyer": "自行反坦克炮",
-    "SPG": "自行火炮",
-}
+_VEHICLE_CLASS_CHINESE = vehicle_class_labels.CHINESE
 
 _FIELD_CHINESE = {
     "Speed limits": "速度限制", "Forward speed": "前进速度",

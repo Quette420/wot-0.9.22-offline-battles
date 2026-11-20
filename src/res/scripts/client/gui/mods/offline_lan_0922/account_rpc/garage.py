@@ -1276,7 +1276,7 @@ class GarageState(object):
 
     # ---- customization 2.0 ---------------------------------------------
 
-    def _outfit_stock_plan(self, record, replacement):
+    def _outfit_stock_plan(self, record, replacement, purchase_missing=False):
         # Stock #1513 getItemInventoryCount is free inventory + original -
         # modified units. Persist that transfer when accepting CMD 119.
         totals = []
@@ -1290,7 +1290,7 @@ class GarageState(object):
                             counts[key] = counts.get(key, 0) + count
                 totals.append(counts)
             before, after = totals
-            updates = {}
+            updates, purchases = {}, []
             for kind, identifier in set(before) | set(after):
                 change = before.get((kind, identifier), 0) - after.get((kind, identifier), 0)
                 if not change:
@@ -1310,8 +1310,16 @@ class GarageState(object):
                             bindings[binding] -= taken
                             needed -= taken
                     if needed:
-                        raise GarageError('not enough customization units to install')
+                        if not purchase_missing:
+                            raise GarageError('not enough customization units to install')
+                        purchases.extend((_int(item.compactDescr), needed))
                 updates[kind, identifier] = bindings
+            if purchases:
+                # CMD 119 is buyAndEquipOutfit, not an inventory-only equip.
+                # Nothing above has been committed. Buy only the deficits,
+                # then recompute transfers from the purchased inventory.
+                self.buy_customizations(record['id'], purchases)
+                return self._outfit_stock_plan(record, replacement)
             return updates
         except GarageError:
             raise
@@ -1345,21 +1353,20 @@ class GarageState(object):
         except Exception as error:
             raise GarageError('the client refused the outfit: %s' % error)
 
-        staged = copy.deepcopy(record)
-        outfits = staged.setdefault('outfits', {})
-        # Vehicle.getOutfit prioritizes a styled outfit.  Leaving the previous
-        # ALL-season style beside a newly applied custom season would make the
-        # accepted CMD 119 invisible in both garage and battle.
-        if season != CUSTOMIZATION_ALL_SEASONS:
-            outfits.pop(CUSTOMIZATION_ALL_SEASONS, None)
-        outfits[season] = (canonical, True)
-        stock_updates = self._outfit_stock_plan(record, outfits)
-        self._commit_outfit_stock(stock_updates)
-        record.clear()
-        record.update(staged)
-        self._touched.add(_int(vehicle_inventory_id))
-        self.revision += 1
-        self.report_customization(record.get('vehicleTypeCompactDescr'), 'equip_staged')
+        with self._transaction():
+            staged = copy.deepcopy(record)
+            outfits = staged.setdefault('outfits', {})
+            # A custom season replaces the styled outfit selected by retail.
+            if season != CUSTOMIZATION_ALL_SEASONS:
+                outfits.pop(CUSTOMIZATION_ALL_SEASONS, None)
+            outfits[season] = (canonical, True)
+            stock_updates = self._outfit_stock_plan(record, outfits, purchase_missing=True)
+            self._commit_outfit_stock(stock_updates)
+            record.clear()
+            record.update(staged)
+            self._touched.add(_int(vehicle_inventory_id))
+            self.revision += 1
+            self.report_customization(record.get('vehicleTypeCompactDescr'), 'equip_staged')
         return record
 
     def apply_style(self, vehicle_inventory_id, style_id):
@@ -1693,7 +1700,8 @@ class GarageState(object):
         return factor
 
     def award_battle_crew_xp(self, vehicle_type_compact_descr, battle_xp,
-                             xp_to_tankman_flag):
+                             xp_to_tankman_flag, crew_injuries=None,
+                             enrolled_crew=None):
         """Apply one battle's crew XP and return the durable award summary.
 
         Every crew member receives battle XP scaled by the vehicle's own
@@ -1715,6 +1723,16 @@ class GarageState(object):
             tankman_rows = {}
 
         tankmen = self._tankmen_module()
+        from gui.mods.offline_lan_0922 import crew_injuries as injury_rules
+        try:
+            injured = injury_rules.injured_seats(
+                self._crew_roles(record), crew_injuries) if crew_injuries else ()
+        except ValueError as error:
+            raise GarageError(str(error))
+        # Passport matching prevents an injury penalty from migrating to a
+        # replacement member after the participating crew was transferred.
+        enrolled = dict((row['seat'], row['passport']) for row in
+                        (enrolled_crew or {}).get('members', ()))
         descriptors = []
         for slot, tankman_id in enumerate(crew_ids):
             if tankman_id is None:
@@ -1767,11 +1785,14 @@ class GarageState(object):
                            if any(tman.role == 'commander' for tman in crew)
                            else 0.0)
             xp_by_tankman = {}
-            for unused_slot, tankman_id, unused_total, descriptor in descriptors:
+            for slot, tankman_id, unused_total, descriptor in descriptors:
                 multiplier = (1.0 if descriptor.role == 'commander'
                               else 1.0 + tutor_bonus)
                 earned = amount * (2 if accelerated and descriptor is weakest[3] else 1)
-                earned = int(earned * multiplier)
+                wounded = slot in injured
+                if wounded and enrolled:
+                    wounded = list(descriptor.getPassport()) == enrolled.get(slot)
+                earned = int(earned * multiplier * (0.9 if wounded else 1.0))
                 descriptor.addXP(earned)
                 xp_by_tankman[tankman_id] = earned
             updated_rows = dict(

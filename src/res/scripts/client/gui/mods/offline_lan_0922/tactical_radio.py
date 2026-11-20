@@ -440,6 +440,15 @@ class BattleRadioAdapter(object):
         if not self._is_current_avatar():
             self._team_chat_started = False
             return False
+        # game.fini can retire the stock protocol before guiModsFini. No
+        # channel notification can be delivered then; still finish local
+        # retirement. Other partial-channel failures retain the normal retry.
+        entry = getattr(sys.modules.get('messenger'), 'MessengerEntry', None)
+        if entry is not None:
+            protos = getattr(getattr(entry, 'g_instance', None), 'protos', None)
+            if protos is None or getattr(protos, 'BW_CHAT2', None) is None:
+                self._team_chat_started = False
+                return False
         try:
             self._publish_action(
                 TEAM_CHAT_DEINIT_ACTION_ID, 0, _message_args())

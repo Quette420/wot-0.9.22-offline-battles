@@ -14,6 +14,8 @@ import math
 import sys
 import os
 
+from .. import hull_aiming
+
 from gui.mods.offline_lan_0922.entities.remote_vehicle import (
     _RemoteShotPresenter, _blend_angle, _component_aim_angles,
     _write_changed_pose, _native_ypr,
@@ -136,10 +138,11 @@ def set_engine_audible(entity, audible):
             return saved is not None
         probe.note(appearance, 'before_audio_remove', requested_audible=False)
         # Publish ownership before the ComponentDescriptor can re-enter.
+        from gui.mods.offline_lan_0922 import engine_audio
+        engine_audio.install_appearance_cleanup(type(appearance))
         appearance._offlineLANMutedEngine = (
             detailed, getattr(appearance, 'compoundModel', None))
         if detailed is not None:
-            from gui.mods.offline_lan_0922 import engine_audio
             engine_audio.suspend(appearance)
         appearance.engineAudition = None
         probe.note(appearance, 'after_audio_remove', requested_audible=False)
@@ -387,6 +390,8 @@ class _NativeRemoteState(object):
         self._aim_desired_gun_pitch = None
         self._siege_relative_body_matrix = None
         self._siege_body_matrix = None
+        self._canonical_hydraulic_matrix = None
+        self._canonical_hydraulic_provider = None
         self.entity = None
         self.model_changed = None
         self.track_scroll = None
@@ -422,6 +427,12 @@ class _NativeRemoteState(object):
         """Relate native hydraulic body pitch to the canonical LAN ground."""
         entity = self.entity
         descriptor = getattr(entity, 'typeDescriptor', None)
+        if getattr(self, '_canonical_hydraulic_matrix', None) is not None:
+            if self._siege_relative_body_matrix is not self._canonical_hydraulic_matrix:
+                self._siege_relative_body_matrix = self._canonical_hydraulic_matrix
+                self._siege_body_matrix = self._matrix_product(
+                    self._siege_relative_body_matrix, self.matrix)
+            return True
         if not bool(getattr(descriptor, 'hasSiegeMode', False)):
             return False
         if self._siege_relative_body_matrix is not None:
@@ -471,6 +482,11 @@ class _NativeRemoteState(object):
 
     def update_siege_pose(self):
         """Feed #1513 hydraulics and preserve its body/ground split."""
+        if getattr(self, '_canonical_hydraulic_matrix', None) is not None:
+            self._prepare_siege_pose()
+            if self._aim_desired_gun_pitch is not None:
+                self._write_aim_pitch(self._aim_desired_gun_pitch)
+            return True
         if not self._authority_geometry:
             return False
         entity = self.entity
@@ -507,16 +523,33 @@ class _NativeRemoteState(object):
         set_delta(0.0, pitch_delta)
         return True
 
+    def set_hydraulic_pitch(self, correction):
+        """Present the worker actuator once, above the unchanged chassis pose."""
+        descriptor = getattr(self.entity, 'typeDescriptor', None)
+        params = hull_aiming.pitch_params(descriptor)
+        if params is None or not params['isAvailable']:
+            return False
+        if self._canonical_hydraulic_matrix is None:
+            self._canonical_hydraulic_matrix = self._math.Matrix()
+        matrix = self._canonical_hydraulic_matrix
+        matrix.setRotateYPR((0., float(correction), 0.))
+        matrix.translation = self._math.Vector3(
+            hull_aiming.correction_translation(float(correction), params['centerZ']))
+        self._prepare_siege_pose()
+        self._publish_pose()
+        return True
+
     def collision_matrices(self, ground_matrix=None):
         """Return authority body and chassis matrices at one ground pose."""
         canonical_ground = self.matrix if ground_matrix is None else \
             ground_matrix
-        if not self._authority_geometry:
+        if not self._authority_geometry and getattr(self, '_canonical_hydraulic_matrix', None) is None:
             return canonical_ground, canonical_ground
         entity = self.entity
         descriptor = getattr(entity, 'typeDescriptor', None)
         active = bool(
-            getattr(descriptor, 'hasSiegeMode', False) and
+            (getattr(descriptor, 'hasSiegeMode', False) or
+             getattr(self, '_canonical_hydraulic_matrix', None) is not None) and
             getattr(entity, 'siegeState', 0) in (
                 _SIEGE_ENABLED, _SIEGE_SWITCHING_OFF))
         if not active:
@@ -577,7 +610,8 @@ class _NativeRemoteState(object):
             return False
         def point(value):
             return (float(value.x), float(value.y), float(value.z))
-        expected = self._math.Matrix(self.provider)
+        provider = getattr(self, '_canonical_hydraulic_provider', None) or self.provider
+        expected = self._math.Matrix(provider)
         actual = self._math.Matrix(model.matrix)
         target = point(expected.translation)
         before = point(actual.translation)
@@ -590,7 +624,7 @@ class _NativeRemoteState(object):
             return False
         # Death/model callbacks can replace or copy the provider after the
         # final pose was deduplicated. Bind the current model, never an old one.
-        model.matrix = self.provider
+        model.matrix = provider
         after = self._math.Matrix(model.matrix)
         after_position = point(after.translation)
         verified = (all(abs(a-b) <= .001 for a,b in zip(after_position,target)) and
@@ -601,7 +635,7 @@ class _NativeRemoteState(object):
         write_json_record('WRECK POSE',dict(entity=int(entity.id),phase='rebind',
             expected=target,before=before,after=after_position,
             position_error=position_error,axis_error=axis_error,verified=verified,
-            forced=bool(force),provider=type(self.provider).__name__))
+            forced=bool(force),provider=type(provider).__name__))
         return verified
 
     def set_interpolate_motion(self, enabled):
@@ -863,6 +897,20 @@ class _NativeRemoteState(object):
         entity = self.entity
         if entity is None:
             return False
+        if getattr(self, '_canonical_hydraulic_matrix', None) is not None:
+            if self._canonical_hydraulic_provider is None:
+                self._canonical_hydraulic_provider = self._matrix_product(
+                    self._canonical_hydraulic_matrix, self.provider)
+            else:
+                self._canonical_hydraulic_provider.b = self.provider
+            provider = self._canonical_hydraulic_provider
+            if getattr(entity, 'model', None) is not None:
+                entity.model.matrix = provider
+            self._compatibility.set_vehicle_pose_overlay(
+                entity, self.position, self.yaw, provider,
+                self.speed, self.turn_speed, self.velocity, self.acceleration,
+                steady_rotation_matrix=self.provider, stabilised_matrix=provider)
+            return True
         self._compatibility.set_vehicle_pose_overlay(
             entity, self.position, self.yaw, self.provider,
             self.speed, self.turn_speed, self.velocity, self.acceleration)
@@ -987,7 +1035,7 @@ class _NativeRemoteState(object):
         entity = self.entity
         if entity is not None:
             entity._aim_yaw = getattr(entity, '_aim_yaw', self.yaw)
-            if (self._authority_geometry and bool(getattr(
+            if ((self._authority_geometry or getattr(self, '_canonical_hydraulic_matrix', None) is not None) and bool(getattr(
                     entity.typeDescriptor, 'hasSiegeMode', False))):
                 self.update_siege_pose()
             self._publish_pose()
@@ -1006,7 +1054,7 @@ class _NativeRemoteState(object):
             self._aim_relative_yaw = component_yaw
         self._aim_desired_gun_pitch = component_pitch
         entity = self.entity
-        if (self._authority_geometry and bool(getattr(
+        if ((self._authority_geometry or getattr(self, '_canonical_hydraulic_matrix', None) is not None) and bool(getattr(
                 getattr(entity, 'typeDescriptor', None),
                 'hasSiegeMode', False))):
             self.update_siege_pose()
@@ -1338,6 +1386,19 @@ class NativeRemoteVehicleFactory(object):
         if state is None or state.entity is None:
             return False
         return state.update_siege_pose()
+
+    def set_entity_hydraulic_pitch(self, entity_id, correction):
+        state = self._states.get(int(entity_id))
+        return bool(state is not None and state.entity is not None and
+                    state.set_hydraulic_pitch(correction))
+
+    def rendered_hydraulic_collision_matrices(self, entity_id):
+        """Read the same interpolated body/ground split shown by this client."""
+        state = self._states.get(int(entity_id))
+        if state is None or state.entity is None:
+            return None
+        body = getattr(state, '_canonical_hydraulic_provider', None)
+        return (body, state.provider) if body is not None else None
 
     def present_hit_impulse(self, entity_id, direction, impulse):
         state = self._states.get(int(entity_id))

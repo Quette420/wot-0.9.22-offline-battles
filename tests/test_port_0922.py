@@ -42,7 +42,10 @@ def _load_tool(name):
 def _load_port_source(name):
     path = (PORT_ROOT / 'src' / 'res' / 'scripts' / 'client' / 'gui' /
             'mods' / 'offline_lan_0922' / (name + '.py'))
-    spec = importlib.util.spec_from_file_location('port0922_' + name, path)
+    # Isolate module globals between cases while retaining the shipping
+    # package context for its shared protocol and other relative imports.
+    module_name = 'gui.mods.offline_lan_0922.' + name.replace('/', '.')
+    spec = importlib.util.spec_from_file_location(module_name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -350,7 +353,7 @@ class PortSourceTests(unittest.TestCase):
         build_script = (PORT_ROOT / 'build_for_client.sh').read_text(
             encoding='utf-8')
 
-        self.assertEqual('1.1.1', packager.MOD_VERSION)
+        self.assertEqual('1.2.0', packager.MOD_VERSION)
         self.assertEqual(packager.MOD_VERSION, package.PORT_VERSION)
         self.assertEqual(packager.MOD_VERSION, meta_version)
         self.assertIn(
@@ -367,10 +370,10 @@ class PortSourceTests(unittest.TestCase):
             self.assertEqual([packager.MOD_VERSION], values, filename)
         for directory in ('launcher', 'server'):
             source = (PORT_ROOT / directory / 'version_info.txt').read_text()
-            self.assertIn("StringStruct('FileVersion', '1.1.1')", source)
-            self.assertIn("StringStruct('ProductVersion', '1.1.1')", source)
-            self.assertIn('filevers=(1, 1, 1, 0)', source)
-            self.assertIn('prodvers=(1, 1, 1, 0)', source)
+            self.assertIn("StringStruct('FileVersion', '1.2.0')", source)
+            self.assertIn("StringStruct('ProductVersion', '1.2.0')", source)
+            self.assertIn('filevers=(1, 2, 0, 0)', source)
+            self.assertIn('prodvers=(1, 2, 0, 0)', source)
 
     def test_port_sources_are_python_2_compatible_syntax(self):
         source_root = PORT_ROOT / 'src'
@@ -493,7 +496,7 @@ class PortSourceTests(unittest.TestCase):
                 config_path.parent / packager.BUILD_IDENTITY_FILENAME
             ).read_text(encoding='utf-8'))
             self.assertEqual(1, identity['schema'])
-            self.assertEqual('1.1.1', identity['semanticVersion'])
+            self.assertEqual('1.2.0', identity['semanticVersion'])
             self.assertRegex(
                 identity['buildIdentity'],
                 r'^local-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$')
@@ -803,19 +806,27 @@ class PortConfigTests(unittest.TestCase):
             path = str(Path(directory) / 'garage_state.json')
             config_module.write_json(path, {'career': True})
 
-            for unused in range(4):
-                kept = config_module.quarantine_state_file(
-                    path, config_module.QUARANTINE_REJECTED, copies=2)
+            # This is the retention contract, not the independent current-
+            # second filename exhaustion boundary. Keep the creation clock
+            # away from .999 and make write ordering deterministic.
+            with mock.patch.object(config_module.time, 'time', return_value=1000.25):
+                for generation in range(4):
+                    config_module.write_json(path, {'career': True, 'generation': generation})
+                    kept = config_module.quarantine_state_file(
+                        path, config_module.QUARANTINE_REJECTED, copies=2)
+                    self.assertIsNotNone(kept)
+                    os.utime(kept, (1000. + generation, 1000. + generation))
 
             surviving = sorted(
                 name for name in os.listdir(directory)
                 if '.rejected-' in name)
             self.assertEqual(2, len(surviving))
             self.assertIn(os.path.basename(kept), surviving)
-            self.assertEqual(
-                {'career': True},
-                json.loads(
-                    (Path(directory) / surviving[0]).read_text()))
+            self.assertEqual([{'career': True, 'generation': generation} for generation in (2, 3)],
+                sorted((json.loads((Path(directory) / name).read_text()) for name in surviving),
+                       key=lambda value: value['generation']))
+            self.assertEqual({'career': True, 'generation': 3},
+                             json.loads(Path(kept).read_text()))
 
     def test_waiting_difficulty_roundtrip_does_not_replace_the_mixed_default(self):
         config_module = _load_port_source('config')
@@ -7309,6 +7320,8 @@ class BootstrapContractTests(unittest.TestCase):
             'gui.mods.offline_lan_0922.config': config,
             'gui.mods.offline_lan_0922.engine_audio': types.SimpleNamespace(install=lambda: None, uninstall=lambda: None),
             'gui.mods.offline_lan_0922.runtime_diagnostics': types.SimpleNamespace(install_exit_trace=lambda: None),
+            'game': types.SimpleNamespace(fini=lambda:None),
+            'gui.mods.offline_lan_0922.native_shutdown': types.SimpleNamespace(install=lambda game,cleanup:None),
             'gui.mods.offline_lan_0922.depot_styles': types.SimpleNamespace(install=lambda: None),
             'gui.mods.offline_lan_0922.offline_replay': types.SimpleNamespace(replay_request=lambda: None),
             'gui.mods.offline_lan_0922.instance_guard': instance_guard,

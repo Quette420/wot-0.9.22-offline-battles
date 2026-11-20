@@ -1241,9 +1241,9 @@ class GarageStateTests(unittest.TestCase):
 
     CAREER_COSTS = (
         {'credits': 0, 'gold': 0, 'roleLevel': 50,
-         'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0, 'isPremium': False},
+         'baseRoleLoss': 0.2, 'classChangeRoleLoss': 0.2, 'isPremium': False},
         {'credits': 20000, 'gold': 0, 'roleLevel': 75,
-         'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0, 'isPremium': False},
+         'baseRoleLoss': 0.1, 'classChangeRoleLoss': 0.1, 'isPremium': False},
         {'credits': 0, 'gold': 200, 'roleLevel': 100,
          'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0, 'isPremium': True},
     )

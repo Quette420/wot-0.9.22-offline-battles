@@ -780,13 +780,24 @@ class AimProgressTests(unittest.TestCase):
             'move_position': (0.0, 0.0, 0.0),
             'recovery_mode': 'arrived', 'movement_intent': False,
         }
-        from gui.mods.offline_lan_0922 import shot_geometry
+        from gui.mods.offline_lan_0922 import hull_aiming, shot_geometry
+        muzzle_observations = []
 
         def muzzle(source, gun, *unused):
-            return shot_geometry.barrel_world_point(
+            point = shot_geometry.barrel_world_point(
                 gun, (source['x'], source['y'], source['z']),
                 source['yaw'], source.get('pitch', 0.0), source.get('roll', 0.0),
                 source.get('turret_yaw', 0.0), source.get('gun_pitch', 0.0))
+            if hydraulic:
+                # Independently observe the integrated chassis at this exact
+                # native callback, before the end-of-slice actuator substep.
+                raw = runtime.states[source['id']]
+                mounted, body = hull_aiming.body_pose(raw, gun)
+                expected = shot_geometry.barrel_world_point(
+                    gun, mounted, *body,
+                    raw.get('turret_yaw', 0.), raw.get('gun_pitch', 0.))
+                muzzle_observations.append((tuple(point), tuple(expected)))
+            return point
 
         def ground(x, z, *unused):
             return 0.4 * x
@@ -847,6 +858,11 @@ class AimProgressTests(unittest.TestCase):
         if hydraulic:
             self.assertIn(self.fixture.module.siege_mechanics.SWITCHING_ON, modes)
             self.assertIn(self.fixture.module.siege_mechanics.ENABLED, modes)
+            launch_origin = tuple(launches[0]['shot_origin'])
+            expected = next(reference for actual, reference in reversed(muzzle_observations)
+                            if actual == launch_origin)
+            for actual, accepted in zip(launch_origin, expected):
+                self.assertAlmostEqual(accepted, actual, places=10)
 
 
 class PresentedCollisionTests(unittest.TestCase):
@@ -927,6 +943,7 @@ class PresentedCollisionTests(unittest.TestCase):
         from gui.mods.offline_lan_0922 import tank_collision as collision
         runtime = fixture._runtime()
         battle = fixture.BattleRuntime(runtime)
+        battle._replica_contact_params = fixture._replica_physics_fixture
         battle._avatar = runtime.bigworld.avatar
         battle._local_pitch = -0.6
         shape = (1.5, 3.5, -0.8, 2.0)

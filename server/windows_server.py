@@ -26,7 +26,7 @@ SERVER_BOT_EXCLUDED_VEHICLES_ENV = "WOT_0922_BOT_EXCLUDED_VEHICLES"
 SERVER_LOOPBACK_ONLY_ENV = "WOT_0922_LOOPBACK_ONLY"
 SERVER_VEHICLE_OVERLAY_ROOT_ENV = "WOT_0922_VEHICLE_OVERLAY_ROOT"
 BUILD_SEMANTIC_VERSION_ENV = "WOT_OFFLINE_SEMANTIC_VERSION"
-SERVER_VERSION = "1.1.1"
+SERVER_VERSION = "1.2.0"
 BUILD_IDENTITY_ENV = "WOT_OFFLINE_BUILD_IDENTITY"
 WINDOWS_FIREWALL_RULE_PREFIX = "WoT 0.9.22 LAN Server"
 # Get-NetFirewallRule can take many seconds on a busy machine.
@@ -167,6 +167,16 @@ def _pause_after_error():
 
 def _load_server():
     from lan_battle_server import DEFAULT_MAP, run_server
+    from gui.mods.offline_lan_0922 import roof_crush_test
+    if roof_crush_test.enabled():
+        from lan_battle_server import BattleState
+        from gui.mods.offline_lan_0922.vehicle_control.strategy import BotPlanner
+        roof_crush_test.install_server(BattleState, BotPlanner)
+    from gui.mods.offline_lan_0922 import equipment_test
+    if equipment_test.enabled():
+        from lan_battle_server import BattleState
+        from gui.mods.offline_lan_0922.vehicle_control.strategy import BotPlanner
+        equipment_test.install_server(BattleState, BotPlanner)
     return (DEFAULT_MAP, run_server)
 
 
@@ -292,6 +302,10 @@ def main():
         if not loopback_only:
             _ensure_windows_firewall_rule(SERVER_PORT)
         tactics_options = {}
+        if loopback_only:
+            from gui.mods.offline_lan_0922 import mobile_combat_test
+            if mobile_combat_test.enabled():
+                tactics_options['mobile_test'] = True
         if os.environ.get('WOT_0922_BOT_TACTICS_PATH'):
             tactics_options['bot_tactics_path'] = os.environ['WOT_0922_BOT_TACTICS_PATH']
         run_server(

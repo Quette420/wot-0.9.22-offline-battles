@@ -111,6 +111,94 @@ class RecordedHandoffTests(unittest.TestCase):
         self.assertTrue(own['route_wreck_blocked'])
         self.assertFalse(receipt['occupied_bypass'][-1]['native_clearance_claimed'])
 
+    def test_stalingrad_macro_bypass_owns_steering_until_a_clear_outgoing_join(self):
+        scenes = (
+            (1000001, 8, (-341.2571, 0., -18.928), (-346.2, 0., 81.1),
+             (-348.96, 0., -16.77)),
+            (25, 12, (-277.2849, 0., 230.0629), (-164.9164, 0., 241.7937),
+             (-270.9073, 0., 225.2331)),
+        )
+        for actor, index, goal, following, bypass in scenes:
+            with self.subTest(actor=actor, gate=index):
+                runtime, grid, _, _ = self.occupied_emil()
+                key = (grid.cell_for(goal), False)
+                runtime.navigator.bot_states[actor] = dict(replan_generation=1)
+                own = runtime.states[actor] = dict(id=actor, team=2,
+                    route=dict(id='class_td_city', waypoints=[(goal[0], goal[2], False)] * (index + 1)
+                               + [(following[0], following[2], False)]),
+                    _occupied_route_leg=(key, bypass, dict(epoch=(0, 1), phase='active')),
+                    _occupied_route_targets={key:(400., bypass, True)})
+                runtime._navigation_height_columns = None
+                runtime._route_lane_goal = mock.Mock(side_effect=AssertionError('would overwrite bypass'))
+                runtime.navigator.observe_direct_target = mock.Mock(return_value=None)
+                runtime.navigator.next_target = mock.Mock(side_effect=lambda bot, pos, goal, *args, **kwargs: goal)
+                order = dict(combat_mode='route', route_id='class_td_city', route_index=index,
+                             route_join=True, route_anchor=(goal[0], 0., goal[2] - 50.))
+                start = (bypass[0], 0., bypass[2] - 10.)
+                decision = dict(speed=0., yaw=0., now=120.)
+                self.assertEqual(bypass, runtime._navigation_target_impl(actor, start, goal, order, decision))
+                self.assertEqual(['cached_result'], [r['reason'] for r in own['_occupied_route_bypass_observations']])
+
+                grid.dry_segment_clear.return_value = False
+                decision['now'] = 120.2
+                self.assertEqual(bypass, runtime._navigation_target_impl(actor, bypass, goal, order, decision))
+                self.assertTrue(decision['navigation_stop_at_target'])
+                self.assertEqual('occupied_exit_wait', own['_navigation_target_receipt']['source'])
+
+                grid.dry_segment_clear.return_value = True
+                decision['now'] = 120.4
+                point = runtime._navigation_target_impl(actor, bypass, goal, order, decision)
+                self.assertAlmostEqual(12., math.hypot(point[0] - goal[0], point[2] - goal[2]))
+                self.assertEqual(point, own['_navigation_target_receipt']['occupied_exit'])
+                runtime._route_lane_goal.assert_not_called()
+
+    def test_amx_bypass_handoff_distinguishes_arrival_from_replan(self):
+        corner = (54., .267, 102.)
+        bypass = (46.335449569, .323, 104.292305977)
+        reached = (45.6, .3, 104.9)
+        short_of_arrival = (bypass[0]-1.51, bypass[1], bypass[2])
+        after_handoff = (50.251281614, .298, 102.852890882)
+        for hold, replan, expect_bypass in (
+                (reached, False, False), (short_of_arrival, False, True),
+                (reached, True, True)):
+            with self.subTest(hold=hold, replan=replan):
+                runtime, grid, _, _ = self.occupied_emil()
+                key = (grid.cell_for(corner), True)
+                own = runtime.states[12]
+                own.update(team=2, half_length=3.5196011066, half_width=1.6997820139,
+                    _occupied_route_leg=(key, bypass, dict(epoch=(0, 1), phase='active')),
+                    _occupied_route_targets={key: (4123., bypass, True)})
+                runtime._physical_parking_occupancy.return_value = [
+                    (None, (59.306400299, .209700003, 107.579597473), 4.531514173)]
+                runtime.navigator.observe_direct_target = mock.Mock(return_value=None)
+                runtime.navigator.next_target = mock.Mock(return_value=corner)
+                runtime.navigator.remember_runtime_target = mock.Mock()
+                runtime._navigation_height_columns = None
+                runtime._route_lane_target = lambda bot, pos, goal, selected, *args: selected
+                runtime._navigation_target_impl(12, hold, hold,
+                    dict(combat_mode='engage', throttle_override=0.),
+                    dict(now=4119.962, speed=0., yaw=1.))
+                grid.static_hull_revision += 1
+                if replan:
+                    runtime.navigator.bot_states[12]['replan_generation'] += 1
+
+                result = runtime._navigation_target_impl(
+                    12, after_handoff, (108.2138, 0., 122.5995),
+                    dict(combat_mode='route', route_id='class_td_rim_east', route_index=2),
+                    dict(now=4122.763, speed=0., yaw=1.))
+                receipt = own['_navigation_target_receipt']['occupied_bypass'][-1]
+                if expect_bypass:
+                    self.assertNotEqual(corner, result)
+                    self.assertEqual('bypass_issued', receipt['reason'])
+                    if not replan:
+                        self.assertEqual(bypass, result)
+                else:
+                    self.assertEqual(corner, result)
+                    runtime.navigator.remember_runtime_target.assert_not_called()
+                    self.assertEqual('completed_handoff', receipt['reason'])
+                    self.assertEqual(4119.962, receipt['completed_at'])
+                self.assertFalse(receipt['native_clearance_claimed'])
+
     def test_reported_cached_bypass_cannot_readmit_retired_target(self):
         runtime = self.runtime
         p=(180.1784,-9.4646,-261.9659)
@@ -160,31 +248,33 @@ class RecordedHandoffTests(unittest.TestCase):
         self.assertGreater(self.runtime._mechanical_approach_speed(state)[0],1.)
 
     def test_player_contact_relocation_survives_approach_hold_alternation(self):
-        state=self.contact_state()
-        target=dict(id=1000001,network_id=1,kind='human',alive=True,position=(0.,0.,6.))
-        self.runtime.states[19]=state
-        order=dict(combat_mode='engage',target_id=1000001,move_position=(0.,0.,0.),
-                   throttle_override=0.,fire_allowed=True)
-        self.runtime._gun_angle_order(state,order,{1000001:target},0.,lambda *a:True)
-        self.assertEqual(0.,state['_gun_angle_adjustment']['start'])
-        order.update(combat_mode='advance_contact',move_position=target['position'])
-        order.pop('throttle_override')
-        with mock.patch.object(self.runtime,'_gun_angle_target_fraction',side_effect=(0.,1.)):
-            result=self.runtime._gun_angle_order(state,order,{1000001:target},2.1,lambda *a:True)
-        self.assertLess(result['move_position'][2],0.)
-        self.assertEqual(0.,state['_gun_angle_adjustment']['start'])
-        self.assertEqual(3.217203344,state['speed'])
-        defended=dict(order,combat_mode='base_defense')
-        self.assertIs(defended,self.runtime._gun_angle_order(state,defended,{1000001:target},2.2,lambda *a:True))
-        self.assertNotIn('_gun_angle_adjustment',state)
+        # The old independent gun-angle destination is gone. A current
+        # physical point task retains its checked goal through policy waits,
+        # while genuine priority travel returns its original route.
+        from test_player_recovery_continuity import SelectedPointRecoveryContinuityTests
+        scene=SelectedPointRecoveryContinuityTests().scene()
+        first=scene.apply(0.)
+        self.assertEqual('gun_angle_adjust',first['combat_mode'])
+        phase=scene.owner._physical_recovery
+        scene.decide('wait',candidate=False,reason='current_lane_pending')
+        self.assertEqual(phase['goal'],scene.apply(2.1)['move_position'])
+        self.assertEqual(0.,phase['started'])
+        scene.raw_order['combat_mode']='base_defense'
+        result=scene.apply(2.2)
+        self.assertEqual('base_defense',result['combat_mode'])
+        self.assertIsNone(scene.owner._physical_recovery)
+        self.assertFalse(hasattr(self.runtime,'_gun_angle_order'))
 
     def test_unblocked_approach_is_not_taken_over(self):
-        state=self.contact_state()
-        state['_translation_motion_receipt']['fraction']=1.
-        order=dict(combat_mode='advance_contact',target_id=1000001,move_position=(0.,0.,6.))
-        result=self.runtime._gun_angle_order(state,order,{},1.,lambda *a:True)
-        self.assertIs(order,result)
-        self.assertNotIn('_gun_angle_adjustment',state)
+        from test_player_combat_stop import Scene
+        scene=Scene(admitted=False)
+        scene.raw_order.update(combat_mode='advance_contact',target_id=None,
+            move_position=(0.,0.,6.),throttle_override=None,fire_allowed=False)
+        scene.candidate.update(line='clear',mechanical='reachable',armor='unknown')
+        scene.decide('wait',candidate=False,reason='native_proof_pending')
+        self.assertEqual(scene.raw_order,scene.apply(1.))
+        self.assertFalse(scene.owner.stop_allowed)
+        self.assertFalse(hasattr(self.runtime,'_gun_angle_order'))
 
     def test_snapshot_lane_producer_receipt_reaches_authority_for_both_targets(self):
         state=dict(id=19,team=2,x=0.,y=0.,z=0.)
@@ -225,9 +315,10 @@ class RecordedHandoffTests(unittest.TestCase):
         state=dict(id=7,_rotation_contact_trace=dict(reason='solid_lane',sampled_at=258.53,
             hit=(-83.2652,13.6345,102.1064)),
             _translation_motion_receipt=dict(outcome='unrestricted',fraction=1.))
-        result=self.runtime._report_blocked_planner((0.,0.,0.),
-            dict(move_position=(0.,0.,10.),recovery_mode='drive',movement_intent=True),
-            {},state,259.)
+        with mock.patch.object(self.fixture.module, 'detailed_enabled', return_value=True):
+            result=self.runtime._report_blocked_planner((0.,0.,0.),
+                dict(move_position=(0.,0.,10.),recovery_mode='drive',movement_intent=True),
+                {},state,259.)
         self.assertFalse(result)
         evidence=state['_planner_blocked_handoff']
         self.assertEqual('solid_lane',evidence['realised_rotation']['reason'])

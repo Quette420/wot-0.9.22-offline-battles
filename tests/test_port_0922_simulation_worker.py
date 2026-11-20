@@ -1351,6 +1351,22 @@ class SimulationWorkerStateTests(unittest.TestCase):
             message.get('type') for message in worker_connection.messages])
         self.assertIs(worker, state.simulation_worker)
 
+    def test_closed_worker_preserves_an_already_finished_battle(self):
+        state = BattleState(map_name='01_karelia', team_size=1)
+        worker = SimulationWorker(_Connection(), ('127.0.0.1', 1000))
+        state.simulation_worker = worker
+        state.bot_authority_id = SIMULATION_WORKER_AUTHORITY_ID
+        state.phase = 'battle'
+        result = {'winner': 1, 'reason': 'team_eliminated'}
+        state.battle_result = result
+
+        removed, failed = state.remove_simulation_worker(worker)
+
+        self.assertIs(worker, removed)
+        self.assertFalse(failed)
+        self.assertIs(result, state.battle_result)
+        self.assertEqual('', state.worker_failure_reason)
+
     def test_worker_loss_cancels_pending_live_and_publishes_failure(self):
         state = BattleState(map_name='01_karelia', team_size=1)
         worker_connection = _Connection()

@@ -56,6 +56,15 @@ class TestingPanelTests(unittest.TestCase):
         self.environ.start()
         self.addCleanup(self.environ.stop)
 
+    def test_missing_testing_settings_leave_every_checkbox_unchecked(self):
+        expected = dict(logs=False, collision=False, control=False, drive=False,
+                        fire=False, consumables=False)
+        for saved in ({}, dict(logs=True, drive=True, consumables=False)):
+            with self.subTest(saved=saved):
+                panel = testing_ui.TestingPanel(self.app, _Widget(), saved)
+                self.assertEqual(dict(expected, **saved),
+                                 {key: value.get() for key, value in panel.vars.items()})
+
     def panel(self, **settings):
         return testing_ui.TestingPanel(self.app, _Widget(), dict(control=True, **settings))
 

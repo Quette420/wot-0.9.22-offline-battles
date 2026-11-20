@@ -1,4 +1,4 @@
-wot-0.9.22-offline-battles v1.2.0
+wot-0.9.22-offline-battles v1.2.1
 
 Supported client: Chinese HD World of Tanks 0.9.22.0.1 #1513 (32-bit).
 The launcher and bundled server require 64-bit Windows.
@@ -136,7 +136,7 @@ assignments. The vehicle modifier has aligned nation/type/tier and
 vehicle/modification-category/field rows, using localized garage-order nations.
 
 English release notes:
-https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.2.0
+https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.2.1
 
 This mod is free; resale is prohibited. World of Tanks game assets are not
 included. This unofficial project is not endorsed by Wargaming.

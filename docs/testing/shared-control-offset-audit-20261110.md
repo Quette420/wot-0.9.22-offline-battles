@@ -2479,3 +2479,76 @@ gates. Neither a host pass nor a future-path probe proves an actual game shot,
 frame-time improvement, or fixed live AT7/STB1 presentation. The final PR
 record must cite a specific new pushed SHA, completed CI run and downloaded
 Windows artifact; the prior `d149aadc` package is **not** this correction.
+
+## November 20 follow-up — opening ammunition and live armour review
+
+PR #119 reverted `99853555` with `a38d0828`. The resulting runtime tree
+matches `8200ad88` and includes the recent siege and route fixes. The
+opening-load change is `f0a08afb`. The shared review change and locally
+tested Windows payload are `b36bb763`.
+
+With automatic fire enabled at the start of a battle, the player mounts
+the lowest-penetration stocked round from the existing penetration
+order. The mounted gun and ammunition whitelist determines which HE
+rounds qualify, including FV4005 HESH Mk.1. Driving-only control starts
+from the garage order. The HE fallback keeps its low-penetration order.
+
+An armour observation belongs to one gun, mounted shell, target and
+sample. Its completed pose anchors the spatial angle of the line
+between the two vehicles and the horizontal heading of the enemy hull.
+Either angle reaching 30 degrees schedules a fresh armour observation.
+The shared player and Bot path skips blocked points and rechecks their
+lanes within the existing optional work budget. A point that clears can
+rejoin the search while the current aim continues. The first trigger
+consumes the completed armour decision and checks the current trajectory,
+alignment, ownership, loading and friendly safety. Normal projectile
+collision and server damage settlement apply after the launch.
+
+### Windows HD client #1513 acceptance
+
+The Redshire pair used the built-in mobile combat roster, a team-one
+FV215b (183), the same client and detailed logs. The Windstorm round
+used the original 15-versus-15 setup with a player Strv S1, 29 elite
+Strv S1 Bots and the 20/20/10 player loadout. All three rounds
+finished by base capture.
+
+| Round | Bots with lane or artillery target checks | Bots with settled projectiles | Bot projectiles / vehicle hits | Player launches | Worker frame median / peak | LAN RTT median |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+| Redshire, reverted reference | 28 | 22 | 93 / 46 | 2 AP | 347 / 375 ms | 7.6 ms |
+| Redshire, `b36bb763` | 29 | 22 | 168 / 116 | 5 HESH | 223 / 405 ms | 10.7 ms |
+| Windstorm, `b36bb763` | 29 | 28 | 74 / 72 | 6 APCR | 171 / 607 ms | 10.3 ms |
+
+The latency rows summarize 8, 15 and 20 samples respectively, from
+countdown completion to the round result. Loading and the return to the
+garage could briefly display 999 ms. The round logs report worker frame
+time and LAN RTT separately. The two Redshire rounds ran for different
+lengths. The archived Windstorm reference in report
+`205024-6bc92bc4cb0a` samples worker medians of 168 and 158 ms.
+
+The 15-versus-15 Overlord FV4005 round used its 7 AP, 7 HESH Mk.1 and
+6 HE Mk.1 garage rack. Automatic control opened with HESH and committed
+three HESH shots. The Tortoise entered the target sweep in that round.
+A separate one-versus-one fixture placed the FV4005 and Tortoise at their
+recorded Overlord positions and used ordinary HE to exercise the delayed
+shot. The fixture sets the two spawn poses. The game supplied the armour,
+lanes, laying, reload, physical firing and impact. The comparison reached
+8 of 8 points before reload completed. The two shots committed about
+6 ms and 29 ms after their first logged ready and aligned observations.
+The server applied 671 and 537 damage to the Tortoise. The round ended
+normally by elimination. A drive-only startup check used the same 7/7/6
+FV4005 rack. The client enabled only driving and loaded slot 1. The
+server recorded the first manually fired round as shell index 0
+(`_183mm_AP_Mk1`). The round was stopped after that check.
+
+The 2,678 relevant regression tests passed in per-file interpreters on the
+reference backend. A further 1,336 launcher tests ran with zero failures
+and 18 skips. Repeating four launcher files with the installed #1513
+resources resolved 12 of those skips. CPython 2.7 compiled all 265 client
+modules in the offline runtime.
+
+The Windows test file is `wot_PR119_b36bb763_Windows_2026-11-20.zip`
+(68,851,765 bytes). SHA-256 is
+`46f0206b9a060fe1e607942b149ae6a5365ab2ba66cb17ca5a7e482beb0667e8`.
+The outer archive, embedded client ZIP and game mod passed CRC
+verification. The tested runtime identifies itself as
+`local-pr119-b36bb763`.

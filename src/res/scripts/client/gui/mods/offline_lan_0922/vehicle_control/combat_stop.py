@@ -21,7 +21,7 @@ from .target_selection import live_contact, ordinary_initial_key
 
 
 MECHANICAL_STALL_SECONDS = 6.0
-ROUTE_ATTACK_CONFIRM_SECONDS = 2.0
+SIEGE_ROUTE_ATTACK_CONFIRM_SECONDS = 1.0
 NO_HE_COOLDOWN_SECONDS = 5.0
 ATTACK_OBSERVATION_GAP_SECONDS = .75
 ATTACK_LOSS_GRACE_SECONDS = 1.0
@@ -519,7 +519,7 @@ class CombatStop(object):
             self._route_attack or not self.combat_owned and
             self._route_requires_confirmation(self.task_order))
 
-    def _confirmed_route_attack(self, candidate, now):
+    def _confirmed_route_attack(self, candidate, now, required_seconds):
         previous = self._route_confirmation
         if candidate is None or candidate.get('key') is None:
             if previous is not None:
@@ -542,7 +542,7 @@ class CombatStop(object):
         self._route_confirmation = (signature, previous[1], now)
         self.receipt.update(confirmation_since=previous[1],
                             confirmation_seconds=now - previous[1])
-        return now - previous[1] >= ROUTE_ATTACK_CONFIRM_SECONDS
+        return now - previous[1] >= required_seconds
 
     def _record_route_confirmation(self, now, reason, previous, key):
         if combat_detail_enabled():
@@ -636,7 +636,9 @@ class CombatStop(object):
             if (not siege and attackable is None and self._route_attackable(proposal) and
                     self._route_lay_can_retry(proposal)):
                 attackable = proposal
-            if not self._confirmed_route_attack(attackable, now) or now < self.cooldown_until:
+            required_seconds = SIEGE_ROUTE_ATTACK_CONFIRM_SECONDS if siege else 0.0
+            if (not self._confirmed_route_attack(attackable, now, required_seconds) or
+                    now < self.cooldown_until):
                 return order
             target = attackable['target']
             if siege and combat_detail_enabled():

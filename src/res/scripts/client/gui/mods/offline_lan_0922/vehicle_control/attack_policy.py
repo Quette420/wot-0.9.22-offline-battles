@@ -511,6 +511,26 @@ class AttackPolicy(object):
         trials = (self._single_point_trial(shell, target) for target in targets)
         return bool(targets) and all(trial is not None and trial['failed'] for trial in trials)
 
+    def _job_samples(self, shell, target, mode):
+        trial = (None if self.frame.get('siege_aim_deferred') else
+                 self._single_point_trial(shell, target))
+        if trial is not None:
+            return () if mode == 'penetration' and trial['failed'] else (trial['sample'],)
+        # Missing geometry remains an explicit unknown obligation.
+        return target.get('samples') or (None,)
+
+    def _job_for_point(self, key):
+        index, target_key, sample, mode = key
+        frame = self.frame
+        if index >= len(frame['ammo']) or frame['ammo'][index] <= 0:
+            return None
+        shell = next((row for row in frame['shells'] if row['index'] == index), None)
+        target = next((row for row in frame['targets'] if row['key'] == target_key), None)
+        if (shell is None or target is None or mode == 'he_fallback' and not shell['is_he'] or
+                sample not in self._job_samples(shell, target, mode)):
+            return None
+        return key, shell, target, sample, mode
+
     def _jobs(self, mode='penetration', shell_index=None):
         frame = self.frame
         if frame is None:
@@ -530,14 +550,7 @@ class AttackPolicy(object):
                     mode == 'he_fallback' and not shell.get('is_he')):
                 continue
             for target in frame.get('targets', ()):
-                trial = (None if frame.get('siege_aim_deferred') else
-                         self._single_point_trial(shell, target))
-                if mode == 'penetration' and trial is not None and trial['failed']:
-                    continue
-                # Missing geometry remains an explicit unknown obligation.
-                samples = ((trial['sample'],) if trial is not None else
-                           target.get('samples') or (None,))
-                for sample in samples:
+                for sample in self._job_samples(shell, target, mode):
                     jobs.append((self._key(shell, target, sample, mode),
                                  shell, target, sample, mode))
         self._job_lists[key] = tuple(jobs)
@@ -1315,9 +1328,11 @@ class AttackPolicy(object):
         # enemy may itself be the next legal stationary contact.
         return None
 
-    def _collect_current_he_observations(self, jobs, observations, deferred=None):
+    def _collect_current_he_observations(self, jobs, observations, deferred=None, ordered=None):
         for job in jobs:
             row = self._current(job, require_line=True)
+            if ordered is not None:
+                ordered._track_blocked_lane(self, job, row)
             if not self._he_observed(row):
                 if (deferred is not None and row is not None and
                         observations.get(job[0], {}).get('damage') is not None):

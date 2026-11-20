@@ -3514,7 +3514,8 @@ class BattleState:
         with self.lock:
             if self.simulation_worker is not worker:
                 return None, False
-            was_round_active = self.phase in ("loading", "battle")
+            was_round_active = (self.phase in ("loading", "battle") and
+                                self.battle_result is None)
             # Fence the producer before changing any published lineage. The
             # socket shutdown stays outside the global state lock.
             worker._mark_disconnected()

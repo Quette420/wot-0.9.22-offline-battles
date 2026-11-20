@@ -215,6 +215,16 @@ class RouteRecoveryCycleTests(unittest.TestCase):
         self.assertIsNotNone(s.recovery)
         self.assertEqual(2,order['route_index'])
 
+    def test_occupied_gate_is_consumed_after_fresh_movement_onto_its_outgoing_leg(self):
+        s = RecoveryScene()
+        s.step(0, (4, 207))
+        self.assertIsNotNone(s.recovery)
+        s.step(.5, (4, 206.5))
+        order = s.step(1, (8, 205))
+        self.assertEqual('recovery_complete', order['route_attempt']['action'])
+        self.assertEqual(3, order['route_index'])
+        self.assertEqual(100, order['move_position']['x'])
+
     def test_new_lane_wait_is_normal_after_recovery_completion(self):
         s=RecoveryScene()
         s.other['id']='user_new'

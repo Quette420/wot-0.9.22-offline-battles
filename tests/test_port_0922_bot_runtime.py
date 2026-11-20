@@ -7455,6 +7455,46 @@ class BotRuntimeTests(unittest.TestCase):
             self.module.MAX_CONTROL_ELAPSED_SECONDS,
             runtime._last_update_max_control_step)
 
+    def test_late_worker_yields_between_physical_slices_and_drains_the_same_time(self):
+        clock = [0.]
+        adapter = _Adapter()
+        runtime = self.module.BotRuntime(
+            1, descriptor_resolver=lambda unused: _combat_descriptor(),
+            adapter_factory=lambda *unused: adapter,
+            direction_probe=lambda *unused: {'clear': True, 'slope': 0.},
+            ground_probe=lambda *unused: 0.0,
+            physics_ground_probe=lambda *unused: 0.0,
+            spawn_resolver=_spawn_resolver, baked_graph=_graph(),
+            control_seconds=self.module.WORKER_CONTROL_SECONDS,
+            control_clock=lambda: clock[0])
+        runtime.battle_start(self.start)
+        physical = runtime._update_once
+        steps = []
+
+        def slow_step(dt, now, *args):
+            result = physical(dt, now, *args)
+            steps.append((dt, now, runtime._refresh_control_this_step))
+            clock[0] += .14
+            return result
+
+        runtime._update_once = slow_step
+        current = runtime.update(.8, 1.)
+        first = [m for m in current if m['type'] == 'bot_state'][-1]
+        self.assertEqual(200000, first['sample_time_us'])
+        self.assertEqual(200000, first['source_batch_horizon_us'])
+        self.assertAlmostEqual(.6, runtime._accumulator)
+        for n in range(1, 4):
+            current = runtime.update(.02, 1. + n * .02)
+            position = [m for m in current if m['type'] == 'bot_state'][-1]
+            self.assertEqual((n + 1) * 200000, position['sample_time_us'])
+        self.assertEqual([True, False, False, False], [r[2] for r in steps])
+        self.assertAlmostEqual(.06, runtime._accumulator)
+        self.assertEqual(800000, runtime._sample_time_us)
+        runtime.update(.14, 1.20)
+        self.assertEqual(1000000, runtime._sample_time_us)
+        self.assertAlmostEqual(0., runtime._accumulator)
+        self.assertTrue(steps[-1][2])
+
     def test_worker_intermediate_ram_report_forces_state_barrier(self):
         runtime = self.module.BotRuntime(
             1, descriptor_resolver=lambda unused: _combat_descriptor(),

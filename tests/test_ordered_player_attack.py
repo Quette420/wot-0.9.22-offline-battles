@@ -1,9 +1,11 @@
 """Production policy using finite native-observation fixtures."""
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 from test_player_rebuilt_attack_policy import Observations
 from gui.mods.offline_lan_0922.vehicle_control.attack_policy import AttackPolicy
+from gui.mods.offline_lan_0922.vehicle_control.evaluation_budget import EvaluationBudget
 from gui.mods.offline_lan_0922.vehicle_control.ordered_attack import OrderedAttack
 
 
@@ -39,6 +41,27 @@ class OrderedPlayerAttackTests(unittest.TestCase):
         self.assertNotIn(key, ordered.blocked_lanes)
         self.assertIn(('background', 2, ('bot', 1), 0, 'penetration'),
                       [row[1:] for row in scene.calls])
+
+    def test_blocked_lane_queue_checks_only_after_a_budget_grant(self):
+        scene = self.scene(targets=8, points=8, he=False)
+        policy = scene.policy
+        policy.frame = scene.snapshot(0.)
+        blocked = policy.ordered
+        for job in policy._jobs(shell_index=0):
+            blocked._track_blocked_lane(policy, job, {'line': 'friendly_blocked'})
+        budget = EvaluationBudget()
+        policy._optional_work_budget = lambda now: budget
+        budget.begin(0., range(8))
+        for actor in range(1, 5):
+            self.assertEqual(2, budget.background(actor, 2))
+        with mock.patch.object(policy, '_job_for_point', wraps=policy._job_for_point) as read:
+            blocked.refresh_blocked_lane(policy, 0.)
+            read.assert_not_called()
+            budget.begin(.2, range(8))
+            blocked.refresh_blocked_lane(policy, .2)
+            read.assert_called_once()
+        self.assertEqual(1, len(scene.calls))
+        self.assertEqual(63, len(blocked.blocked_lanes))
 
     def test_block_during_he_comparison_is_rechecked_for_the_same_enemy(self):
         scene = self.siege_he(2)

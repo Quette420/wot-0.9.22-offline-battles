@@ -3825,6 +3825,7 @@ class BattleRuntime(SharedBattleGeometry):
                 WORKER_NATIVE_PROBE_SECONDS if self._worker_mode else 0.0),
             control_seconds=(
                 WORKER_CONTROL_SECONDS if self._worker_mode else None),
+            control_clock=(_PROFILE_CLOCK if self._worker_mode else None),
             combat_diagnostics=self._combat_diagnostics)
         # The native oracle freezes this exact owner identity. Publish it
         # before constructing the oracle, just as the previous inline path did.

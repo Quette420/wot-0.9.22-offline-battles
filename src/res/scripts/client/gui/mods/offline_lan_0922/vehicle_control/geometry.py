@@ -1615,6 +1615,11 @@ class SharedBattleGeometry(object):
         if impact_magnitude <= 1.0e-8:
             return clear
 
+        # Only the world pose changes per slice. Each interval has the same
+        # angular width and uses the same posed hull and kinetic descriptor.
+        interval_bbox = _destructible_rotation_interval_bbox(
+            posed_bbox, abs(yaw_delta) * 0.5 / float(steps), pivot_offset)
+        sweep_descriptor = _destructible_sweep_descriptor(descriptor, interval_bbox)
         token = set()
         kinds = set()
         accepted_now = False
@@ -1637,16 +1642,12 @@ class SharedBattleGeometry(object):
                 start[axis] + (end[axis] - start[axis]) * upper
                 for axis in range(3))
             slice_yaw = float(start_yaw) + yaw_delta * middle
-            interval_bbox = _destructible_rotation_interval_bbox(
-                posed_bbox, abs(yaw_delta) * 0.5 / float(steps), pivot_offset)
             if pivot_offset:
                 # The interval box encloses the whole arc around the held
                 # track, in the exact midpoint chassis frame.
                 slice_start = vehicle_physics.track_pivot_position(
                     start, start_yaw, slice_yaw, pivot_offset)
                 slice_end = slice_start
-            sweep_descriptor = _destructible_sweep_descriptor(
-                descriptor, interval_bbox)
             move_x = slice_end[0] - slice_start[0]
             move_z = slice_end[2] - slice_start[2]
             move_distance = math.sqrt(move_x * move_x + move_z * move_z)

@@ -111,6 +111,47 @@ class RecordedHandoffTests(unittest.TestCase):
         self.assertTrue(own['route_wreck_blocked'])
         self.assertFalse(receipt['occupied_bypass'][-1]['native_clearance_claimed'])
 
+    def test_stalingrad_macro_bypass_owns_steering_until_a_clear_outgoing_join(self):
+        scenes = (
+            (1000001, 8, (-341.2571, 0., -18.928), (-346.2, 0., 81.1),
+             (-348.96, 0., -16.77)),
+            (25, 12, (-277.2849, 0., 230.0629), (-164.9164, 0., 241.7937),
+             (-270.9073, 0., 225.2331)),
+        )
+        for actor, index, goal, following, bypass in scenes:
+            with self.subTest(actor=actor, gate=index):
+                runtime, grid, _, _ = self.occupied_emil()
+                key = (grid.cell_for(goal), False)
+                runtime.navigator.bot_states[actor] = dict(replan_generation=1)
+                own = runtime.states[actor] = dict(id=actor, team=2,
+                    route=dict(id='class_td_city', waypoints=[(goal[0], goal[2], False)] * (index + 1)
+                               + [(following[0], following[2], False)]),
+                    _occupied_route_leg=(key, bypass, dict(epoch=(0, 1), phase='active')),
+                    _occupied_route_targets={key:(400., bypass, True)})
+                runtime._navigation_height_columns = None
+                runtime._route_lane_goal = mock.Mock(side_effect=AssertionError('would overwrite bypass'))
+                runtime.navigator.observe_direct_target = mock.Mock(return_value=None)
+                runtime.navigator.next_target = mock.Mock(side_effect=lambda bot, pos, goal, *args, **kwargs: goal)
+                order = dict(combat_mode='route', route_id='class_td_city', route_index=index,
+                             route_join=True, route_anchor=(goal[0], 0., goal[2] - 50.))
+                start = (bypass[0], 0., bypass[2] - 10.)
+                decision = dict(speed=0., yaw=0., now=120.)
+                self.assertEqual(bypass, runtime._navigation_target_impl(actor, start, goal, order, decision))
+                self.assertEqual(['cached_result'], [r['reason'] for r in own['_occupied_route_bypass_observations']])
+
+                grid.dry_segment_clear.return_value = False
+                decision['now'] = 120.2
+                self.assertEqual(bypass, runtime._navigation_target_impl(actor, bypass, goal, order, decision))
+                self.assertTrue(decision['navigation_stop_at_target'])
+                self.assertEqual('occupied_exit_wait', own['_navigation_target_receipt']['source'])
+
+                grid.dry_segment_clear.return_value = True
+                decision['now'] = 120.4
+                point = runtime._navigation_target_impl(actor, bypass, goal, order, decision)
+                self.assertAlmostEqual(12., math.hypot(point[0] - goal[0], point[2] - goal[2]))
+                self.assertEqual(point, own['_navigation_target_receipt']['occupied_exit'])
+                runtime._route_lane_goal.assert_not_called()
+
     def test_amx_bypass_handoff_distinguishes_arrival_from_replan(self):
         corner = (54., .267, 102.)
         bypass = (46.335449569, .323, 104.292305977)

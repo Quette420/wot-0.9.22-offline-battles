@@ -91,22 +91,33 @@ class EvaluationBudget(object):
         self._stationary_claimed.add(actor)
         return True
 
-    def background(self, actor, maximum):
+    def background(self, actor, maximum, ready=None):
         actor = int(actor)
         maximum = max(0, min(int(maximum), BACKGROUND_CANDIDATES_PER_ACTOR))
         if actor not in self.alive or not maximum or actor in self._background_claimed:
             return 0
-        reserved = self._background_reserved.pop(actor, None)
-        if reserved is None:
+        reserved = self._background_reserved.get(actor)
+        if reserved is None and self._background_allocated >= BACKGROUND_CANDIDATES_PER_FRAME:
             if actor not in self._background_waiting:
                 self._background_waiting.append(actor)
-            if self._background_allocated >= BACKGROUND_CANDIDATES_PER_FRAME:
-                return 0
+            return 0
+        # Check readiness only when this actor can actually use the quota.
+        if ready is not None and not ready():
+            if reserved is not None:
+                self._background_reserved.pop(actor)
+                self._background_allocated -= reserved
+            elif actor in self._background_waiting:
+                self._background_waiting.remove(actor)
+            return 0
+        if reserved is None:
             # Existing reservations already account for earlier waiters.
             # A new request can spend only the unreserved part of this frame.
-            self._background_waiting.remove(actor)
+            if actor in self._background_waiting:
+                self._background_waiting.remove(actor)
             reserved = maximum
             self._background_allocated += reserved
+        else:
+            self._background_reserved.pop(actor)
         granted = min(maximum, reserved)
         self._background_claimed[actor] = granted
         return granted

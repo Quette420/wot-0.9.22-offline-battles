@@ -1,6 +1,10 @@
 """One mounted shell and one target at a time for ordinary automatic fire."""
 
+from collections import OrderedDict
+
 from .ammunition_validation import penetration_round
+
+BLOCKED_LANES_PER_VISIT = 4
 
 def shell_order(shell):
     return (float(shell['piercing']), float(shell.get('nominal_damage', 0.)),
@@ -35,8 +39,7 @@ class OrderedAttack(object):
         self.blocked_origin = None
         self.blocked_revisit = False
         self.blocked_points = {}
-        self.blocked_lanes = set()
-        self.blocked_cursor = 0
+        self.blocked_lanes = OrderedDict()
         self.cursor = 0
         self.committed_shell = None
         self.committed_rounds = 0
@@ -64,13 +67,16 @@ class OrderedAttack(object):
     def _sync(self, frame, shell):
         self.load_started(shell['index'])
         live = [row['key'] for row in frame['targets']]
+        departed = set(self.order).difference(live)
         self.order = [key for key in self.order if key in live]
         self.order.extend(key for key in live if key not in self.order)
         self.covered.intersection_update(live)
         self.checked_lanes.intersection_update(live)
         self.blocked_targets.intersection_update(live)
-        if self.blocked_lanes:
-            self.blocked_lanes = {key for key in self.blocked_lanes if key[1] in live}
+        if departed:
+            for key in list(self.blocked_lanes):
+                if key[1] in departed:
+                    self.blocked_lanes.pop(key)
         for key in list(self.blocked_points):
             if key not in live:
                 self.blocked_points.pop(key)
@@ -104,7 +110,6 @@ class OrderedAttack(object):
             self.cursor = 0
             self.blocked_points.clear()
             self.blocked_lanes.clear()
-            self.blocked_cursor = 0
         if self.target not in live:
             self.target, self.sample, self.he_sample = None, None, None
 
@@ -279,7 +284,7 @@ class OrderedAttack(object):
         identities = dict((job[0], policy._he_observation_identity(job)) for job in jobs)
         observations = dict((key, value) for key, value in policy._current_he_observations.items()
             if key in identities and value['identity'] == identities[key])
-        policy._collect_current_he_observations(jobs, observations)
+        policy._collect_current_he_observations(jobs, observations, ordered=self)
         if observations and len(observations) == len(jobs) and not any(
                 value['damage'] is not None for value in observations.values()):
             observations.clear()
@@ -288,11 +293,11 @@ class OrderedAttack(object):
             if policy._used['foreground'] >= policy.foreground_budget:
                 break
             policy._evaluate(job, now, 'foreground')
-            policy._collect_current_he_observations((job,), observations)
+            policy._collect_current_he_observations((job,), observations, ordered=self)
         remaining = tuple(job for job in pending if job[0] not in observations)
         for unused in policy._ordered_point_slice(remaining, now):
             pass
-        policy._collect_current_he_observations(remaining, observations)
+        policy._collect_current_he_observations(remaining, observations, ordered=self)
         # Retain measured scores across ordinary movement, never a firing
         # row. Once this car's finite comparison finishes, reprove its winner.
         ranked = policy._ranked_current_he_jobs(jobs, observations)
@@ -305,9 +310,7 @@ class OrderedAttack(object):
                 else:
                     for unused in policy._ordered_point_slice((winner,), now):
                         pass
-                policy._collect_current_he_observations((winner,), observations)
-        for job in jobs:
-            self._track_blocked_lane(policy, job, policy._current(job, require_line=True))
+                policy._collect_current_he_observations((winner,), observations, ordered=self)
         fence = getattr(policy.evaluator, 'fence', None)
         if policy._frame_invalid or callable(fence) and not fence(policy.frame):
             policy.rows.clear()
@@ -421,9 +424,9 @@ class OrderedAttack(object):
     def _track_blocked_lane(self, policy, job, row):
         blocked = policy._obstructed_lane(row) is not None
         if blocked:
-            self.blocked_lanes.add(job[0])
+            self.blocked_lanes[job[0]] = None
         elif row is not None and row.get('line') == 'clear':
-            self.blocked_lanes.discard(job[0])
+            self.blocked_lanes.pop(job[0], None)
         return blocked
 
     def _record_blocked_point(self, policy, inspected, job, row):
@@ -437,22 +440,32 @@ class OrderedAttack(object):
         # available point completes the foreground pass and is being aimed.
         if not self.blocked_lanes:
             return
-        index = policy.frame['loaded']
-        live = [job for job in policy._jobs(shell_index=index) if job[0] in self.blocked_lanes]
-        if self.loaded_he and any(key[3] == 'he_fallback' for key in self.blocked_lanes):
-            live.extend(job for job in policy._jobs('he_fallback', index)
-                        if job[0][1] == self.target and job[0] in self.blocked_lanes)
-        self.blocked_lanes.intersection_update(job[0] for job in live)
-        jobs = [job for job in live if policy._current(job, require_line=True) is None]
-        if not jobs or not policy._optional_work_budget(now).background(policy._work_actor(), 1):
+        selected = []
+
+        def find_due_point():
+            for unused in range(min(len(self.blocked_lanes), BLOCKED_LANES_PER_VISIT)):
+                key, _ = self.blocked_lanes.popitem(last=False)
+                if (key[0] != policy.frame['loaded'] or key[3] == 'he_fallback' and
+                        (not self.loaded_he or key[1] != self.target)):
+                    continue
+                job = policy._job_for_point(key)
+                if job is None:
+                    continue
+                self.blocked_lanes[key] = None
+                row = policy._current(job, require_line=True)
+                if row is None:
+                    selected.append(job)
+                    return True
+                self._track_blocked_lane(policy, job, row)
+            return False
+
+        if not policy._optional_work_budget(now).background(policy._work_actor(), 1, find_due_point):
             return
-        index = self.blocked_cursor % len(jobs)
-        self.blocked_cursor += 1
-        job = jobs[index]
+        job = selected[0]
         row = policy._evaluate(job, now, 'background')
         target = job[0][1]
         if row.get('line') == 'clear':
-            self.blocked_lanes.discard(job[0])
+            self.blocked_lanes.pop(job[0], None)
             if target in self.blocked_points:
                 self.blocked_points[target][1].discard(job[3])
             self.covered.discard(target)

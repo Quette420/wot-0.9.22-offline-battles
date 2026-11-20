@@ -8306,8 +8306,32 @@ class BattleRuntime(SharedBattleGeometry):
                 layout = dict((int(_field(_field(shot, 'shell'), 'compactDescr')), count)
                               for shot, count in zip(_field(descriptor.gun, 'shots'), counts))
                 order = ()
-        return gun_mechanics.GunState(descriptor, self._local_loadout(descriptor),
-                                      ammo_layout=layout, shell_order=order)
+        state = gun_mechanics.GunState(descriptor, self._local_loadout(descriptor),
+                                       ammo_layout=layout, shell_order=order)
+        if not self._battle_live:
+            self._select_opening_automatic_shell(descriptor, state)
+        return state
+
+    def _select_opening_automatic_shell(self, descriptor, state):
+        from .vehicle_control import ammunition_validation, ordered_attack, player_binding
+        vehicle = _field(descriptor, 'type')
+        if ('fire' not in player_binding.configured_features(self) or
+                'SPG' in (_field(vehicle, 'tags') or ())):
+            return
+        name = str(_field(vehicle, 'name') or '')
+        nation = name.split(':', 1)[0] if ':' in name else None
+        gun = ammunition_validation.mounted_identity(nation, _field(descriptor.gun, 'name'))
+        shells = []
+        for index, shot in enumerate(state.shots):
+            if state.ammo[index] <= 0:
+                continue
+            try:
+                shells.append(ammunition_validation.mounted_round(index, shot, nation, gun))
+            except (AttributeError, TypeError, ValueError, IndexError, KeyError):
+                continue
+        stocked = ordered_attack.stocked(dict(shells=shells, ammo=state.ammo), False)
+        if stocked:
+            state.shot_index = stocked[0]['index']
 
     def _log_effective_parameters(self, descriptor):
         """Print the values this battle actually uses for the player's tank.

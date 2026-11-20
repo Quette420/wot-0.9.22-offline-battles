@@ -6,6 +6,8 @@ shell names alone cannot identify penetration because guns can share a shell.
 """
 from __future__ import division
 
+from .. import combat_rules
+
 
 FULL = 'full'
 SINGLE_POINT = 'single_point'
@@ -24,6 +26,24 @@ def validation_mode(gun_identity, shell_identity, kind):
     if kind != HE:
         return FULL
     return FULL if (gun_identity, shell_identity) in FULL_VALIDATION_HE else SINGLE_POINT
+
+
+def mounted_identity(nation, name):
+    if not nation or not name:
+        return None
+    name = str(name)
+    if ':' in name:
+        return name if name.split(':', 1)[0] == nation else None
+    return nation + ':' + name
+
+
+def mounted_round(index, shot, nation, gun_identity):
+    shell = combat_rules.legacy_shot(shot).get('shell') or {}
+    identity = mounted_identity(nation, shell.get('name'))
+    return dict(index=index, shot=shot, gun_identity=gun_identity, shell_identity=identity,
+                is_he=combat_rules.is_he(shot), piercing=combat_rules.range_piercing(shot, 0.),
+                nominal_damage=combat_rules.shell_nominal_damage(shot),
+                validation_mode=validation_mode(gun_identity, identity, shell.get('kind')))
 
 
 def shell_mode(shell):

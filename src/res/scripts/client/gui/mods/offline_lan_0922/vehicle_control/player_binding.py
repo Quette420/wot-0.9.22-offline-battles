@@ -1201,14 +1201,21 @@ class PlayerControl(object):
         self.publish_status(now)
 
 
-def attach(owner):
-    global _current
+def configured_features(owner):
     raw = os.environ.get('WOT_OFFLINE_PLAYER_AUTOCONTROL', '0')
     if raw == '0' or owner._worker_mode or owner._replay_mode:
+        return ()
+    return tuple(raw.split(','))
+
+
+def attach(owner):
+    global _current
+    features = configured_features(owner)
+    if not features:
         return None
     if _current is not None:
         _current.close()
-    _current = PlayerControl(owner, raw.split(','), auto_start=True)
+    _current = PlayerControl(owner, features, auto_start=True)
     path = os.environ.get('WOT_OFFLINE_TEST_CONTROL_FILE')
     if path and os.path.isfile(path):
         _current.command_offset = os.path.getsize(path)

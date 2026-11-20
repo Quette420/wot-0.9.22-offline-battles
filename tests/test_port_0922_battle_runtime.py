@@ -10136,6 +10136,32 @@ class BattleRuntimeContractTests(unittest.TestCase):
                 'CurrentVehicle': current_vehicle}):
             self.assertEqual({}, battle._local_ammo_layout())
 
+    def test_only_automatic_fire_selects_the_lowest_stocked_penetrating_opening_round(self):
+        battle = BattleRuntime(_runtime())
+        battle._battle_live = False
+        battle._local_loadout = lambda unused_descriptor: loadout.baseline()
+        battle._garage_loadout = dict(shells={101: 7, 102: 7, 103: 6}, shell_order=(101, 103, 102))
+        descriptor = _Descriptor('uk:GB83_FV4005')
+        descriptor.gun.name = '_183mm_AT_Gun'
+        descriptor.gun.shots[0].piercingPower = (310., 300.)
+        for compact, name, pen in ((102, '_183mm_HESH', 230.), (103, '_183mm_HE_Mk1', 92.)):
+            descriptor.gun.shots.append(types.SimpleNamespace(piercingPower=(pen, pen),
+                shell=types.SimpleNamespace(compactDescr=compact, name=name, kind='HIGH_EXPLOSIVE')))
+
+        for features, index in (('0', 0), ('drive', 0), ('consumables', 0), ('drive,fire', 2)):
+            with self.subTest(features=features), mock.patch.dict('os.environ',
+                    {'WOT_OFFLINE_PLAYER_AUTOCONTROL': features}):
+                state = battle._new_local_gun_state(descriptor)
+                self.assertEqual([101, 103, 102], [shot.shell.compactDescr for shot in state.shots])
+                self.assertEqual([7, 6, 7], state.ammo)
+                self.assertEqual((index, 0, state.reload), (state.shot_index, state.clip, state.reload_time))
+        with mock.patch.dict('os.environ', {'WOT_OFFLINE_PLAYER_AUTOCONTROL': 'fire'}):
+            battle._garage_loadout['shells'][102] = 0
+            self.assertEqual(0, battle._new_local_gun_state(descriptor).shot_index)
+            battle._garage_loadout['shells'][102] = 7
+            battle._battle_live = True
+            self.assertEqual(0, battle._new_local_gun_state(descriptor).shot_index)
+
     def test_mounted_zero_id_manual_extinguisher_is_preserved(self):
         runtime = _runtime()
         descriptor = types.SimpleNamespace(

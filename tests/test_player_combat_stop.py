@@ -137,13 +137,11 @@ class Scene:
         self.state['siege_state'] = self.runtime.entity.siegeState = mode
 
     def confirm_clear_route_contact(self, start):
-        """Observe this current point for the production two-second gate."""
+        """Supply a fresh clear point to an ordinary vehicle back on its route."""
         self.candidate.update(line='clear', armor='passed')
         self.decide('aim' if self.candidate['mechanical'] == 'reachable' else 'firing_position')
-        for step in range(16):
-            result = self.apply(start + step * .125)
-            assert not self.owner.stop_allowed, self.owner.receipt
-        result = self.apply(start + 2.001)
+        result = self.apply(start)
+        assert self.owner.receipt['confirmation_seconds'] == 0., self.owner.receipt
         assert self.owner.stop_allowed, self.owner.receipt
         return result
 
@@ -415,13 +413,12 @@ class OriginalOwnershipBoundaryTests(unittest.TestCase):
         self.assertTrue(scene.owner.active)
         self.assertFalse(scene.owner.stop_allowed)
         self.assertEqual((2, 3), tuple(row['id'] for row in scene.owner.targets))
+        self.assertEqual('advance', scene.apply(0.)['combat_mode'])
+        self.assertFalse(scene.owner.stop_allowed)
         scene.candidate.update(line='clear')
         scene.decide('aim')
-        for step in range(16):
-            result = scene.apply(step * .125)
-            self.assertEqual('advance', result['combat_mode'])
-            self.assertFalse(scene.owner.stop_allowed)
-        result = scene.apply(2.)
+        result = scene.apply(.125)
+        self.assertEqual(0., scene.owner.receipt['confirmation_seconds'])
         self.assertTrue(scene.owner.stop_allowed)
         self.assertEqual('engage', result['combat_mode'])
         self.assertEqual(scene.state['position'], result['move_position'])
@@ -959,7 +956,7 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
                 siege_correction=pitch, hydraulic_pitch=pitch, needs_hydraulic=True,
                 siege_aim=True, source_verified=False, reachable=False))
 
-    def test_route_release_needs_a_new_clear_point_and_two_seconds(self):
+    def test_route_release_needs_a_new_clear_point_and_one_second(self):
         scene = Scene(siege=siege_mechanics.DISABLED, admitted=False)
         scene.raw_order.update(combat_mode='route', move_position=(0., 0., 60.),
                                target_id=None, target_kind=None, face_position=(0., 0., 60.),
@@ -967,9 +964,9 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
         scene.candidate.update(key=(0, ('bot', 2), 0, 'penetration'),
                                line='clear', mechanical='mechanical_limited')
         scene.decide('firing_position')
-        for moment in (0., .5, 1., 1.5):
+        for moment in (0., .5, .875):
             self.assertEqual(scene.raw_order, scene.apply(moment))
-        scene.apply(2.)
+        scene.apply(1.)
         self.assertTrue(scene.owner.waiting_for_siege())
         scene.native_mode(siege_mechanics.ENABLED)
         scene.decide('wait', candidate=False, reason='stationary_alternatives_pending')
@@ -987,9 +984,9 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
         self.assertIsNone(scene.owner._route_confirmation)
         other = dict(scene.candidate, key=(0, ('bot', 2), 1, 'penetration'))
         scene.policy.rows[other['key']] = other
-        for moment in (12.5, 13., 13.5, 14.):
+        for moment in (12.5, 13., 13.375):
             self.assertEqual(scene.raw_order, scene.apply(moment))
-        scene.apply(14.5)
+        scene.apply(13.5)
         self.assertTrue(scene.owner.waiting_for_siege())
         self.assertEqual(other['key'], scene.owner._siege_point['key'])
 
@@ -1400,10 +1397,10 @@ class SupportAndStationaryOwnershipRegressionTests(unittest.TestCase):
                                mechanical='hull_laying', armor='unknown')
         scene.policy.rows[key] = scene.candidate
         scene.decide('wait', candidate=False, reason='siege_route_line_ready')
-        for now in (0., .5, 1., 1.5):
+        for now in (0., .5, .875):
             scene.apply(now)
             self.assertFalse(scene.owner.combat_owned)
-        scene.apply(2.)
+        scene.apply(1.)
         self.assertTrue(scene.owner.combat_owned)
         self.assertEqual(key, scene.owner._siege_point['key'])
         scene.native_mode(siege_mechanics.ENABLED)

@@ -120,8 +120,7 @@ class OrderedPlayerAttackTests(unittest.TestCase):
 
     def test_all_blocked_siege_he_uses_existing_clear_lane_then_checks_new_target(self):
         scene = self.siege_he(1)
-        scene.value(2, line='unknown', mechanical='hull_laying', armor='unknown',
-            stationary_plan=dict(status='proved', proof=dict(proved=True), line='world_blocked'))
+        scene.value(2, line='world_blocked', mechanical='hull_laying', armor='unknown')
         scene.passed(2, target=2)
         scene.policy.frame = scene.snapshot(0.)
         other = next(job for job in scene.policy._jobs(shell_index=2) if job[0][1] == ('bot', 2))

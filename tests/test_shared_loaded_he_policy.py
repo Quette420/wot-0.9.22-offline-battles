@@ -125,7 +125,7 @@ class LoadedHEPolicyTests(unittest.TestCase):
                 if decision['action'] == 'wait':
                     # The full HE role may need a second bounded frame to
                     # refresh the other enemy's penetration and contact ray.
-                    self.assertEqual('stationary_alternatives_pending', decision['reason'])
+                    self.assertEqual('obstructed_point_alternatives_pending', decision['reason'])
                     decision = scene.tick(.2)
                 self.assertEqual('aim', decision['action'], decision)
                 self.assertEqual((('bot', 2), 2, 'he_fallback'),
@@ -150,78 +150,20 @@ class LoadedHEPolicyTests(unittest.TestCase):
                     if row[2] == 2 and row[5] == 'penetration']
         self.assertEqual([(('bot', 1), 0), (('bot', 2), 0)], attempts)
 
-    @staticmethod
-    def ordinary_he_stationary_scene():
+    def test_ordinary_he_turn_does_not_count_as_failed_penetration_or_contact(self):
         scene = Observations(targets=2, points=3, he_validation='single_point')
         scene.frame.update(loaded=2, ammo=(0, 0, 30))
-        plan = dict(status='proved', proof=dict(proved=True), armor='failed',
-                    line='clear', mechanical='reachable', contact=None,
-                    expected_damage=None, solution=dict(point=(20., 2., 100.)))
-        scene.value(2, target=1, armor='unknown', mechanical='hull_laying',
-                    stationary_plan=plan)
-        scene.value(2, target=2, armor='unknown', line='unknown',
-                    mechanical='unknown')
-        contact = copy.deepcopy(plan)
-        contact.update(contact=True, expected_damage=40.)
-        for sample in range(3):
-            scene.value(2, target=1, sample=sample, mode='he_fallback',
-                        armor='unknown', mechanical='hull_laying',
-                        stationary_plan=contact)
-            scene.value(2, target=2, sample=sample, mode='he_fallback',
-                        armor='unknown', line='unknown', mechanical='unknown')
-        return scene, plan
-
-    def test_ordinary_he_projected_failure_allows_recovery_not_a_projected_shot(self):
-        scene, unused_plan = self.ordinary_he_stationary_scene()
+        scene.value(2, target=1, armor='unknown', line='clear', mechanical='hull_laying',
+                    solution=dict(point=(20., 2., 100.), needs_hull=True, turn_only=True))
+        scene.value(2, target=2, armor='unknown', line='unknown', mechanical='unknown')
         scene.prime()
-        scene.prime('he_fallback')
-        self.assertEqual(frozenset((('bot', 1),)),
-                         scene.policy._loaded_he_fallback_targets(2))
-        self.assertFalse(scene.policy._all_failed((2,)))
         decision = scene.tick(0.)
-        self.assertEqual('firing_position', decision['action'], decision)
-        self.assertEqual((('bot', 1), 'he_fallback'),
-                         (decision['candidate']['target_key'], decision['candidate']['mode']))
-        self.assertFalse(scene.policy._executable_current(decision['candidate'], 'he_fallback'))
+        self.assertEqual(('firing_position', 'current_hull_turn_required'),
+                         (decision['action'], decision['reason']))
+        self.assertEqual(frozenset(), scene.policy._loaded_he_fallback_targets(2))
+        self.assertFalse(scene.policy._all_failed((2,)))
         self.assertFalse(scene.policy.apply_order({})['fire_allowed'])
-        self.assertFalse(hasattr(scene.policy, 'search_authority'))
         self.assertIsNone(scene.policy.reload_authority)
-        self.assertTrue(all(not trial['failed']
-                           for trial in scene.policy._single_point_history.values()))
-        attempts = [(row[3], row[4]) for row in scene.calls
-                    if row[2] == 2 and row[5] == 'penetration']
-        self.assertEqual(set(((('bot', 1), 0), (('bot', 2), 0))), set(attempts))
-
-    def test_ordinary_he_projected_failure_must_keep_fresh_complete_native_proof(self):
-        for invalid in ('unproved', 'pending', 'unknown', 'blocked',
-                        'stale_plan', 'stale_source', 'stale_target', 'stale_lane'):
-            with self.subTest(invalid=invalid):
-                scene, plan = self.ordinary_he_stationary_scene()
-                if invalid == 'unproved':
-                    plan['proof']['proved'] = False
-                elif invalid == 'pending':
-                    plan['status'] = 'pending'
-                elif invalid == 'unknown':
-                    plan['armor'] = 'unknown'
-                elif invalid == 'blocked':
-                    plan['line'] = 'world_blocked'
-                scene.prime()
-                scene.prime('he_fallback')
-                if invalid == 'stale_plan':
-                    scene.stationary_plan_current = lambda frame, proof: False
-                elif invalid == 'stale_source':
-                    scene.frame['pose'] = ('source', 1)
-                elif invalid == 'stale_target':
-                    scene.move_target(1, 1)
-                elif invalid == 'stale_lane':
-                    scene.frame['line_revision'] += 1
-                scene.policy.frame = scene.snapshot(.1)
-                self.assertEqual(frozenset(), scene.policy._loaded_he_fallback_targets(2))
-                self.assertTrue(all(not trial['failed']
-                                   for trial in scene.policy._single_point_history.values()))
-                self.assertFalse(scene.policy._all_failed((2,)))
-                self.assertFalse(hasattr(scene.policy, 'search_authority'))
-                self.assertIsNone(scene.policy.reload_authority)
 
     def test_non_he_clip_can_reload_verified_alternative_without_moving(self):
         scene = Observations(clips=6, targets=1, points=1)

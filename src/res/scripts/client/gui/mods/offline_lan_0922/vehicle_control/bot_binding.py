@@ -740,7 +740,7 @@ class BotControlBinding(MissionControl, CombatControl):
                 combat_detail(self, 'auto_trigger_verdict', self.actor_id, self.now,
                     (sequence, key, verdict['status'], verdict['reason']),
                     lambda: dict(sequence=sequence, point=key, status=verdict['status'],
-                        reason=verdict['reason'], yaw=state['yaw'], mode=state.get('siege_state'),
+                        verdict=verdict['reason'], yaw=state['yaw'], mode=state.get('siege_state'),
                         world_chords=verdict.get('world_chords'), blocker=verdict.get('blocker')))
             if verdict['status'] != 'ready':
                 return verdict

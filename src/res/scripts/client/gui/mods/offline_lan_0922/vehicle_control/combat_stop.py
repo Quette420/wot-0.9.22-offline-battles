@@ -1030,18 +1030,14 @@ class CombatStop(object):
                     laying = self._lay_order(order, target, motion['solution'], now, motion)
                     if laying is not None:
                         return laying
-            if (current.get('key') == phase['key'] and row is not None and
-                    row.get('line') == 'clear' and
-                    row.get('mechanical') == 'hull_laying' and
-                    (phase['reason'] != 'current_target_stable_obstruction' or
-                     not runtime.siege_capable())):
-                # A real line after travel can still require normal in-place
-                # hull laying. That actuator never selects another location.
-                solution = row.get('solution')
-                if isinstance(solution, dict):
+            if row is not None and row.get('key') == phase['key']:
+                solution = self._lay_solution(row)
+                if solution is not None:
+                    # A clear point at the actual destination can need a
+                    # hull turn before either gun or hydraulics can lay.
                     laying = self._lay_order(order, target, solution, now, row)
                     if laying is not None:
-                        return dict(laying, fire_allowed=False)
+                        return laying
             if (policy.decision.get('action') in ('wait', 'preaim') and
                     now - phase['arrived_at'] < MECHANICAL_STALL_SECONDS):
                 return dict(self._stop(order, 'point_recovery_native_recheck_pending', now),
@@ -1264,8 +1260,8 @@ class CombatStop(object):
             return self._stop(order, 'verified_shot', now)
         if self._physical_recovery is not None:
             # The finite physical manoeuvre owns its destination until its
-            # own terminal receipt. A newly sampled stationary plan cannot
-            # seize it back and alternate native_lay / gun_angle every tick.
+            # own terminal receipt. A new turn request can use that point
+            # after arrival, with the hull at the actual destination.
             target = next((row for row in self.targets
                 if _key(row) == self._physical_recovery['target']), None)
             if target is not None:

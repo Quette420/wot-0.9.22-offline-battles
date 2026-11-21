@@ -236,7 +236,7 @@ class CaptureFireHandoffTests(unittest.TestCase):
         self.assertEqual(1, scene.control.shot_commits)
         self.assertEqual(29, sum(scene.battle._gun_state.ammo))
 
-    def test_limited_gun_outside_arc_does_not_gain_turn_then_recovers_inside_arc(self):
+    def test_limited_gun_can_request_capture_turn_without_a_full_arc_preview(self):
         scene = self.scene(limited=True)
         target = scene.battle._runtime.bigworld.entities[2]
         scene.pose(target, (65., 0., 85.))
@@ -244,9 +244,11 @@ class CaptureFireHandoffTests(unittest.TestCase):
         for unused in range(70):
             scene.tick()
             self.assertFalse(scene.launches())
-            self.assertEqual((0., 0.), (scene.battle._sender.forward, scene.battle._sender.turn))
-            self.assertFalse(scene.runtime.state['hull_aiming'])
-            self.assertFalse(scene.runtime.attack_policy.fallback)
+            self.assertEqual(0., scene.battle._sender.forward)
+            if scene.battle._sender.turn:
+                break
+        self.assertGreater(scene.battle._sender.turn, .01)
+        self.assertTrue(scene.runtime.combat_stop.capture_hold())
         scene.pose(target, (48., 0., 95.))
         self.run_until_shots(scene)
         self.assertEqual(2, scene.runtime.weapon.target['network_id'])

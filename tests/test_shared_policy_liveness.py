@@ -234,25 +234,22 @@ class RetainedLayIntentionTests(unittest.TestCase):
                 self.assertEqual('invalid', receipt['status'])
                 self.assertEqual([], scene.calls)
 
-    def test_current_stationary_turn_is_retained_but_expired_plan_is_not(self):
+    def test_current_hull_lay_requires_clear_live_geometry_to_continue(self):
         scene, job = self.scene()
-        solution = dict(point=(8., 1., 100.), needs_hull=True,
+        solution = dict(point=(8., 1., 100.), needs_hull=True, turn_only=True,
                         source_pose=scene.frame['pose'])
-        scene.value(0, line='world_blocked', mechanical='hull_laying',
-            stationary_plan=dict(status='proved', proof=dict(proved=True),
-                armor='passed', line='clear', mechanical='reachable', solution=solution))
-        scene.stationary_plan_current = lambda frame, proof: True
+        scene.value(0, line='clear', armor='unknown', mechanical='hull_laying', solution=solution)
         receipt = scene.policy.retained_lay_candidate(job[0], 0.)
-        self.assertEqual(('clear', 'hull_laying'),
-                         (receipt['status'], receipt['mechanical']))
-        self.assertEqual(solution, receipt['solution'])
-        self.assertEqual('world_blocked', receipt['candidate']['line'])
+        self.assertEqual(('clear', 'hull_laying'), (receipt['status'], receipt['mechanical']))
+        self.assertTrue(receipt['solution']['turn_only'])
+        self.assertEqual(solution['point'], receipt['solution']['point'])
         self.assertFalse(scene.policy._executable(receipt['candidate']))
-        scene.stationary_plan_current = lambda frame, proof: False
-        scene.policy._used['foreground'] = 2
-        expired = scene.policy.retained_lay_candidate(job[0], .1)
-        self.assertEqual('pending', expired['status'])
-        self.assertIsNone(expired['solution'])
+        scene.value(0, line='world_blocked', armor='unknown', mechanical='hull_laying', solution=solution)
+        scene.policy.rows.clear()
+        scene.policy._used['foreground'] = 0
+        blocked = scene.policy.retained_lay_candidate(job[0], .1)
+        self.assertEqual('blocked', blocked['status'])
+        self.assertFalse(scene.policy._executable(blocked['candidate']))
 
     def test_reentrant_pose_change_during_recheck_never_publishes_clear(self):
         scene, job = self.scene()

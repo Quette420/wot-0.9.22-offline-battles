@@ -249,7 +249,7 @@ class FullControlArbitrationTests(unittest.TestCase):
                     self.assertFalse(owner.combat_owned)
                 else:
                     self.assertEqual('wait', row['action'])
-                    self.assertTrue(policy.stationary_review_wait())
+                    self.assertFalse(policy.apply_order({})['fire_allowed'])
                     self.assertIsNone(policy.decision.get('candidate'))
             self.assertGreater(evaluate.call_count, 0)
         self.assertEqual(['eligible'],

@@ -231,7 +231,7 @@ class CombatControl(object):
             return current == siege_mechanics.SWITCHING_ON
         if self.combat_stop.siege_hold_task is not None:
             return True
-        if self.combat_stop.siege_hold_departing:
+        if self.combat_stop.siege_departing:
             return False
         if 'fire' in self.features:
             if self.combat_stop.navigation_owns(command):
@@ -433,7 +433,8 @@ class CombatControl(object):
 
     def _observe_attack_lay(self, state, target, intention, now):
         policy = self.attack_policy
-        if policy is None or policy.decision['reason'] == 'no_relevant_enemy':
+        if (state.get('siege_state') == siege_mechanics.ENABLED or
+                policy is None or policy.decision['reason'] == 'no_relevant_enemy'):
             self._attack_lay = None
             return
         if policy.decision['action'] != 'aim' or target is None:

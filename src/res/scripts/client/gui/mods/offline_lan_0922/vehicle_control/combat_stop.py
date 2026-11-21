@@ -21,6 +21,7 @@ from .target_selection import live_contact, ordinary_initial_key
 
 MECHANICAL_STALL_SECONDS = 6.0
 SIEGE_ROUTE_ATTACK_CONFIRM_SECONDS = 1.0
+SIEGE_CONTACT_LOSS_SECONDS = 6.0
 NO_HE_COOLDOWN_SECONDS = 5.0
 ATTACK_OBSERVATION_GAP_SECONDS = .75
 ATTACK_LOSS_GRACE_SECONDS = 1.0
@@ -85,9 +86,7 @@ class CombatStop(object):
         self._episode = 0
         self._physical_recovery = None
         self._failed_recovery = None
-        self._siege_point = None
-        self._siege_failed_points = {}
-        self._siege_failed_targets = {}
+        self._siege_blocked_since = None
         self._route_confirmation = None
         self.cooldown_until = float('-inf')
         self._route_attack = False
@@ -97,8 +96,8 @@ class CombatStop(object):
         self._capture_lay = None
         self._capture_lay_retry = {}
         self._parking_face_target = None
-        self.siege_hold_departing = bool(
-            getattr(self, 'siege_hold_task', None) or getattr(self, 'siege_hold_departing', False))
+        self.siege_departing = bool(
+            getattr(self, 'siege_hold_task', None) or getattr(self, 'siege_departing', False))
         self.siege_hold_task = None
         state = getattr(self.runtime, 'state', None)
         if state is not None:
@@ -131,7 +130,7 @@ class CombatStop(object):
             (mode in _COMBAT_MODES + ('route', 'hold', 'base_capture', 'base_screen') or retained) and
             visible and
             not order.get('empty_ammo') and not runtime._mission_brakes() and
-            not self.siege_hold_departing)
+            not self.siege_departing)
         mission = getattr(runtime, '_mission', None) or {}
         destination = mission.get('destination')
         explicit_travel = bool(mission.get('explicit') and destination is not None and
@@ -172,6 +171,7 @@ class CombatStop(object):
         if not self.can_request_movement and not self.stationary_hold():
             self._route_confirmation = None
         if not self.combat_owned:
+            self._siege_blocked_since = None
             self._route_attack = False
             self._last_attackable_at = None
             self._review_progress = None
@@ -314,13 +314,13 @@ class CombatStop(object):
                         task = capture
         self.siege_hold_task = task
         if task is not None:
-            self.siege_hold_departing = False
+            self.siege_departing = False
         elif previous is not None:
-            self.siege_hold_departing = True
-        if (self.siege_hold_departing and
+            self.siege_departing = True
+        if (self.siege_departing and
                 observation(runtime).native_siege_state() == siege_mechanics.DISABLED and
                 not self.mode_pending()):
-            self.siege_hold_departing = False
+            self.siege_departing = False
         if task != previous and combat_detail_enabled():
             combat_detail(runtime, 'siege_hold_task', runtime.actor_id, runtime.now,
                 (previous, task), lambda: dict(previous=previous, task=task,
@@ -482,77 +482,13 @@ class CombatStop(object):
 
     def _siege_route_row(self, row):
         runtime = self.runtime
-        if (row is None or row.get('shell_index') != runtime.gun.shot_index or
-                not self.candidate_consumable(row)):
-            return False
-        key, line = row.get('key'), row.get('line')
-        failed = self._siege_failed_points.get(key)
-        target_key = _key(row['target'])
-        retry = self._siege_failed_targets.get(target_key) if not self.combat_owned else None
-        if failed is not None and line in _BLOCKED_LANES:
-            failed['blocked'] = True
-        if (retry is not None and retry['reason'] == 'ordered_no_clear_lane' and
-                line in _BLOCKED_LANES and not self.mode_pending()):
-            self._remember_siege_blocked_lane(retry, row)
-        if (line != 'clear' or not isinstance(row.get('solution'), dict) or
-                row.get('mechanical') not in (
-                    'reachable', 'hull_laying', 'mechanical_limited', 'siege_aim_deferred') or
-                row.get('scope') == 'excluded' or
-                row.get('armor') == 'failed' and not row.get('route_he_contact') and
-                not runtime.attack_policy._attack_result(row, row.get('mode', 'penetration'))):
-            return False
-        if retry is not None:
-            if self._siege_retry_reason(row, retry) is not None:
-                return True
-            if combat_detail_enabled():
-                combat_detail(runtime, 'siege_route_retry', runtime.actor_id, runtime.now,
-                    target_key, lambda: dict(point=key, episode=self._episode,
-                                             failure=retry['reason']))
-            return False
-        if failed is None or failed['blocked'] or (
-                _distance(runtime.state['position'], failed['position']) >= WAYPOINT_ARRIVAL_RADIUS or
-                _distance(row['target']['position'], failed['target_position']) >= WAYPOINT_ARRIVAL_RADIUS):
-            return True
-        if combat_detail_enabled():
-            combat_detail(runtime, 'siege_route_point', runtime.actor_id, runtime.now,
-                'waiting_for_new_attack_point',
-                lambda: dict(point=key, episode=self._episode, failure=failed['reason']))
-        return False
-
-    def _remember_siege_blocked_lane(self, retry, row):
-        # Pair a proved blockage with a later clear observation of the same
-        # ray. A different sample or a change of gun origin cannot clear it.
-        solution = row.get('solution') or {}
-        origin, point = solution.get('origin'), solution.get('point')
-        stamp = row.get('line_stamp')
-        if row.get('key') is not None and origin is not None and point is not None and stamp:
-            blocker = row.get('blocker') or {}
-            retry['blocked_lanes'][row['key']] = dict(
-                ray=(tuple(origin), tuple(point)), stamp=stamp,
-                scene=(self.runtime.attack_policy.frame or {}).get('scene'),
-                scenery=(row['line'] == 'world_blocked' and
-                         blocker.get('blocker_kind') not in ('wreck', 'debris')))
-
-    def _siege_retry_reason(self, row, retry):
-        runtime, target = self.runtime, row['target']
-        if (_distance(runtime.state['position'], retry['position']) >= WAYPOINT_ARRIVAL_RADIUS or
-                _distance(target['position'], retry['target_position']) >= WAYPOINT_ARRIVAL_RADIUS):
-            return 'clear_lane_from_changed_positions'
-        blocked = retry['blocked_lanes'].get(row.get('key'))
-        solution = row['solution']
-        ray = (solution.get('origin'), solution.get('point'))
-        stamp = row.get('line_stamp')
-        scene = (runtime.attack_policy.frame or {}).get('scene')
-        if not blocked or not stamp or stamp == blocked['stamp']:
-            return None
-        if blocked['scenery'] and (scene is None or scene == blocked['scene']):
-            return None
-        if all(point is not None and sum((a - b) ** 2 for a, b in zip(point, before)) <=
-               RECOVERY_REOPEN_DISTANCE ** 2 for point, before in zip(ray, blocked['ray'])):
-            return 'blocked_lane_reopened'
-        return None
-
-
+        return bool(row is not None and row.get('shell_index') == runtime.gun.shot_index and
+            self.candidate_consumable(row) and row.get('line') == 'clear' and
+            isinstance(row.get('solution'), dict) and row.get('mechanical') in
+            ('reachable', 'hull_laying', 'mechanical_limited', 'siege_aim_deferred') and
+            row.get('scope') != 'excluded' and
+            (row.get('armor') != 'failed' or row.get('route_he_contact') or
+             runtime.attack_policy._attack_result(row, row.get('mode', 'penetration'))))
 
     def _reopened_lay(self, proposal):
         """Fence failure to its point; require positive current lay evidence."""
@@ -646,7 +582,8 @@ class CombatStop(object):
         previous = self._intent_target
         self._retire_physical_recovery(reason, now)
         self._intent_target = selected
-        self._motion_order = self._failed_recovery = self._siege_point = None
+        self._motion_order = self._failed_recovery = None
+        self._siege_blocked_since = None
         # Another candidate's inspection does not earn a new stopping lease.
         self.pivot = self.runtime._native_hull_laying = None
         self._last_attackable_at = now
@@ -656,17 +593,47 @@ class CombatStop(object):
                 lambda: dict(previous=previous, next_target=selected,
                              cause=reason, episode=self._episode))
 
+    def siege_engagement_target(self):
+        if self.combat_owned and self.runtime.siege_capable():
+            return self._intent_target
+        return None
+
+    def _siege_contact_lost(self, target, now):
+        # Only the normal point search of the enabled gun can observe the
+        # admitted enemy. Pending work cannot start or expire this interval.
+        if self.siege_aim_deferred():
+            return False
+        runtime = self.runtime
+        lane = runtime.attack_policy.siege_contact_lane(target)
+        if lane == 'clear':
+            self._siege_blocked_since = None
+        elif lane == 'blocked' and self._siege_blocked_since is None:
+            self._siege_blocked_since = now
+        since = self._siege_blocked_since
+        elapsed = now - since if since is not None else None
+        lost = lane == 'blocked' and elapsed > SIEGE_CONTACT_LOSS_SECONDS
+        if combat_detail_enabled():
+            combat_detail(runtime, 'siege_contact_lane', runtime.actor_id, now,
+                'expired' if lost else lane, lambda: dict(target=target,
+                    episode=self._episode, lane=lane, blocked_seconds=elapsed,
+                    hold_task=self.siege_hold_task))
+        return lost
+
     def resolve(self, order, now):
         """Commit one movement owner after the existing native policy runs."""
         if not self.active:
             return order
         runtime, policy = self.runtime, self.runtime.attack_policy
+        siege_target = self.siege_engagement_target()
+        if siege_target is not None and self._siege_contact_lost(siege_target, now):
+            policy.decision = dict(action='wait', reason='siege_contact_line_lost', candidate=None)
+            return self._release_to_route(order, now, 'siege_contact_line_lost')
         if self.combat_owned and policy.decision.get('action') == 'navigate':
-            # A completed no-shot/no-HE decision is terminal for this
-            # engagement, not a parked combat task with a route-like label.
-            return self._release_to_route(order, now,
-                policy.decision.get('reason', 'combat_no_executable_contact'))
-        if self.combat_owned and policy.decision.get('reason') == 'blocked_target_handoff':
+            reason = policy.decision.get('reason', 'combat_no_executable_contact')
+            if siege_target is None or reason in ('ammunition_exhausted', 'ordered_ammunition_exhausted'):
+                return self._release_to_route(order, now, reason)
+            policy.decision = dict(action='wait', reason=reason, candidate=None)
+        if self.combat_owned and siege_target is None and policy.decision.get('reason') == 'blocked_target_handoff':
             selected = policy.current_target_key()
             if selected != self._intent_target and any(_key(row) == selected for row in self.targets):
                 self._handoff_target(selected, now, 'blocked_target_handoff')
@@ -693,11 +660,9 @@ class CombatStop(object):
                 return order
             target = attackable['target']
             if siege and combat_detail_enabled():
-                retry = self._siege_failed_targets.get(_key(target))
                 combat_detail(runtime, 'siege_route_admitted', runtime.actor_id, now,
                     attackable['key'], lambda: dict(point=attackable['key'],
                         confirmed=self.receipt['confirmation_seconds'],
-                        retry=self._siege_retry_reason(attackable, retry) if retry else None,
                         episode=self._episode + 1))
             self._retire_physical_recovery('confirmed_route_attack', now)
         elif not self.combat_owned:
@@ -739,9 +704,8 @@ class CombatStop(object):
         if not self.combat_owned and target is not None:
             self._failed_recovery = None
             if siege:
-                point = attackable or proposal or self._siege_route_point()
-                self._siege_point = dict(point) if point is not None else None
-                self._siege_failed_targets.pop(_key(target), None)
+                policy.begin_siege_engagement()
+                proposal = verified_shot = None
             self.combat_owned = True
             self._route_attack = confirm_route
             self._last_attackable_at = now
@@ -762,7 +726,8 @@ class CombatStop(object):
                       verified_shot is None else
                    self.pivot.get('target_key') if self.pivot is not None and
                       verified_shot is None else policy.current_target_key())
-        if current is not None and any(_key(row) == current for row in self.targets):
+        if (not siege and current is not None and
+                any(_key(row) == current for row in self.targets)):
             self._intent_target = current
         target = next((row for row in self.targets if _key(row) == self._intent_target), None)
         if target is None:
@@ -803,7 +768,7 @@ class CombatStop(object):
             self._motion_order = dict((name, copy.deepcopy(order.get(name)))
                                       for name in _MOTION_FIELDS if name in order)
         self._publish_owner()
-        if self.siege_hold_departing:
+        if self.siege_departing:
             point = tuple(self.runtime.state['position'])
             return dict(order, move_position=point, face_position=point, throttle_override=0.,
                         stable_hull_face=True, fire_allowed=False, aim_position=None)
@@ -858,33 +823,12 @@ class CombatStop(object):
         pivot = self.pivot or {}
         candidate = (phase.get('candidate') or pivot.get('candidate') or
                      self.runtime.attack_policy.decision.get('candidate'))
-        if self.runtime.siege_capable() and self.combat_owned:
-            runtime, policy = self.runtime, self.runtime.attack_policy
-            position = tuple(runtime.state['position'])
-            retry = None
-            if target is not None and reason == 'ordered_no_clear_lane':
-                retry = dict(reason=reason, position=position,
-                    target_position=tuple(target['position']), blocked_lanes={})
-                self._siege_failed_targets[failed_target] = retry
-            points = [self._siege_point, candidate]
-            if reason in ('ordered_no_clear_lane', 'siege_pivot_contact_blocked'):
-                points.extend(policy.rows.values())
-            for point in points:
-                if (point and point.get('key') is not None and
-                        point.get('shell_index') == runtime.gun.shot_index and
-                        self.contains(point.get('target'))):
-                    current = policy.current_row(point, require_line=True)
-                    if (retry is not None and reason == 'ordered_no_clear_lane' and
-                            current is not None and current.get('line') in _BLOCKED_LANES and
-                            _key(current['target']) == failed_target):
-                        self._remember_siege_blocked_lane(retry, current)
-                    if (reason == 'ordered_no_clear_lane' and current is not None and
-                            policy._executable(current, current.get('mode', 'penetration'))):
-                        continue
-                    self._siege_failed_points[point['key']] = dict(
-                        position=position, target_position=tuple(point['target']['position']),
-                        blocked=point.get('line') in _BLOCKED_LANES, reason=reason)
-            self._siege_point = None
+        end_manoeuvre = (self.siege_engagement_target() is not None and
+            (reason.startswith(('native_pivot_', 'point_recovery_', 'same_point_')) or
+             reason in ('siege_pivot_contact_blocked', 'physical_recovery_exhausted',
+                        'recovery_target_missing', 'blocked_target_recovery_evidence_expired')))
+        if reason == 'siege_contact_line_lost' and self.siege_hold_task is None:
+            self.siege_departing = True
         self._failed_recovery = dict(position=tuple(self.runtime.state['position']),
             yaw=float(self.runtime.state.get('yaw', 0.)),
             target=failed_target, target_position=tuple(target['position']) if target else None,
@@ -895,6 +839,11 @@ class CombatStop(object):
             review_candidate=dict(candidate) if candidate else None)
         self._retire_physical_recovery(reason, now)
         self.pivot = self.runtime._native_hull_laying = None
+        self._motion_order = None
+        if end_manoeuvre:
+            return dict(self._stop(order, reason, now, tuple(self.runtime.state['position'])),
+                        stable_hull_face=True, fire_allowed=False, aim_position=None)
+        self._siege_blocked_since = None
         self.combat_owned = self.stop_allowed = False
         self._route_confirmation = None
         self._route_attack = False
@@ -909,7 +858,8 @@ class CombatStop(object):
         if combat_detail_enabled():
             runtime = self.runtime
             combat_detail(runtime, 'combat_route_release', runtime.actor_id, now, reason,
-                lambda: dict(episode=self._episode, point=(candidate or {}).get('key'),
+                lambda: dict(episode=self._episode, target=failed_target,
+                    point=(candidate or {}).get('key'),
                     pose=tuple(runtime.state['position']), route_index=self.task_order.get('route_index'),
                     pivot_idle_seconds=now - pivot['progress_at'] if pivot else None,
                     rotation_refused_until=runtime.state.get('_native_rotation_refused_until'),
@@ -970,6 +920,9 @@ class CombatStop(object):
                     tuple(runtime.state['position'])) if self.stop_allowed else order,
                     fire_allowed=False)
             anchor = tuple(runtime.state['position'])
+            if self.siege_engagement_target() is not None and not self._recovery_context_changed(selected):
+                return dict(self._stop(order, 'siege_recovery_already_checked', now, anchor),
+                            stable_hull_face=True, fire_allowed=False, aim_position=None)
             point = (selected.get('solution') or {}).get('point') or target['position']
             bearing = math.atan2(float(point[0]) - anchor[0],
                                  float(point[2]) - anchor[2])
@@ -1237,8 +1190,6 @@ class CombatStop(object):
             target = candidate['target']
             self._last_attackable_at = now
             self._review_progress = None
-            if runtime.siege_capable():
-                self._siege_point = dict(candidate)
             identity = runtime.engine._artillery_target_identity(target)
             for name in ('_gun_angle_refusal', '_gun_angle_pivot_refusal'):
                 if runtime.state.get(name) == identity:
@@ -1321,7 +1272,7 @@ class CombatStop(object):
                 hull_turn_ready(decision.get('candidate')) else None)
         he_review = decision.get('reason') in (
             'ordered_he_penetration_pending', 'he_damage_comparison_pending')
-        if he_review and not self._he_review_has_time(policy, now):
+        if he_review and not siege and not self._he_review_has_time(policy, now):
             return self._release_to_route(order, now, 'he_current_review_stalled')
         if not he_review:
             self._review_progress = None
@@ -1334,6 +1285,13 @@ class CombatStop(object):
                     now - self._last_attackable_at >= ATTACK_LOSS_GRACE_SECONDS):
                 return self._release_to_route(order, now, 'route_attack_opportunity_lost')
         if action != 'firing_position' and motion is None:
+            if siege and contact is not None and action in ('wait', 'preaim'):
+                # The target can steer the hull while the enabled gun is
+                # still selecting its first point. No point clears the trigger.
+                result = dict(self._stop(order, 'siege_face_target', now, contact['position']),
+                              fire_allowed=False)
+                result.pop('stable_hull_face', None)
+                return result
             return order
         candidate = turn or motion or decision.get('candidate') or {}
         request = decision.get('move_request') or {}
@@ -1354,8 +1312,6 @@ class CombatStop(object):
         if can_lay:
             result = self._lay_order(order, target, solution, now, candidate)
             if result is not None:
-                if motion is not None:
-                    self._siege_point = dict(candidate)
                 return result
         elif self.pivot is not None:
             self.release_laying('native_pivot_lost_proof', now)
@@ -1424,14 +1380,10 @@ class CombatStop(object):
                 _distance(runtime.state['position'], contact[0]) < RECOVERY_REOPEN_DISTANCE and
                 abs(_angle(runtime.state['yaw'] - contact[1])) < NATIVE_ANGLE_TOLERANCE):
             return self._release_to_route(order, now, 'siege_pivot_contact_blocked')
-        # The physical watchdog must run even when no global decision or
-        # native query completes. Never refresh it merely for a new receipt.
-        if now < runtime.state.get('_native_rotation_refused_until', 0.):
-            return self._release_to_route(order, now, 'native_pivot_rotation_refused')
         policy = runtime.attack_policy
         siege = runtime.siege_capable()
-        if siege and (policy.frame or {}).get('reloading'):
-            pivot['progress_at'] = now
+        if not siege and now < runtime.state.get('_native_rotation_refused_until', 0.):
+            return self._release_to_route(order, now, 'native_pivot_rotation_refused')
         retained = getattr(policy, 'retained_lay_candidate', None)
         motion = runtime.siege_aim_candidate(target)
         if (isinstance(motion, dict) and
@@ -1498,7 +1450,7 @@ class CombatStop(object):
                 return result
             return self._release_to_route(order, now, 'native_pivot_stalled')
         pivot.pop('siege_turn', None)
-        if now - pivot['progress_at'] >= MECHANICAL_STALL_SECONDS:
+        if not siege and now - pivot['progress_at'] >= MECHANICAL_STALL_SECONDS:
             return self._release_to_route(order, now, 'native_pivot_geometry_stalled')
         return dict(self._stop(order, 'native_pivot_geometry_pending', now,
             tuple(runtime.state['position'])), stable_hull_face=True,
@@ -1517,7 +1469,8 @@ class CombatStop(object):
         error = abs(signed_error)
         hydraulic = float(observation(runtime).hydraulic_state().get('pitch',
                                   state.get('suspension_pitch', 0.)))
-        needs_hydraulic = bool(solution.get('needs_hydraulic'))
+        in_siege = state.get('siege_state') == siege_mechanics.ENABLED
+        turning_hull = not in_siege or bool(solution.get('needs_hull'))
         desired_pitch = float(solution.get('hydraulic_pitch',
                                            solution.get('siege_correction', hydraulic)))
         pitch_error = abs(desired_pitch - hydraulic)
@@ -1525,7 +1478,7 @@ class CombatStop(object):
         if self.pivot is None:
             self.pivot = dict(target=identity, gun=runtime.gun, shell=runtime.gun.shot_index,
                 progress_at=float(now), progress_yaw=yaw, best_error=error,
-                progress_pitch=hydraulic, best_pitch_error=pitch_error,
+                turning_hull=turning_hull,
                 target_key=_key(target), key=(candidate or {}).get('key'),
                 candidate=dict(candidate or {}))
             runtime._native_hull_laying = self.pivot
@@ -1537,16 +1490,16 @@ class CombatStop(object):
                     desired_yaw=desired_yaw, mode=state.get('siege_state'),
                     task=self.siege_hold_task, armor=(candidate or {}).get('armor'),
                     fire_allowed=False))
-        if identity != pivot['target']:
-            pivot.update(target=identity, best_error=error, best_pitch_error=pitch_error,
-                         progress_yaw=yaw, progress_pitch=hydraulic)
+        if identity != pivot['target'] or turning_hull and not pivot.get('turning_hull', True):
+            pivot.update(target=identity, best_error=error, progress_yaw=yaw,
+                         progress_at=now)
             pivot.pop('siege_turn', None)
+        pivot['turning_hull'] = turning_hull
         hull_step = _angle(yaw - pivot['progress_yaw'])
         previous_turn = pivot.pop('siege_turn', None)
         follows_turn = False
         old_error = old_remaining = None
-        in_siege = state.get('siege_state') == siege_mechanics.ENABLED
-        if (in_siege and solution.get('needs_hull') and pivot.get('key') is not None and
+        if (in_siege and turning_hull and pivot.get('key') is not None and
                 candidate and candidate.get('key') == pivot['key'] and candidate.get('line') == 'clear'):
             pivot['siege_turn'] = (yaw, desired_yaw)
             if previous_turn is not None:
@@ -1559,22 +1512,19 @@ class CombatStop(object):
                 follows_turn = (old_error * signed_error > 0. and
                     abs(old_remaining) < abs(old_error) - NATIVE_ANGLE_TOLERANCE and
                     hull_step * math.copysign(1., signed_error) >= NATIVE_ANGLE_TOLERANCE)
-        yaw_improved = (abs(hull_step) >= NATIVE_ANGLE_TOLERANCE and
+        yaw_improved = (turning_hull and abs(hull_step) >= NATIVE_ANGLE_TOLERANCE and
                         error < pivot['best_error'] - NATIVE_ANGLE_TOLERANCE)
-        pitch_improved = (needs_hydraulic and
-                          abs(hydraulic - pivot['progress_pitch']) >= NATIVE_ANGLE_TOLERANCE and
-                          pitch_error < pivot['best_pitch_error'] - NATIVE_ANGLE_TOLERANCE)
-        progressed = follows_turn or yaw_improved or pitch_improved
+        progressed = follows_turn or yaw_improved
         if progressed:
             pivot.update(best_error=min(error, pivot['best_error']),
-                         best_pitch_error=min(pitch_error, pivot['best_pitch_error']),
-                         progress_at=float(now), progress_yaw=yaw, progress_pitch=hydraulic)
-        rotation_refused = now < state.get('_native_rotation_refused_until', 0.)
-        idle_time = now - pivot['progress_at']
-        stalled = idle_time >= MECHANICAL_STALL_SECONDS
+                         progress_at=float(now), progress_yaw=yaw)
+        rotation_refused = turning_hull and now < state.get('_native_rotation_refused_until', 0.)
+        idle_time = now - pivot['progress_at'] if turning_hull else None
+        stalled = idle_time is not None and idle_time >= MECHANICAL_STALL_SECONDS
         if in_siege and combat_detail_enabled():
             reason = ('rotation_refused' if rotation_refused else
-                      'stall_elapsed' if stalled else 'tracking')
+                      'stall_elapsed' if stalled else 'tracking' if turning_hull else
+                      'hydraulic_laying')
             combat_detail(runtime, 'siege_pivot_progress', runtime.actor_id, now, reason,
                 lambda: dict(point=(candidate or {}).get('key'), line=(candidate or {}).get('line'),
                     target_position=target.get('position'), aim_position=solution.get('point'),

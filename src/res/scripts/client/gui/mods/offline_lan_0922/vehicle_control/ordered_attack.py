@@ -47,6 +47,18 @@ class OrderedAttack(object):
         self.he_fallback_rounds = 0
         self.he_clip_return = False
 
+    def begin_siege_engagement(self):
+        self.target = self.sample = None
+        self.he_sample = self.he_identity = self.he_execution_line = None
+        self.covered.clear()
+        self.checked_lanes.clear()
+        self.blocked_targets.clear()
+        self.blocked_origin = None
+        self.blocked_revisit = False
+        self.blocked_points.clear()
+        self.blocked_lanes.clear()
+        self.cursor = 0
+
     def load_started(self, shell_index, new_load=False):
         if self.committed_shell != shell_index:
             self.committed_shell, self.committed_rounds = shell_index, 0
@@ -357,6 +369,15 @@ class OrderedAttack(object):
     def _no_clear_contact(self, policy, now, jobs, rows, reason):
         blocked = [(row, policy._obstructed_lane(row)) for row in rows]
         current_jobs = [job for job in jobs if job[0][1] == self.target]
+        siege_target = getattr(getattr(policy.runtime, 'combat_stop', None),
+                               'siege_engagement_target', lambda: None)()
+        if siege_target is not None:
+            obstruction = next((row for row, lane in blocked if lane is not None and
+                not row.get('scatter_blocked') and isinstance(row.get('solution'), dict)), None)
+            if obstruction is not None:
+                return policy._choose('firing_position', 'unverified_points_obstructed',
+                                      obstruction)
+            return policy._recover_incomplete(now, reason)
         if (self._blocked_pass_complete(policy, current_jobs) or
                 any(lane is not None for row, lane in blocked) and
                 all(lane is not None or row is not None and row.get('scope') == 'excluded'
@@ -624,11 +645,20 @@ class OrderedAttack(object):
         if not self.order:
             return policy._choose('wait', 'no_relevant_enemy')
         jobs = policy._jobs(shell_index=shell['index'])
+        siege_target = getattr(combat, 'siege_engagement_target', lambda: None)()
+        if siege_target is not None:
+            if siege_target not in self.order:
+                return policy._recover_incomplete(now, 'ordered_current_target_pending')
+            if self.target != siege_target:
+                self.target, self.sample, self.cursor = siege_target, None, 0
+                self.he_sample = self.he_identity = None
+            jobs = tuple(job for job in jobs if job[0][1] == siege_target)
         if self.loaded_he:
             return self._current_he(policy, now, shell, jobs)
         # Reuse one accepted target for the current shot. A complete sweep
         # rewinds only when the load changes or a later sweep starts.
-        groups = dict((key, []) for key in self.order)
+        review_order = [siege_target] if siege_target is not None else list(self.order)
+        groups = dict((key, []) for key in review_order)
         for job in jobs:
             groups[job[0][1]].append(job)
         confirming = (combat is not None and not combat.combat_owned and
@@ -641,7 +671,8 @@ class OrderedAttack(object):
         # An admitted circle turn outlives transient point refreshes. Finish
         # reviewing its target before checking vehicles on the opposite side.
         held = getattr(combat, 'capture_lay_target', lambda: None)()
-        review_order = sorted(self.order, key=lambda key: key != held) if held in groups else list(self.order)
+        if held in groups:
+            review_order.sort(key=lambda key: key != held)
         if held not in groups and self.target in review_order:
             start = review_order.index(self.target)
             review_order = review_order[start:] + review_order[:start]

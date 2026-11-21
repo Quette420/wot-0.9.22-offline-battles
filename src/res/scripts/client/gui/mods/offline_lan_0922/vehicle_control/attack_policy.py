@@ -431,6 +431,44 @@ class AttackPolicy(object):
         self._used = dict(foreground=0, background=0, atomic=0)
         self.decision = dict(action='wait', reason='not_observed', candidate=None)
 
+    def begin_siege_engagement(self):
+        # Entry used a travel ray to stop for an enemy. It did not choose
+        # the point that the enabled gun will aim at or fire through.
+        ordered = self.ordered_load()
+        if ordered is not None:
+            ordered.begin_siege_engagement()
+        self.selected = None
+        self.rows.clear()
+        self._next_rows.clear()
+        self._admission_blocks.clear()
+        self._scatter_blocks.clear()
+        self._penetration_hints.clear()
+        self._lay_recovery = None
+        self._physical_review = None
+        self._current_he_execution = None
+        self._current_he_observations.clear()
+        self._current_he_deferred.clear()
+        self.decision = dict(action='wait', reason='siege_engagement_acquired',
+                             candidate=None)
+
+    def siege_contact_lane(self, target):
+        # Read the current target's geometry from the existing point sweep.
+        if self.frame is None or self._frame_invalid or self.frame.get('siege_aim_deferred'):
+            return 'pending'
+        lanes = []
+        for job in self._jobs(shell_index=self.frame['loaded']):
+            if job[0][1] != target:
+                continue
+            row = self._current(job, require_line=True)
+            line = (row or {}).get('geometry_line')
+            if line == 'clear':
+                return 'clear'
+            lanes.append(line)
+        if lanes and all(line in ('world_blocked', 'friendly_blocked', 'enemy_blocked',
+                                  'vehicle_blocked', 'no_reachable_intercept') for line in lanes):
+            return 'blocked'
+        return 'pending'
+
     def ordered_load(self, frame=None):
         if self.ordered is not None:
             return self.ordered
@@ -803,6 +841,8 @@ class AttackPolicy(object):
         row.setdefault('mechanical', 'unknown')
         row.setdefault('contact', None)
         row.setdefault('expected_damage', None)
+        row['geometry_line'] = ('no_reachable_intercept'
+            if row.get('reason') == 'no_reachable_intercept' else row['line'])
         if previous is not None and row['line_stamp'] != previous['line_stamp']:
             self.proof_revocations['lane_rechecks'] += 1
         blocked = self._admission_blocks.get(key)
@@ -2283,6 +2323,7 @@ class AttackPolicy(object):
                 runtime = self.runtime
                 combat_detail(runtime, 'ordered_attack', runtime.actor_id, now, result['reason'],
                     lambda: dict(target=ordered.target,
+                        episode=getattr(getattr(runtime, 'combat_stop', None), '_episode', None),
                         aim_sample=(ordered.he_sample if ordered.loaded_he else ordered.sample),
                         checked=len(ordered.covered), targets=tuple(ordered.order),
                         blocked_targets=tuple(sorted(ordered.blocked_targets)),

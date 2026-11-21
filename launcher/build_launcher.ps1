@@ -100,7 +100,7 @@ if ($ForbiddenEntries.Count -ne 0) {
 
 Copy-Item -Force `
     (Join-Path $LauncherRoot "LAUNCHER_README.txt") `
-    (Join-Path $DistRoot "$AppName\README.txt")
+    (Join-Path $DistRoot "$AppName\README.en-US.txt")
 Copy-Item -Force `
     (Join-Path $LauncherRoot "LAUNCHER_README.zh-CN.txt") `
     (Join-Path $DistRoot "$AppName\README.zh-CN.txt")
@@ -121,7 +121,7 @@ Copy-Item -Force `
 python (Join-Path $RepoRoot "tools/stage_editor_licenses.py") $LicenseRoot
 if ($LASTEXITCODE -ne 0) { throw "Pillow license staging failed" }
 
-foreach ($entry in @("$AppName.exe", "README.txt", "README.zh-CN.txt",
+foreach ($entry in @("$AppName.exe", "README.en-US.txt", "README.zh-CN.txt",
                      "LICENSE",
                      "THIRD_PARTY_NOTICES.md", "licenses\Boost-1.0.txt")) {
     if (-not (Test-Path -LiteralPath (Join-Path $DistRoot "$AppName\$entry"))) {

@@ -11,7 +11,23 @@ import zipfile
 from gui.mods.offline_lan_0922 import bot_tactics
 from gui.mods.offline_lan_0922 import route_network
 from gui.mods.offline_lan_0922 import spg_positions
+from gui.mods.offline_lan_0922.ai.driver import WAYPOINT_ARRIVAL_RADIUS
 from gui.mods.offline_lan_0922.vehicle_control.route_recovery import MIN_ROUTE_AFFINITY
+
+
+DEFENSE_SEARCH_STALL_SECONDS = 6.0
+DEFENSE_SEARCH_DIRECTIONS = (('x+', 1, 0), ('x-', -1, 0), ('z+', 0, 1), ('z-', 0, -1))
+DEFENSE_SEARCH_ADJUSTMENTS = {
+    ('04_himmelsdorf', 1, 'z-'): (2., -270.),
+    ('86_himmelsdorf_winter', 1, 'z-'): (2., -270.),
+    ('112_eiffel_tower_ctf', 2, 'z+'): (338., 6.),
+    ('31_airfield', 2, 'x+'): (-306., -178.),
+    ('31_airfield', 2, 'z-'): (-318., -190.),
+    ('63_tundra', 1, 'x-'): (58., -166.),
+    ('63_tundra', 2, 'z-'): (-70., 122.),
+    ('95_lost_city', 1, 'x-'): (266., -94.),
+    ('95_lost_city', 2, 'x+'): (-266., 94.),
+}
 
 
 def point(value):
@@ -178,11 +194,124 @@ class RouteTasksMixin:
         self._cycle_drop_parking(bot)
         return task
 
+    @staticmethod
+    def _inside_defended_base(bot, base):
+        pose = bot['state']
+        return bool(pose.get('world_pose') and distance(point(pose), base['point']) <= base['radius'])
+
+    def _defense_search_points(self, base, team):
+        centre = base['point']
+        half_radius = base['radius'] * .5
+        graph = self._task_graph()
+        points = {}
+        for direction, dx, dz in DEFENSE_SEARCH_DIRECTIONS:
+            x, z = DEFENSE_SEARCH_ADJUSTMENTS.get((self.tactics_map, team, direction),
+                (centre['x'] + dx * half_radius, centre['z'] + dz * half_radius))
+            cell = graph.closest((x, 0., z)) if graph is not None else None
+            y = graph.point(cell)[1] if cell is not None else centre['y']
+            points[direction] = dict(x=x, y=y, z=z)
+        return points
+
+    def _defense_search_report(self, bot, task, now, action, **details):
+        search = task['search']
+        event = dict(at=now, action=action, bot=bot['id'], team=bot['team'],
+            base=task['base']['base_id'], sweep=search['sweep'],
+            direction=search['direction'], **details)
+        if os.environ.get('WOT_OFFLINE_DIAGNOSTICS') == '1':
+            try:
+                print('[Offline LAN 0.9.22] BOT DEFENSE SEARCH ' + json.dumps(event, sort_keys=True))
+            except (ValueError, IOError):
+                pass
+        return event
+
+    def _task_publish_defense_inside(self, order, bot, task, now):
+        base = task['base']
+        pose = point(bot['state'])
+        artillery_engagement = (bot['profile'].get('class_tag') == 'SPG' and
+            order.get('target_id') is not None and order.get('fire_allowed'))
+        order.update(defense_base_id=str(base['base_id']), defense_arrived=True,
+            combat_mode='engage' if artillery_engagement else 'route',
+            move_position=pose, throttle_override=0., route_join=False,
+            parking_phase=None, parking_slot=None)
+        if not task.get('search_active'):
+            task.pop('search', None)
+            if order.get('target_id') is not None:
+                order['combat_mode'] = 'engage'
+            return
+
+        search = task.get('search')
+        if search is None:
+            search = task['search'] = dict(points=self._defense_search_points(base, bot['team']),
+                sweep=1, attempted={}, direction=None, paused_at=None)
+        if artillery_engagement or self._combat_movement_task(bot) is not None:
+            if search['paused_at'] is None:
+                search['paused_at'] = now
+            evidence = order.get('tactical_evidence')
+            if evidence is not None:
+                evidence['defense_search'] = dict(action='combat_priority',
+                    sweep=search['sweep'], direction=search['direction'])
+            return
+
+        direction = search['direction']
+        if direction is not None:
+            if search['paused_at'] is not None:
+                search['since'] += now - search['paused_at']
+            remaining = distance(pose, search['points'][direction])
+            if remaining < search['best'] - .5:
+                search.update(best=remaining, since=now)
+            elapsed = now - search['since']
+            outcome = None
+            if remaining <= WAYPOINT_ARRIVAL_RADIUS:
+                outcome = 'arrived'
+            elif elapsed >= DEFENSE_SEARCH_STALL_SECONDS:
+                outcome = 'blocked_timeout'
+            if outcome is not None:
+                search['attempted'][direction] = outcome
+                self._defense_search_report(bot, task, now, outcome,
+                    elapsed=round(elapsed, 3), distance=round(remaining, 3),
+                    arrived=sum(value == 'arrived' for value in search['attempted'].values()))
+                direction = None
+        search['paused_at'] = None
+
+        points = search['points']
+        if direction is None:
+            if len(search['attempted']) == len(points):
+                search['sweep'] += 1
+                search['attempted'].clear()
+            occupied = set(other['search']['direction'] for other in self._travel_tasks.values()
+                if other is not task and other.get('search') is not None and
+                   other['search']['paused_at'] is None and
+                   other['base']['base_id'] == base['base_id'])
+            direction = min((key for key in points if key not in search['attempted']),
+                key=lambda key: (key in occupied, distance(pose, points[key]), key))
+            search.update(direction=direction, since=now, best=distance(pose, points[direction]))
+            self._defense_search_report(bot, task, now, 'attempt', position=pose, goal=points[direction])
+
+        goal = points[direction]
+        order.update(move_position=dict(goal), face_position=order.get('face_position') if
+            order.get('target_id') is not None else dict(goal), route_anchor=pose, route_join=True,
+            arrival_radius=WAYPOINT_ARRIVAL_RADIUS, throttle_override=None,
+            travel_task=dict(kind='defense', phase='search', direction=direction, sweep=search['sweep']))
+        evidence = order.get('tactical_evidence')
+        if evidence is not None:
+            evidence['defense_search'] = dict(action='moving', direction=direction,
+                sweep=search['sweep'], attempted=dict(search['attempted']))
+
     def _task_publish(self, order, bot, task, now):
         base = task.get('base')
-        inside = base and self._inside_base(bot,base)
-        if inside:
-            task['arrived'] = True
+        if task['kind'] == 'defense' and base:
+            inside = self._inside_defended_base(bot, base)
+            if inside:
+                task['arrived'] = True
+                self._task_publish_defense_inside(order, bot, task, now)
+                return
+            search = task.get('search')
+            if search is not None and search['paused_at'] is None:
+                search['paused_at'] = now
+        else:
+            inside = base and self._inside_base(bot,base)
+            if inside:
+                task['arrived'] = True
         if task['kind'] == 'pressure' and now >= task['until']:
             self._travel_tasks.pop(bot['id'], None)
             state=self._route_states.setdefault(bot['id'],{})
@@ -267,7 +396,10 @@ class RouteTasksMixin:
         released=False
         combat = self._task_combat(order, bot)
         if defense_record is not None:
-            if task is None or task['kind'] != 'defense':task = self._task_begin(bot, 'defense', defense_record, now=now)
+            if (task is None or task['kind'] != 'defense' or
+                    task['base']['base_id'] != defense_record['base_id']):
+                task = self._task_begin(bot, 'defense', defense_record, now=now)
+            task['search_active'] = defense_record.get('search_active', False)
         elif task and task['kind'] == 'defense':
             self._travel_tasks.pop(actor, None);self._task_rejoin(bot);task = None;released=True
         if task is None and player_order and player_order.get('command') == 'BACKTOBASE' and not combat:

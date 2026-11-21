@@ -162,13 +162,67 @@ class BaseCircleArrivalTests(unittest.TestCase):
     def test_normal_defender_preserves_local_lane_and_reload_gates_inside(self):
         planner, bots, states, players, defense = self.defense_scene(19., 'mediumTank', 20.)
         order = next(o for o in planner.build_orders(bots, states, players, 1., defense)['orders'] if o.get('defense_base_id'))
-        self.assertEqual(0., order['throttle_override'])
+        self.assertTrue(order['defense_arrived'])
+        self.assertEqual('route', order['combat_mode'])
+        self.assertIsNone(order['throttle_override'])
         self.assertFalse(order['fire_allowed'])
         states[0].update(clip=0, reload_time=5.)
         contact = _contact(2, 0., 10., [11])
         planner.report_contacts([contact], planner.known_targets(states, players), 2.)
         order = next(o for o in planner.build_orders(bots, states, players, 2., defense)['orders'] if o['id'] == 11)
         self.assertFalse(order['fire_allowed'])
+
+    def test_defense_search_retries_a_blocked_point_on_the_next_sweep(self):
+        planner, bots, states, players, defense = self.defense_scene(21., 'mediumTank', 20.)
+
+        def order_at(now):
+            orders = planner.build_orders(bots, states, players, now, defense)['orders']
+            return next(order for order in orders if order.get('defense_base_id'))
+
+        outside = order_at(1.)
+        self.assertEqual('base_defense', outside['combat_mode'])
+        actor = outside['id']
+        pose = next(state for state in states if state['id'] == actor)
+        pose.update(x=19., route_wreck_blocked=True)
+        first = order_at(2.)
+        search = first['tactical_evidence']['defense_search']
+        self.assertEqual('route', first['combat_mode'])
+        self.assertTrue(first['defense_arrived'])
+        self.assertEqual('x+', search['direction'])
+        self.assertEqual({}, search['attempted'])
+        self.assertEqual('x+', order_at(7.99)['travel_task']['direction'])
+        for moment, attempted in ((8., 1), (14., 2), (20., 3)):
+            record = order_at(moment)['tactical_evidence']['defense_search']
+            self.assertEqual(1, record['sweep'])
+            self.assertEqual(['blocked_timeout'] * attempted, list(record['attempted'].values()))
+        second = order_at(26.)
+        self.assertEqual(2, second['travel_task']['sweep'])
+        self.assertEqual(first['move_position'], second['move_position'])
+
+        pose.update(second['move_position'])
+        record = order_at(27.)['tactical_evidence']['defense_search']
+        self.assertEqual({'x+': 'arrived'}, record['attempted'])
+
+    def test_defense_search_pauses_while_native_combat_owns_movement(self):
+        planner, bots, states, players, defense = self.defense_scene(19., 'mediumTank', 20.)
+
+        def order_at(now):
+            orders = planner.build_orders(bots, states, players, now, defense)['orders']
+            return next(order for order in orders if order.get('defense_base_id'))
+
+        first = order_at(1.)
+        pose = next(state for state in states if state['id'] == first['id'])
+        pose['_combat_movement_owner'] = dict(owned=True, target=['human', 2],
+            task_order=dict(move_position=first['move_position']))
+        for now in (2., 10.):
+            order = order_at(now)
+            self.assertEqual('combat_priority', order['tactical_evidence']['defense_search']['action'])
+            self.assertEqual(0., order['throttle_override'])
+        pose.pop('_combat_movement_owner')
+        self.assertEqual(first['move_position'], order_at(11.)['move_position'])
+        self.assertEqual(first['move_position'], order_at(15.99)['move_position'])
+        record = order_at(16.)['tactical_evidence']['defense_search']
+        self.assertEqual({'x+': 'blocked_timeout'}, record['attempted'])
 
     def test_base_mission_cannot_be_overwritten_by_authored_spg_parking(self):
         planner, bots, states, players, defense = self.defense_scene(19.)

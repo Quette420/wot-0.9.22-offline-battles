@@ -735,6 +735,13 @@ class BotControlBinding(MissionControl, CombatControl):
                 context, entity, gun, raw_ray, self.native_dispersion_angle(),
                 source_shot, self.now, range_origin=state['position'],
                 artillery_launch=launch_receipt)
+            if combat_detail_enabled():
+                key = (context.get('candidate') or {}).get('key')
+                combat_detail(self, 'auto_trigger_verdict', self.actor_id, self.now,
+                    (sequence, key, verdict['status'], verdict['reason']),
+                    lambda: dict(sequence=sequence, point=key, status=verdict['status'],
+                        reason=verdict['reason'], yaw=state['yaw'], mode=state.get('siege_state'),
+                        world_chords=verdict.get('world_chords'), blocker=verdict.get('blocker')))
             if verdict['status'] != 'ready':
                 return verdict
             token = verdict['token']

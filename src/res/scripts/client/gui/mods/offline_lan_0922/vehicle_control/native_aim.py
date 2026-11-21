@@ -18,6 +18,13 @@ NATIVE_ANGLE_TOLERANCE = .00001
 NATIVE_ANGLES_PER_REQUEST = 12
 
 
+def hull_turn_ready(row):
+    """A clear contact can request steering before its actual shot is proved."""
+    return bool(row and row.get('line') == 'clear' and
+                row.get('mechanical') == 'hull_laying' and row.get('armor') != 'failed' and
+                (row.get('solution') or {}).get('turn_only'))
+
+
 def _angle(value):
     return (float(value) + math.pi) % (2. * math.pi) - math.pi
 
@@ -53,7 +60,7 @@ def hydraulic_reach(descriptor, direction, flat_body, config):
 
     The bounded bisection only inverts local angles. It does not sample
     terrain, solve future modes, trace lines or certify a firing permission.
-    The caller separately proves any chassis/hydraulic movement it needs.
+    The physical owner applies the motion constraints to actual controls.
     """
     local = shot_geometry.inverse_transform_vehicle_vector(direction, *flat_body)
     gun = _field(descriptor, 'gun')

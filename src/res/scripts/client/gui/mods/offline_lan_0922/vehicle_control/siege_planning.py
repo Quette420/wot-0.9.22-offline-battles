@@ -1,8 +1,7 @@
 """One selected point's native hydraulic input in the ENABLED mode only.
 
-Mode entry has no geometry gate. The ordinary finite-traverse attack owner
-chooses/evaluates points and owns its bounded stationary plans. This adapter
-only makes the flat-body hydraulic actuator pursue the same world launch ray
+The shared combat owner chooses the contact and requests any hull turn.
+This adapter makes the active flat-body actuator pursue the same launch ray
 as the tilted-body gun source. It never traces a line, queries armour, scans
 alternate targets, reads a future descriptor or grants trigger permission.
 """
@@ -11,14 +10,13 @@ from __future__ import division
 import math
 
 from .actor_observation import observation
-from .stationary_plan import plan_diagnostic, trace_plan_use
 
 from .. import shot_geometry
 from ..gun_mechanics import _field
 from .. import hull_aiming
 from ..native_input_diagnostics import combat_detail, combat_detail_enabled
 from .native_aim import (active_hydraulic_pose, hydraulic_reach,
-                         NATIVE_ANGLE_TOLERANCE)
+                         NATIVE_ANGLE_TOLERANCE, hull_turn_ready)
 
 
 NATIVE_SOURCE_CALLS = 6
@@ -56,15 +54,8 @@ class ActualSiegeAim(object):
         return dict(self.receipt)
 
     @staticmethod
-    def _has_laying_lane(policy, row):
-        if row.get('scope') == 'excluded':
-            return False
-        # A completed stationary plan can supply a clear lane for laying.
-        # While classifying the stationary domain, keep unlaid points still.
-        return row.get('line') == 'clear' or (
-            row.get('line') == 'unknown' and
-            not policy.stationary_review_wait() and
-            policy._plannable(row, row.get('mode', 'penetration')))
+    def _has_laying_lane(row):
+        return row.get('scope') != 'excluded' and row.get('line') == 'clear'
 
     def _selected(self, frame, preferred):
         policy = self.runtime.attack_policy
@@ -77,14 +68,14 @@ class ActualSiegeAim(object):
             current = policy.current_row(pivot.get('candidate'), require_line=True)
             if (current is not None and current.get('key') == pivot_key and
                     (held is None or current.get('target_key') == held) and
-                    current.get('armor') != 'failed' and self._has_laying_lane(policy, current)):
+                    current.get('armor') != 'failed' and self._has_laying_lane(current)):
                 return current
         if preferred_key is not None:
             current = policy.current_row(preferred, require_line=True)
             if (current is not None and current.get('pose_stamp') == preferred.get('pose_stamp') and
                     current.get('shell_index') == frame['loaded'] and
                     (held is None or current.get('target_key') == held) and
-                    self._has_laying_lane(policy, current)):
+                    self._has_laying_lane(current)):
                 return current
         if held is None:
             return None
@@ -94,7 +85,7 @@ class ActualSiegeAim(object):
         rows = [row for row in rows if row.get('key') != preferred_key and
                 row.get('target_key') == held and row.get('armor') != 'failed' and
                 isinstance(row.get('solution'), dict) and policy._needs_firing_position(row) and
-                self._has_laying_lane(policy, row)]
+                self._has_laying_lane(row)]
         return min(rows, key=policy._penetration_order) if rows else None
 
     def _motion_source(self, frame, hydraulic, solution, shell, trace=None):
@@ -173,7 +164,6 @@ class ActualSiegeAim(object):
 
     def _report_aim(self, stage, now, row, solution, hydraulic, reach, inverse=None):
         runtime = self.runtime
-        plan = row.get('stationary_plan') or {}
         combat_detail(runtime, stage, runtime.actor_id, now, self.receipt['reason'],
             lambda: dict(point_key=row.get('key'), line=row.get('line'),
                 mechanical=row.get('mechanical'), point=solution.get('point'),
@@ -182,10 +172,6 @@ class ActualSiegeAim(object):
                 flat_position=hydraulic['position'], flat_body=hydraulic['body'],
                 hydraulic_correction=hydraulic['correction'],
                 hydraulic_limits=(hydraulic['minimum'], hydraulic['maximum']),
-                stationary_status=plan.get('status'), stationary_line=plan.get('line'),
-                stationary_pending=row.get('stationary_pending'),
-                stationary_progress=row.get('stationary_progress_token'),
-                plan=plan_diagnostic(row),
                 policy_reason=runtime.attack_policy.decision.get('reason'),
                 episode=runtime.combat_stop.receipt.get('episode'),
                 inverse=inverse))
@@ -204,9 +190,9 @@ class ActualSiegeAim(object):
                 return None
             row = self._selected(frame, preferred)
             if not isinstance(row, dict) or row.get('shell_index') != frame['loaded']:
-                if combat_detail_enabled():
-                    trace_plan_use(self.runtime, 'siege_selection', row, now,
-                        'no_current_selected_point', preferred_key=(preferred or {}).get('key'))
+                return None
+            if hull_turn_ready(row):
+                self.receipt.update(reason='hull_turn_before_hydraulic_lay')
                 return None
             target = next((value for value in frame['targets']
                            if value['key'] == row.get('target_key')), None)
@@ -218,46 +204,15 @@ class ActualSiegeAim(object):
             if (row.get('pose_stamp') != self.runtime.attack_policy._stamp(frame, shell, target) or
                     solution.get('target_pose') != target['pose']):
                 return None
-            policy = self.runtime.attack_policy
-            planned = policy._planned_evidence(row) or {}
-            if (planned.get('status') == 'proved' and planned.get('line') == 'clear' and
-                    (planned.get('armor') in ('passed', 'failed') or
-                     row.get('mode') == 'he_fallback' and policy._executable(planned, 'he_fallback')) and
-                    isinstance(planned.get('solution'), dict)):
-                solution = dict(planned['solution'])
             direction = _point(solution['direction'])
             reach = hydraulic_reach(frame['descriptor'], direction, hydraulic['body'], hydraulic)
-            turn_first = False
             if not reach.get('reachable') and not reach.get('needs_hull'):
-                # A longitudinal actuator cannot lay a sideways ray before
-                # the chassis turns. The completed stationary certificate
-                # proves that turn at the current correction, then the
-                # endpoint correction. Keep that ordering instead of asking
-                # the starting heading to satisfy the endpoint's pitch.
-                turn_first = bool(solution.get('stationary_plan') and
-                    solution.get('needs_hull') and
-                    policy._plannable(row, row.get('mode', 'penetration')))
-                if not turn_first:
-                    self.receipt.update(reason=reach['reason'])
-                    if combat_detail_enabled():
-                        self._report_aim('siege_hydraulic_reach', now, row, solution, hydraulic, reach)
-                    return None
-            correction = (hydraulic['correction'] if turn_first else
-                float(solution['hydraulic_pitch']) if solution.get('stationary_plan')
-                and 'hydraulic_pitch' in solution else reach['hydraulic_pitch'])
-            needs_hull = bool(solution.get('needs_hull') or reach.get('needs_hull'))
-            if (needs_hull and frame.get('ordered') and shell.get('is_he') and
-                    not policy._executable(planned, row.get('mode', 'penetration'))):
-                self.receipt.update(reason='stationary_hull_review_pending')
+                self.receipt.update(reason=reach['reason'])
                 if combat_detail_enabled():
-                    self._report_aim('siege_hull_review', now, row, solution, hydraulic, reach)
+                    self._report_aim('siege_hydraulic_reach', now, row, solution, hydraulic, reach)
                 return None
-            if (needs_hull and self.runtime.attack_policy.decision.get('reason') ==
-                    'stationary_domain_review_pending'):
-                self.receipt.update(reason='stationary_hull_review_pending')
-                if combat_detail_enabled():
-                    self._report_aim('siege_hull_review', now, row, solution, hydraulic, reach)
-                return None
+            correction = reach['hydraulic_pitch']
+            needs_hull = reach.get('needs_hull', False)
             limits = _field(_field(frame['descriptor'], 'gun'), 'turretYawLimits')
             turret = reach['local_yaw'] if limits is None else max(float(limits[0]),
                 min(float(limits[1]), reach['local_yaw']))
@@ -289,11 +244,6 @@ class ActualSiegeAim(object):
             self.receipt.update(status='ready', reason='actual_enabled_hydraulic_input', candidates=1,
                 target=target['key'], sample=row['sample'], shell=shell['index'],
                 needs_hull=needs_hull, needs_hydraulic=solution['needs_hydraulic'])
-            if combat_detail_enabled():
-                trace_plan_use(self.runtime, 'siege_selection', result, now, 'ready',
-                    hull_yaw=hull_yaw, hydraulic_pitch=correction, needs_hull=needs_hull)
-            if turn_first and combat_detail_enabled():
-                self._report_aim('siege_hydraulic_turn', now, row, solution, hydraulic, reach)
             if inverse is not None:
                 if inverse.get('accepted_with_pitch_tolerance'):
                     self._report_aim('siege_hydraulic_pitch_tolerance', now, row, solution,

@@ -91,6 +91,9 @@ class _Text(_Widget):
     def insert(self, unused_index, text):
         self.lines.append(text)
 
+    def delete(self, first, last):
+        self.lines.clear()
+
     def see(self, unused_index):
         pass
 
@@ -320,7 +323,7 @@ class WindowTest(unittest.TestCase):
             "offerKinds": ("gold", "reward")}))
 
     def test_layout_separates_play_vehicle_and_repair_controls(self):
-        self.assertEqual("1.2.1", wot_launcher.LAUNCHER_VERSION)
+        self.assertEqual("1.2.2", wot_launcher.LAUNCHER_VERSION)
         self.assertEqual(
             "Single player",
             self.window.battle_tabs.tab(self.window.single_panel).get("text"))
@@ -357,14 +360,10 @@ class WindowTest(unittest.TestCase):
             "Create error report...",
             self.window.report_button.cget("text"))
         self.assertIn("bold", str(self.window.report_button.cget("font")))
-        self.assertEqual(
-            "本mod免费传播、开源、欢迎二创，使用无需付费，售卖与本人无关，仅供个人学习交流",
-            self.window.distribution_notice_text.get())
-        self.assertEqual(
-            "readonly", self.window.distribution_notice_entry.cget("state"))
+        self.assertIn("distributed free of charge", self.window.distribution_notice_text.get())
         self.assertIs(
             self.window.distribution_notice_text,
-            self.window.distribution_notice_entry.cget("textvariable"))
+            self.window.distribution_notice_label.cget("textvariable"))
         self.assertFalse(self.window.collect_crash_reports.get())
         self.assertFalse(self.window.full_crash_dumps.get())
         self.assertEqual(
@@ -376,13 +375,27 @@ class WindowTest(unittest.TestCase):
 
     def test_launcher_session_identity_is_visible_and_persisted(self):
         self.assertIn(
-            "Launcher session: version=1.2.1 build=unknown role=launcher",
+            "Launcher session: version=1.2.2 build=unknown role=launcher",
             self._log_text())
         with open(core.launcher_log_path(), encoding="utf-8") as stream:
             persisted = stream.read()
         self.assertIn(
-            "Launcher session: version=1.2.1 build=unknown role=launcher",
+            "Launcher session: version=1.2.2 build=unknown role=launcher",
             persisted)
+
+    def test_language_switch_refreshes_existing_activity_and_distribution_notice(self):
+        raw = "REPLAY_ENTRY: The selected replay file does not exist."
+        self.window._log(raw)
+        self.assertIn(raw, self._log_text())
+        self.window.language_choice.set("中文")
+        self.window._language_selected()
+        self.assertIn("本mod免费传播", self.window.distribution_notice_text.get())
+        self.assertIn("无法播放录像：所选录像文件不存在。", self._log_text())
+        with open(core.launcher_log_path(), encoding="utf-8") as stream:
+            self.assertIn(raw, stream.read())
+        self.window.language_choice.set("English")
+        self.window._language_selected()
+        self.assertIn(raw, self._log_text())
 
     def test_first_run_prompts_once_when_the_launcher_starts(self):
         notice = mock.Mock()
@@ -396,8 +409,10 @@ class WindowTest(unittest.TestCase):
 
         request.assert_called_once_with()
         notice.assert_called_once_with(
-            "免费声明",
-            "本离线mod免费提供，禁止转卖，如果你付费购买，请退款、举报卖给你的人。",
+            "免费声明 / Free Distribution Notice",
+            "本离线mod免费提供，禁止转卖，如果你付费购买，请退款、举报卖给你的人。\n\n"
+            "This offline Mod is distributed free of charge. Resale is prohibited. "
+            "If you paid for it, please request a refund and report the seller.",
             parent=self.window.root)
         self.assertTrue(core.load_settings()["free_notice_seen"])
         reopened = wot_launcher.LauncherWindow(_FakeTk, _FakeTtk, self.dialog)
@@ -2346,7 +2361,9 @@ class WindowTest(unittest.TestCase):
             self.window._save_settings()
             save.assert_not_called()
             info.assert_not_called()
-            self.assertIn('locked old data', error.call_args.args[1])
+            self.assertIn('See the diagnostic logs for details.', error.call_args.args[1])
+        with open(core.launcher_log_path(), encoding="utf-8") as stream:
+            self.assertIn('locked old data', stream.read())
 
     def test_normal_preferences_cleanup_runs_after_confirmation(self):
         game_root = self._game("0.9.22.0.1", "1513")

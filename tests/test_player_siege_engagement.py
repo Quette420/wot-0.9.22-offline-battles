@@ -386,7 +386,7 @@ class SiegeEngagementTests(unittest.TestCase):
                 mock.patch.object(engine, '_local_gun_angles_for_world',
                                   wraps=engine._local_gun_angles_for_world) as aim:
             clear_since = runtime.combat_stop.receipt['confirmation_since']
-            for unused in range(19):
+            for unused in range(9):
                 scene.tick(actuate=False)
                 self.assertFalse(runtime.combat_stop.combat_owned)
                 self.assertIsNone(runtime._siege_pending)
@@ -394,7 +394,7 @@ class SiegeEngagementTests(unittest.TestCase):
                                actuate=False)
             admitted = next(row['position']['admitted_at'] for row in scene.trace
                             if 'admitted_at' in row['position'])
-            self.assertGreaterEqual(admitted - clear_since, 2.)
+            self.assertGreaterEqual(admitted - clear_since, 1.)
             request = runtime._siege_pending
             self.assertTrue(request['enabled'])
             self.assertIsNone(runtime._siege_aim_candidate)

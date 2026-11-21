@@ -403,7 +403,7 @@ class SharedRouteCombatOwnershipTests(unittest.TestCase):
             self.assertEqual('aim', policy.decision['action'])
             self.assertTrue(policy._executable_current(policy.decision['candidate']))
             self.assertTrue(binding.combat_stop.combat_owned)
-            self.assertGreaterEqual(binding.combat_stop.receipt['confirmation_seconds'], 2.)
+            self.assertEqual(0., binding.combat_stop.receipt['confirmation_seconds'])
             self.assertEqual('engage', binding._last_order['combat_mode'])
             scene.world[:] = [((-200., -20., -3.), (200., 20., 3.))]
             shot_count = len([event for event in scene.launches_observed if event['id'] == 11])

@@ -220,13 +220,12 @@ class CombatCircleArrivalTests(unittest.TestCase):
             scene.battle._spawn_planner.capture_bases['2'] = [dict(x=14., z=0., radius=6.)]
             target = scene.eligible_enemy(5)
             owner = scene.runtime.combat_stop
-            start = scene.now
             for unused in range(80):
                 scene.tick(.125)
                 if scene.runtime.combat_stop.combat_owned:
                     break
             self.assertTrue(owner.stop_allowed, owner.receipt)
-            self.assertGreaterEqual(scene.now - start, 2.)
+            self.assertEqual(0., owner.receipt['confirmation_seconds'])
             self.assertNotIn('capture_area', scene.original_order())
             self.assertEqual('route', scene.original_order()['combat_mode'])
 

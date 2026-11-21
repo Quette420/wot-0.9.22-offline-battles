@@ -10,6 +10,8 @@ from __future__ import print_function
 import math
 import os
 
+from gui.mods.offline_lan_0922.ui_i18n import tr
+
 _current = None
 
 
@@ -400,7 +402,7 @@ class PlayerControl(object):
                         implementation='shared_single_source')
             if not current():
                 raise RuntimeError('full_player_runtime_start_retired')
-            self.notify(u'玩家自动控制已开启。')
+            self.notify(tr('Player automatic control is on.'))
             if not current():
                 raise RuntimeError('full_player_runtime_start_retired')
             return True
@@ -516,7 +518,7 @@ class PlayerControl(object):
                 pending_release=[stage for stage, unused in self.release_pending],
                 physical_trigger_continues=bool(getattr(owner, '_local_player_burst', None)))
             if self.live() and not self.release_pending:
-                self.notify(u'玩家自动控制已关闭，恢复手动操作。')
+                self.notify(tr('Player automatic control is off. Manual control restored.'))
         return not self.release_pending
 
     def close(self):

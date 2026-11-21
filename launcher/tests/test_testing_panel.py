@@ -208,7 +208,7 @@ class TestingPanelTests(unittest.TestCase):
         self.assertIn('awaiting completion', panel.status_labels['result'].options['text'])
         self.receipt(panel, command, 'completed', 'shot_fired')
         self.assertIn('Completed', panel.status_labels['result'].options['text'])
-        self.assertIn('shot_fired', panel.status_labels['result'].options['text'])
+        self.assertIn('The client fired a shot.', panel.status_labels['result'].options['text'])
         self.status(panel, live=False, reason='dead')
         self.assertTrue(all(button.options['state'] == ('normal' if button._control_action in
                             testing_ui.player_control_transport.READ_ONLY_ACTIONS | {'stop'} and
@@ -569,8 +569,12 @@ class TestingPanelTests(unittest.TestCase):
         panel = self.panel()
         self.launch(panel)
         panel.open_controls()
-        self.status(panel, manual_aim={'held': False, 'aligned': False,
-            'visible_targets': [{'target_id': 202, 'position': [1, 2, 3]}]})
+        self.status(panel, aim={'action': 'wait', 'failure': None, 'shot_point_source': 'none',
+                               'source_verified': False},
+            manual_aim={'held': False, 'aligned': False, 'observed_at': None,
+                        'visible_targets_truncated': False,
+                        'visible_targets': [{'target_id': 202, 'position': [1, 2, 3]}]})
+        self.assertIn('Aim point source: None', panel.status_labels['aim'].options['text'])
         panel.aim_target_id.set('202')
         panel.aim_tolerance.set('1.25')
         for axis, value in zip(('x', 'y', 'z'), ('-10.5', '3', '42')):
@@ -594,6 +598,10 @@ class TestingPanelTests(unittest.TestCase):
         self.assertEqual('1.25', panel.aim_tolerance.get())
         self.assertEqual(['-10.5', '3', '42'], [panel.aim_position[axis].get() for axis in ('x', 'y', 'z')])
         self.assertIn('可见目标', panel.status_labels['manual_aim'].options['text'])
+        self.assertIn('观察时间: 暂无', panel.status_labels['manual_aim'].options['text'])
+        self.assertIn('可见目标列表已截断: 否', panel.status_labels['manual_aim'].options['text'])
+        self.assertIn('瞄准点来源: 无', panel.status_labels['aim'].options['text'])
+        self.assertIn('瞄准点已复核: 否', panel.status_labels['aim'].options['text'])
 
     def test_invalid_aim_input_never_writes_or_claims_ownership(self):
         panel = self.panel()

@@ -17,7 +17,7 @@ from test_player_combat_ownership import OwnershipScene
 from test_player_combat_stop import Scene
 from test_player_rebuilt_attack_policy import Observations
 from test_player_stationary_plan import install_plan_observations
-from gui.mods.offline_lan_0922 import native_input_diagnostics as logs
+from gui.mods.offline_lan_0922 import native_input_diagnostics as logs, siege_mechanics
 from gui.mods.offline_lan_0922.vehicle_control.attack_policy import _planning_pose
 from gui.mods.offline_lan_0922.vehicle_control.ordered_attack import OrderedAttack
 
@@ -198,8 +198,8 @@ class LiveReportLivenessTests(unittest.TestCase):
 
 
 class StableRouteAttackTests(unittest.TestCase):
-    def scene(self):
-        scene = Scene(admitted=False)
+    def scene(self, siege=None):
+        scene = Scene(siege=siege, admitted=False)
         scene.runtime.actor_kind = 'human'
         scene.raw_order.update(combat_mode='route', move_position=(20., 0., -30.),
                                throttle_override=None, fire_allowed=False)
@@ -208,8 +208,8 @@ class StableRouteAttackTests(unittest.TestCase):
         scene.candidate['solution'].update(yaw=.7)
         return scene
 
-    def test_flashes_and_blocker_never_accumulate_route_confirmation(self):
-        scene = self.scene()
+    def test_siege_flashes_and_blocker_never_accumulate_route_confirmation(self):
+        scene = self.scene(siege=siege_mechanics.DISABLED)
         for step in range(81):
             scene.candidate['line'] = 'world_blocked' if step % 3 == 2 else 'clear'
             order = scene.apply(step * .125)
@@ -218,11 +218,10 @@ class StableRouteAttackTests(unittest.TestCase):
             self.assertFalse(order['fire_allowed'])
         self.assertEqual(0, scene.owner._episode)
 
-    def test_stable_lay_admits_once_and_blocked_lay_requires_a_new_full_window(self):
+    def test_ordinary_lay_admits_immediately_and_releases_when_blocked(self):
         scene = self.scene()
-        for step in range(16):
-            self.assertEqual('route', scene.apply(step * .125)['combat_mode'])
         self.assertEqual('engage', scene.apply(2.)['combat_mode'])
+        self.assertEqual(0., scene.owner.receipt['confirmation_seconds'])
         self.assertEqual(1, scene.owner._episode)
         self.assertIsNotNone(scene.owner.pivot)
         scene.candidate['line'] = 'world_blocked'
@@ -232,10 +231,7 @@ class StableRouteAttackTests(unittest.TestCase):
         self.assertFalse(order['fire_allowed'])
         self.assertTrue(order['stable_hull_face'])
         self.assertEqual('route', scene.apply(3.125)['combat_mode'])
-        scene.candidate['line'] = 'clear'
         self.assertEqual('route', scene.apply(3.25)['combat_mode'])
-        scene.candidate['line'] = 'world_blocked'
-        self.assertEqual('route', scene.apply(3.375)['combat_mode'])
         self.assertEqual(1, scene.owner._episode)
 
     def test_clear_unknown_armour_does_not_qualify_even_after_five_seconds(self):
@@ -245,10 +241,9 @@ class StableRouteAttackTests(unittest.TestCase):
             self.assertEqual('route', scene.apply(step * .125)['combat_mode'])
         self.assertEqual(0, scene.owner._episode)
 
-    def test_five_second_no_he_cooldown_overlaps_two_second_route_confirmation(self):
+    def test_five_second_no_he_cooldown_still_delays_ordinary_route_attack(self):
         scene = self.scene()
-        for step in range(17):
-            scene.apply(step * .125)
+        self.assertEqual('engage', scene.apply(2.)['combat_mode'])
         self.assertTrue(scene.owner.combat_owned)
         scene.decide('navigate', candidate=False, reason='ordered_no_he')
         self.assertEqual('route', scene.apply(2.125)['combat_mode'])
@@ -257,7 +252,7 @@ class StableRouteAttackTests(unittest.TestCase):
         for step in range(39):
             self.assertEqual('route', scene.apply(2.25 + step * .125)['combat_mode'])
             self.assertEqual(1, scene.owner._episode)
-        self.assertGreaterEqual(scene.owner.receipt['confirmation_seconds'], 2.)
+        self.assertEqual(2.25, scene.owner.receipt['confirmation_since'])
         self.assertEqual('engage', scene.apply(7.125)['combat_mode'])
         self.assertEqual(2, scene.owner._episode)
 
@@ -274,15 +269,17 @@ class StableRouteAttackTests(unittest.TestCase):
                 install_plan_observations(scene)
                 target = scene.eligible_enemy(50, armor=30.)
                 scene.pose(target, (math.sin(.7) * 45., 0., math.cos(.7) * 45.))
+                owner = scene.runtime.combat_stop
                 for step in range(17):
                     scene.native_position((step * .04, 0., 0.))
                     scene.battle._local_speed = .32
                     order = scene.tick(.125)
                     self.assertFalse(scene.launches())
-                    if step < 16:
-                        self.assertEqual('route', order['combat_mode'])
-                owner = scene.runtime.combat_stop
-                self.assertEqual(2., owner.receipt['confirmation_seconds'])
+                    if owner.combat_owned:
+                        break
+                    self.assertEqual('route', order['combat_mode'])
+                self.assertTrue(owner.combat_owned)
+                self.assertEqual(0., owner.receipt['confirmation_seconds'])
                 candidate = scene.runtime.attack_policy.decision['candidate']
                 self.assertEqual('hull_laying', candidate['mechanical'])
                 if he:
@@ -296,7 +293,7 @@ class StableRouteAttackTests(unittest.TestCase):
                     self.assertEqual('native_lay', owner.receipt['reason'])
                     self.assertEqual('passed', candidate['armor'])
 
-    def test_friendly_front_vehicle_cancels_confirmation_until_the_ideal_lane_reopens(self):
+    def test_friendly_front_vehicle_blocks_admission_until_the_ideal_lane_reopens(self):
         scene = self.moving_scene((0., 0., 0.), limited=True, clip=10)
         scene.set_he(piercing=100.)
 
@@ -308,13 +305,9 @@ class StableRouteAttackTests(unittest.TestCase):
         policy = scene.runtime.attack_policy
         owner = scene.runtime.combat_stop
         saw_native_block = False
-        for step in range(47):
-            if step == 4:
-                # An enemy front vehicle is now itself a legal HE handoff.
-                # A friendly must still cancel every firing opportunity.
-                front = scene.vehicle(60, point(18.), team=1)
-                scene.pose(front, point(18.))
-                scene.runtime._strategic_due = 0.
+        front = scene.vehicle(60, point(18.), team=1)
+        scene.pose(front, point(18.))
+        for step in range(31):
             if step == 30:
                 scene.pose(front, point(65.))
             scene.native_position((step * .01, 0., 0.))
@@ -322,16 +315,15 @@ class StableRouteAttackTests(unittest.TestCase):
             order = scene.tick(.125)
             self.assertEqual(('bot', 50), policy.ordered.target)
             self.assertFalse(scene.launches())
-            if 4 <= step < 30:
+            if step < 30:
                 self.assertIsNone(owner._route_confirmation)
                 saw_native_block = saw_native_block or any(
                     row.get('line') == 'friendly_blocked' for row in policy.rows.values())
-            if step < 46:
                 self.assertFalse(owner.combat_owned)
                 self.assertEqual('route', order['combat_mode'])
         self.assertTrue(saw_native_block)
         self.assertTrue(owner.combat_owned)
-        self.assertEqual(2., owner.receipt['confirmation_seconds'])
+        self.assertEqual(0., owner.receipt['confirmation_seconds'])
         self.assertEqual('native_lay', owner.receipt['reason'])
         self.assertEqual('hull_laying', policy.decision['candidate']['mechanical'])
 
@@ -347,6 +339,7 @@ class StableRouteAttackTests(unittest.TestCase):
             scene.tick(.125)
         self.assertTrue(owner.combat_owned)
         episode = owner._episode
+        initial_launches = len(scene.launches())
         front = scene.eligible_enemy(60, armor=30.)
         scene.pose(front, (0., 0., 18.))
         scene.runtime._strategic_due = 0.
@@ -367,9 +360,9 @@ class StableRouteAttackTests(unittest.TestCase):
         scene.battle._local_speed = 0.
         for unused in range(30):
             scene.tick(.125)
-            if scene.launches():
+            if len(scene.launches()) > initial_launches:
                 break
-        self.assertEqual([0], [shot['shell_index'] for shot in scene.launches()])
+        self.assertEqual([0], [shot['shell_index'] for shot in scene.launches()[initial_launches:]])
         self.assertEqual(('bot', 60), policy.decision['candidate']['target_key'])
 
     def test_route_he_keeps_ownership_while_clear_points_are_still_being_compared(self):
@@ -382,6 +375,7 @@ class StableRouteAttackTests(unittest.TestCase):
         policy.atomic_time_budget = 0.
         saw_blocker = False
         saw_comparison_pending = False
+        admitted = False
         for step in range(40):
             if step == 17:
                 front = scene.eligible_enemy(60, armor=300.)
@@ -393,11 +387,14 @@ class StableRouteAttackTests(unittest.TestCase):
             scene.native_position((travel, 0., 0.))
             scene.battle._local_speed = 1.12 if step < 17 else .064
             order = scene.tick(.125)
-            if step < 16:
-                self.assertEqual('route', order['combat_mode'])
-            else:
+            if owner.combat_owned and not admitted:
+                self.assertEqual(0., owner.receipt['confirmation_seconds'])
+                admitted = True
+            if admitted or step >= 16:
                 self.assertTrue(owner.combat_owned, (step, owner.receipt, policy.status()))
                 self.assertEqual(1, owner._episode)
+            else:
+                self.assertEqual('route', order['combat_mode'])
             saw_blocker = saw_blocker or any(
                 row.get('reason') == 'planned_front_vehicle' and
                 row['blocker']['actor_key'] == ('bot', 60) for row in policy.rows.values())
@@ -431,9 +428,11 @@ class StableRouteAttackTests(unittest.TestCase):
         install_plan_observations(scene)
         return scene
 
-    def assert_moving_handoff_and_launch(self, scene, task_modes, bearing, dx=0., dz=.01):
+    def assert_moving_handoff_and_launch(self, scene, task_modes, bearing, dx=0., dz=.01,
+                                           target=None):
         x, y, z = scene.position
-        target = scene.eligible_enemy(50, armor=30.)
+        if target is None:
+            target = scene.eligible_enemy(50, armor=30.)
         scene.pose(target, (x + math.sin(bearing) * 45., y, z + math.cos(bearing) * 45.))
         owner = scene.runtime.combat_stop
         initial_clip = scene.battle._gun_state.clip
@@ -449,7 +448,7 @@ class StableRouteAttackTests(unittest.TestCase):
             if not observed_modes or observed_modes[-1] != mode:
                 observed_modes.append(mode)
             if owner.stop_allowed:
-                self.assertGreaterEqual(owner.receipt['confirmation_seconds'], 2.)
+                self.assertEqual(0., owner.receipt['confirmation_seconds'])
                 self.assertEqual('engage', order['combat_mode'])
                 break
             self.assertEqual(mode, order['combat_mode'])
@@ -482,15 +481,30 @@ class StableRouteAttackTests(unittest.TestCase):
                 scene.world[:] = [((-7., -5., 3.), (-1., 8., 8.))]
                 self.assert_moving_handoff_and_launch(scene, ('route',), bearing)
 
-    def test_automatic_capture_approach_keeps_confirming_before_circle_entry(self):
+    def test_automatic_capture_approach_can_engage_before_circle_entry(self):
         with contextlib.redirect_stdout(io.StringIO()):
             scene = self.moving_scene((33.7, 0., 40.), limited=True, clip=10)
+            target = scene.eligible_enemy(50, armor=30.)
+            scene.pose(target, (33.7 + math.sin(.7) * 45., 0., 40. + math.cos(.7) * 45.))
+            scene.world[:] = [((-100., -30., 55.), (100., 30., 58.))]
+            for step in range(40):
+                position = (33.7 + step * .04, 0., 40.)
+                scene.native_position(position)
+                scene.battle._local_speed = .32
+                scene.tick(.125)
+                self.assertFalse(scene.runtime.combat_stop.combat_owned)
+                if scene.original_order()['combat_mode'] == 'base_capture':
+                    break
+            else:
+                self.fail(scene.original_order())
+            scene.world[:] = []
+            scene.position = position
             self.assert_moving_handoff_and_launch(
-                scene, ('route', 'base_capture'), .7, dx=.04, dz=0.)
+                scene, ('base_capture',), .7, dx=.04, dz=0., target=target)
             self.assertFalse(scene.runtime.combat_stop.task_order.get('capture_area'))
             self.assertTrue(scene.runtime.combat_stop.task_order.get('capture_objective'))
 
-    def test_full_runtime_drives_before_sustained_current_proof(self):
+    def test_full_runtime_drives_until_current_proof(self):
         scene = OwnershipScene()
         with contextlib.redirect_stdout(io.StringIO()):
             scene.setUp()
@@ -506,7 +520,7 @@ class StableRouteAttackTests(unittest.TestCase):
                 if since is not None and first is None:
                     first = since
                 if owner.stop_allowed:
-                    self.assertGreaterEqual(scene.now - first, 2.)
+                    self.assertEqual(first, scene.now)
                     self.assertEqual('engage', order['combat_mode'])
                     break
                 self.assertEqual('route', order['combat_mode'])

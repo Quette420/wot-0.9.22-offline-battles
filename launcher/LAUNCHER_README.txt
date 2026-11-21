@@ -1,4 +1,4 @@
-wot-0.9.22-offline-battles v1.2.1
+wot-0.9.22-offline-battles v1.2.2
 
 Supported client: Chinese HD World of Tanks 0.9.22.0.1 #1513 (32-bit).
 The launcher and bundled server require 64-bit Windows.
@@ -8,6 +8,12 @@ beside wot-0.9.22-offline-battles.exe, run the launcher and select the game.
 Use the existing save and vehicle profile. An update does not require resetting
 saves, recordings or settings. Do not mix old and new launcher files or install
 another mod copy manually; the launcher installs its matching client payload.
+
+Choose English, Chinese or Auto with the launcher's language selector. Auto
+uses the Windows display language. The launcher updates its own display when
+you change the selection. The Mod's in-game text uses the selection at the
+next game launch. The first startup notice displays Chinese and English
+together. A Chinese guide is included as README.zh-CN.txt.
 
 The route toolbar groups creation, copy/delete and undo/redo on its first row;
 main/reserve, map checks, view and background-image import are on the second.
@@ -70,11 +76,21 @@ until the budget reopens. Test captures split rotation catalog/native costs
 without changing collision queries. Errors and
 lifecycle messages remain enabled after the diagnostic budget is exhausted.
 
-The same Testing tab enables optional player automation and its mouse control
-panel. With Start automatic control at battle start checked, the selected
-channels take over when the battle is ready. The grave key left of 1 toggles
-takeover from the battle controls. Driving, aim/fire and consumables are
-independent switches. The panel offers Attack, Return to base, Defend base,
+The Testing tab has six checkboxes. All are unchecked by default.
+
+- Collect detailed diagnostic logs records more game and combat detail.
+- Collect detailed collision logs records collision checks and contact detail.
+- Automatic driving takes over hull movement and steering.
+- Automatic aiming and fire takes over target selection, lock, aiming and shots.
+- Automatic consumables uses equipped consumables when needed.
+- Start automatic control at battle start starts the selected features when the battle is ready.
+
+Before opening the game, select Start automatic control at battle start and
+at least one feature. From the battle controls, press the backtick key
+(`) immediately to the left of 1 on the main keyboard's number row to
+restore manual control. Press the same backtick key (`) again to turn
+the selected features back on. The player control panel offers Attack, Return
+to base, Defend base,
 Hold position, Capture base, Halt, Release to manual and the existing bounded
 drive, gun, held-aim, equipment and siege test commands. A submitted command is
 not complete until its matching visible-client receipt says so; fire completion
@@ -136,7 +152,7 @@ assignments. The vehicle modifier has aligned nation/type/tier and
 vehicle/modification-category/field rows, using localized garage-order nations.
 
 English release notes:
-https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.2.1
+https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.2.2
 
 This mod is free; resale is prohibited. World of Tanks game assets are not
 included. This unofficial project is not endorsed by Wargaming.

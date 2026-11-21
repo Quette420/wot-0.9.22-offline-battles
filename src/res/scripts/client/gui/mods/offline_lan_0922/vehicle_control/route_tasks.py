@@ -45,9 +45,11 @@ class RouteTasksMixin:
         # receipt from the previous callback must not cancel that command.
         combat_command = order.get('team_command') in (
             None, 'ATTACK', 'ATTACKENEMY', 'SUPPORTMEWITHFIRE')
-        return bool(explicit or (combat_command and
-            mode in ('route', 'advance', 'advance_contact', 'engage', 'team_attack') and
-            not order.get('defense_base_id') and self._combat_movement_task(bot) is not None))
+        ordinary_travel = (mode in ('route', 'advance', 'advance_contact', 'engage',
+            'team_attack', 'route_transfer', 'parking_approach') or
+            mode == 'base_capture' and order.get('throttle_override') != 0.)
+        return bool(explicit or (combat_command and ordinary_travel and
+            order.get('defense_base_id') is None and self._combat_movement_task(bot) is not None))
 
     def _task_pause_route(self, order, bot, now):
         """Pause the existing route-attempt clock while native combat moves."""

@@ -46,7 +46,8 @@ class SharedEngineControl(SharedOrderPlanning):
                 not runtime._live() or policy.decision.get('action') == 'unchanged'):
             runtime._shared_aim_intention = None
             return command, target
-        if owner.stationary_hold() and getattr(runtime, '_gun_handoff', None) is not None:
+        if (getattr(runtime, '_gun_handoff', None) is not None and
+                (owner.stationary_hold() or owner.defense_travel())):
             command, target = runtime.consume_gun_handoff(
                 state, command, target, now, after_movement=True)
             if command.get('_shared_weapon_handoff'):
@@ -233,7 +234,7 @@ class SharedEngineControl(SharedOrderPlanning):
                 solution.update(_origin=tuple(solution['origin']), arc='low',
                                 _player_motion_only=True)
                 return solution, True
-            if runtime.combat_stop.active:
+            if runtime.combat_stop.active and not runtime.combat_stop.defense_travel():
                 self._ballistic_solution_cache.pop(state['id'], None)
                 return None, False
             return self._physical_cadenced_ballistic_solution(
@@ -325,6 +326,10 @@ class SharedEngineControl(SharedOrderPlanning):
             return command, target
         candidate = runtime.current_attack_candidate(source, target, for_aim=True)
         if candidate is None:
+            if runtime.combat_stop.defense_travel() and runtime.combat_stop.contains(contact):
+                # Track the defence contact while the usual shot is checked.
+                # Tracking has no authority to stop the route or fire.
+                return dict(command, fire_allowed=False), contact
             # Match the contact for which the original driver solved this
             # frame. A later motion-only candidate cannot change its target.
             laying = (runtime.siege_aim_candidate(contact)

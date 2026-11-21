@@ -298,6 +298,8 @@ class CombatControl(object):
                 not owner.contains(candidate.get('target')) or
                 not self.attack_policy._executable(candidate, candidate.get('mode', 'penetration'))):
             return False
+        if owner.defense_travel():
+            return bool(after_movement and command.get('combat_mode') == 'base_defense')
         task = owner.task_order
         capture_hold = owner.stationary_hold()
         if 'drive' in self.features and (task.get('throttle_override') != 0. or
@@ -897,6 +899,8 @@ class CombatControl(object):
         """
         if not self.siege_capable():
             return True
+        if self.combat_stop.defense_travel():
+            return not self.combat_stop.mode_pending()
         physical = observation(self)
         return bool(physical.native_siege_state() == siege_mechanics.ENABLED and
             int((self.state or {}).get('siege_state', 0)) == siege_mechanics.ENABLED and

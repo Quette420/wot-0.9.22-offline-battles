@@ -120,8 +120,8 @@ class Scene:
 
     def apply(self, now):
         self.runtime.now = now
-        self.owner.accept(self.raw_order)
-        result = self.owner.resolve(dict(self.raw_order), now)
+        accepted = self.owner.accept(dict(self.raw_order))
+        result = self.owner.resolve(accepted, now)
         if self.owner.active:
             result = AttackPolicy.apply_order(self.policy, result, now)
         result = self.owner.apply_order(result, now)
@@ -154,6 +154,97 @@ class Scene:
 
 
 class OriginalOwnershipBoundaryTests(unittest.TestCase):
+    def test_verified_combat_interrupts_transfer_parking_approach_and_circle_reentry(self):
+        circle = dict(id='enemy', point=dict(x=100., y=0., z=60.), radius=20.)
+        for mode, task in (
+                ('route_transfer', {}), ('parking_approach', dict(parking_phase='approach')),
+                ('base_capture', dict(capture_area=circle, capture_objective=circle))):
+            with self.subTest(mode=mode):
+                scene = Scene(admitted=False)
+                scene.raw_order.update(task, combat_mode=mode, move_position=(100., 0., 60.),
+                                       throttle_override=None, target_id=None, target_kind=None)
+                scene.decide('wait', candidate=False)
+                self.assertEqual(scene.raw_order['move_position'], scene.apply(0.)['move_position'])
+                result = scene.confirm_clear_route_contact(.1)
+                self.assertEqual('engage', result['combat_mode'])
+                self.assertEqual(0., result['throttle_override'])
+                self.assertNotIn('capture_area', result)
+                self.assertNotIn('parking_phase', result)
+                scene.decide('navigate', candidate=False, reason='ammunition_exhausted')
+                resumed = scene.apply(1.)
+                self.assertEqual(mode, resumed['combat_mode'])
+                self.assertEqual(scene.raw_order['move_position'], resumed['move_position'])
+                for name in task:
+                    self.assertEqual(scene.raw_order[name], resumed[name])
+
+    def test_actual_base_defense_only_owns_the_hull_while_the_gun_uses_live_points(self):
+        for siege in (None, siege_mechanics.DISABLED):
+            with self.subTest(siege=siege):
+                scene = Scene(siege=siege, admitted=False)
+                destination = (17., 0., 31.)
+                scene.raw_order.update(combat_mode='base_defense', defense_base_id='own',
+                    move_position=destination, throttle_override=None)
+                scene.decide('wait', candidate=False)
+                pending = scene.apply(0.)
+                self.assertFalse(pending['fire_allowed'])
+                self.assertTrue(scene.owner.active)
+                self.assertFalse(scene.owner.stop_allowed)
+                self.assertFalse(scene.owner.siege_aim_deferred())
+                self.assertTrue(FullPlayerRuntime._siege_fire_ready(scene.runtime))
+                scene.candidate.update(line='clear')
+                scene.decide('aim')
+                result = scene.apply(1.)
+                self.assertTrue(result['fire_allowed'])
+                self.assertEqual(destination, result['move_position'])
+                self.assertEqual(destination, result['face_position'])
+                self.assertEqual(scene.candidate['solution']['point'], result['aim_position'])
+                self.assertIsNone(result['throttle_override'])
+                self.assertNotIn('_combat_movement_owner', scene.state)
+                if siege is not None:
+                    scene.native_mode(siege_mechanics.SWITCHING_OFF)
+                    self.assertFalse(FullPlayerRuntime._siege_fire_ready(scene.runtime))
+
+    def test_route_combat_does_not_relinquish_control_during_current_point_and_he_reviews(self):
+        scene = Scene(admitted=False)
+        scene.raw_order.update(combat_mode='route', move_position=(20., 0., 40.),
+                               throttle_override=None)
+        scene.confirm_clear_route_contact(0.)
+        for now, reason in ((1., 'ordered_current_target_pending'),
+                            (1.1, 'ordered_he_penetration_pending'),
+                            (7.2, 'ordered_he_penetration_pending'),
+                            (7.3, 'he_damage_comparison_pending'),
+                            (14., 'he_damage_comparison_pending')):
+            scene.decide('wait', candidate=False, reason=reason)
+            result = scene.apply(now)
+            self.assertTrue(scene.owner.stop_allowed, reason)
+            self.assertFalse(result['fire_allowed'], reason)
+            self.assertEqual('engage', result['combat_mode'])
+        scene.decide('aim')
+        self.assertTrue(scene.apply(14.1)['fire_allowed'])
+
+    def test_turn_review_keeps_the_engagement_after_six_seconds_and_after_a_blocked_point(self):
+        scene = Scene(admitted=False)
+        scene.raw_order.update(combat_mode='route', move_position=(20., 0., 40.),
+                               throttle_override=None)
+        scene.hull_lay()
+        scene.confirm_clear_route_contact(0.)
+        pivot = scene.owner.pivot
+        self.assertIsNotNone(pivot)
+        receipt = dict(status='pending')
+        scene.policy.retained_lay_candidate = lambda key, now: receipt
+        scene.decide('wait', candidate=False)
+        self.assertFalse(scene.apply(7.)['fire_allowed'])
+        self.assertIs(scene.owner.pivot, pivot)
+        receipt.update(status='blocked', candidate=dict(scene.candidate, line='world_blocked'))
+        self.assertFalse(scene.apply(7.1)['fire_allowed'])
+        self.assertTrue(scene.owner.stop_allowed)
+        self.assertIsNone(scene.owner.pivot)
+        self.assertFalse(scene.apply(8.2)['fire_allowed'])
+        self.assertTrue(scene.owner.stop_allowed)
+        scene.candidate.update(line='clear', armor='passed', mechanical='reachable')
+        scene.decide('aim')
+        self.assertTrue(scene.apply(8.3)['fire_allowed'])
+
     def test_a_new_candidate_does_not_replace_the_admitted_siege_enemy(self):
         scene = Scene(siege=siege_mechanics.ENABLED)
         episode = scene.owner._episode

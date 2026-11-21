@@ -250,6 +250,9 @@ class MissionControl(object):
         if mission['action'] == 'capture_base' and mission.get('capture_area'):
             if not mission['explicit'] and mission['phase'] == 'defending' and not mission.get('capture_started'):
                 return order
+            if (not mission['explicit'] and self.combat_stop.stop_allowed and
+                    not capture_orders.inside(self.state, mission['capture_area'])):
+                return order
             return capture_orders.constrain(dict(order, capture_area=mission['capture_area']), self.state)
         if mission['action'] in ('attack', 'return_base', 'hold_position', 'defend_base') and mission.get('destination'):
             destination = mission['destination']

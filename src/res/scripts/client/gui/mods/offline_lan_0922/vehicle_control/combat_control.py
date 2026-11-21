@@ -209,7 +209,7 @@ class CombatControl(object):
                 observation(self).native_siege_state() != siege_mechanics.ENABLED):
             self.siege_aim.reset()
             return
-        if (self._mission_brakes() or
+        if (self._mission_brakes() or self.combat_stop.siege_contact_unobserved() or
                 not self.combat_stop.combat_owned or
                 self.attack_policy.decision.get('reason') == 'blocked_target_handoff' or
                 self.attack_policy.decision.get('action') not in
@@ -236,6 +236,8 @@ class CombatControl(object):
         if 'fire' in self.features:
             if self.combat_stop.navigation_owns(command):
                 return False
+            if self.combat_stop.siege_engagement_target() is not None:
+                return True
             # The policy may legitimately withhold its firing target while
             # armour/mechanical evidence is pending.  That is not a loss of
             # the already selected visible contact, nor a navigation handoff.
@@ -942,6 +944,9 @@ class CombatControl(object):
                 if self.combat_stop.waiting_for_siege():
                     self.attack_policy.decision = dict(action='wait',
                         reason='engagement_waits_native_siege', candidate=None)
+                elif self.combat_stop.siege_contact_unobserved():
+                    self.attack_policy.decision = dict(action='wait',
+                        reason='siege_contact_unobserved', candidate=None)
                 else:
                     self.attack_policy.update(now)
                 if trace_cost:

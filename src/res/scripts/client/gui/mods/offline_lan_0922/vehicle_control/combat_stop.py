@@ -113,22 +113,27 @@ class CombatStop(object):
         runtime = self.runtime
         self.task_order = dict(order)
         self._update_siege_hold_task(order)
-        visible = dict((_key(row), row) for row in runtime.visible_targets()
+        observed = runtime.visible_targets()
+        visible = dict((_key(row), row) for row in observed
                        if live_contact(row) and row.get('visible', True))
         initial = order.get('initial_target_hint') or order
         hint = _key(dict(kind=initial.get('target_kind'), id=initial.get('target_id')))
         mode = order.get('combat_mode')
         state = runtime.state or {}
-        retained = bool(self.combat_owned and visible and
-                        mode in _ORDINARY_MODES + ('hold', 'base_capture', 'base_screen'))
         previous_target = self._intent_target
-        selected = previous_target if retained and previous_target in visible else (min(visible,
+        unobserved_siege_contact = bool(self.combat_owned and previous_target is not None and
+            previous_target not in visible and runtime.siege_capable() and
+            not self._siege_contact_retired(previous_target, observed))
+        retained = bool(self.combat_owned and (visible or unobserved_siege_contact) and
+                        mode in _ORDINARY_MODES + ('hold', 'base_capture', 'base_screen'))
+        selected = previous_target if retained and (previous_target in visible or
+            unobserved_siege_contact) else (min(visible,
             key=lambda key: ordinary_initial_key(state['position'], visible[key]))
             if visible and (retained or hint in visible) else hint)
         self.active = bool('fire' in runtime.features and
             (state.get('profile') or {}).get('class_tag') != 'SPG' and
             (mode in _COMBAT_MODES + ('route', 'hold', 'base_capture', 'base_screen') or retained) and
-            visible and
+            (visible or unobserved_siege_contact) and
             not order.get('empty_ammo') and not runtime._mission_brakes() and
             not self.siege_departing)
         mission = getattr(runtime, '_mission', None) or {}
@@ -159,7 +164,7 @@ class CombatStop(object):
             not explicit_travel)
         self.combat_owned = bool(self.active and retained)
         self.stop_allowed = bool(self.combat_owned and self.can_request_movement)
-        if self.combat_owned and previous_target not in visible:
+        if self.combat_owned and previous_target not in visible and not unobserved_siege_contact:
             # A departing target retires its own lay, not the engagement.
             self._handoff_target(selected, runtime.now, 'target_departed')
             self._target_departed = True
@@ -598,20 +603,38 @@ class CombatStop(object):
             return self._intent_target
         return None
 
+    def _siege_contact_retired(self, target, observed):
+        kind, identity = target
+        record_key = '%s:%s' % ('player' if kind == 'human' else kind, identity)
+        records = getattr(self.runtime.owner, '_records', {})
+        record = records.get(record_key) or {}
+        state = record.get('state') or {}
+        return (record.get('tombstone') or state.get('participating') is False or
+                not live_contact(state) or any(_key(row) == target and not live_contact(row)
+                    for row in observed if isinstance(row, dict)))
+
+    def siege_contact_unobserved(self):
+        target = self.siege_engagement_target()
+        return target is not None and all(_key(row) != target for row in self.targets)
+
     def _siege_contact_lost(self, target, now):
         # Only the normal point search of the enabled gun can observe the
         # admitted enemy. Pending work cannot start or expire this interval.
         if self.siege_aim_deferred():
             return False
         runtime = self.runtime
-        lane = runtime.attack_policy.siege_contact_lane(target)
+        # Losing the current spotting/radio contact removes the usable line
+        # immediately. Keep the same engagement while its one timer runs.
+        lane = ('unobserved' if self.siege_contact_unobserved() else
+                runtime.attack_policy.siege_contact_lane(target))
+        blocked = lane in ('blocked', 'unobserved')
         if lane == 'clear':
             self._siege_blocked_since = None
-        elif lane == 'blocked' and self._siege_blocked_since is None:
+        elif blocked and self._siege_blocked_since is None:
             self._siege_blocked_since = now
         since = self._siege_blocked_since
         elapsed = now - since if since is not None else None
-        lost = lane == 'blocked' and elapsed > SIEGE_CONTACT_LOSS_SECONDS
+        lost = blocked and elapsed > SIEGE_CONTACT_LOSS_SECONDS
         if combat_detail_enabled():
             combat_detail(runtime, 'siege_contact_lane', runtime.actor_id, now,
                 'expired' if lost else lane, lambda: dict(target=target,
@@ -1157,6 +1180,12 @@ class CombatStop(object):
 
     def apply_order(self, order, now):
         """Supply only combat stop/release intent, before the original driver."""
+        if self.siege_contact_unobserved():
+            if self.stop_allowed:
+                order = self._stop(order, 'siege_contact_unobserved', now,
+                                   tuple(self.runtime.state['position']))
+            return dict(order, target_kind=None, target_id=None, aim_position=None,
+                        stable_hull_face=True, fire_allowed=False)
         if not self.stop_allowed:
             if self._ordinary_parking_hold():
                 return self._parking_facing_order(order, now)

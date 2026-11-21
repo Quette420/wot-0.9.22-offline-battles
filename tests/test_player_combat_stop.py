@@ -1159,22 +1159,52 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
         self.assertFalse(self.desired(scene, target=scene.target))
         self.assertEqual(scene.raw_order, scene.apply(0.))
 
-    def test_native_visibility_loss_and_reacquisition_follow_original_order(self):
+    def test_lost_visibility_keeps_the_enemy_until_a_real_line_returns(self):
         scene = Scene(siege=siege_mechanics.ENABLED)
         self.assertTrue(self.desired(scene))
-        selected = dict(scene.raw_order)
-        scene.runtime._targets = ()
-        scene.raw_order.update(target_id=None, target_kind=None, combat_mode='route',
+        other = dict(scene.target, id=3, network_id=3, position=(8., 0., 70.))
+        scene.runtime._targets = (other,)
+        scene.raw_order.update(target_id=3, combat_mode='route',
                                move_position=(0., 0., 40.), throttle_override=None)
-        scene.owner.accept(scene.raw_order)
-        self.assertFalse(self.desired(scene))
-        scene.runtime._targets = (scene.target,)
-        scene.raw_order = selected
-        scene.candidate.update(line='clear', mechanical='reachable')
-        scene.decide('aim')
-        scene.owner.accept(scene.raw_order)
-        scene.owner.resolve(scene.raw_order, 0.)
-        self.assertTrue(self.desired(scene))
+        scene.decide('wait', candidate=False, reason='siege_contact_unobserved')
+        episode = scene.owner._episode
+        result = scene.apply(2.)
+        self.assertTrue(self.desired(scene, result))
+        self.assertEqual(('bot', 2), scene.owner.siege_engagement_target())
+        self.assertIsNone(result['target_id'])
+        self.assertIsNone(result['aim_position'])
+        self.assertFalse(result['fire_allowed'])
+        self.assertEqual(scene.state['position'], result['move_position'])
+
+        scene.runtime._targets = ()
+        self.assertTrue(self.desired(scene, scene.apply(8.)))
+        scene.runtime._targets = (scene.target, other)
+        scene.siege_lane = 'pending'
+        self.assertTrue(self.desired(scene, scene.apply(8.125)))
+        self.assertEqual(2., scene.owner._siege_blocked_since)
+        scene.siege_lane = 'clear'
+        self.assertTrue(self.desired(scene, scene.apply(8.25)))
+        self.assertEqual(episode, scene.owner._episode)
+        self.assertIsNone(scene.owner._siege_blocked_since)
+
+    def test_spotting_loss_counts_only_after_siege_and_exits_without_retargeting(self):
+        scene = Scene(siege=siege_mechanics.ENABLED)
+        scene.raw_order.update(combat_mode='route', move_position=(0., 0., 60.),
+                               throttle_override=None)
+        scene.runtime._targets = ()
+        scene.decide('wait', candidate=False, reason='siege_contact_unobserved')
+        scene.native_mode(siege_mechanics.SWITCHING_ON)
+        self.assertTrue(scene.owner.combat_owned)
+        self.assertTrue(self.desired(scene, scene.apply(7.)))
+        self.assertIsNone(scene.owner._siege_blocked_since)
+        scene.native_mode(siege_mechanics.ENABLED)
+        self.assertTrue(self.desired(scene, scene.apply(8.)))
+        self.assertTrue(self.desired(scene, scene.apply(14.)))
+        result = scene.apply(14.125)
+        self.assertFalse(self.desired(scene, result))
+        self.assertEqual('siege_contact_line_lost', scene.owner.receipt['reason'])
+        self.assertEqual(scene.state['position'], result['move_position'])
+        self.assertFalse(result['fire_allowed'])
 
     def test_local_recovery_does_not_exit_siege_because_of_travel_distance(self):
         scene = Scene(siege=siege_mechanics.ENABLED)
@@ -1340,11 +1370,12 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
 
 
 class SupportAndStationaryOwnershipRegressionTests(unittest.TestCase):
-    def test_departed_target_with_only_pending_enemies_releases_siege_immediately(self):
+    def test_destroyed_target_with_only_pending_enemies_releases_siege_immediately(self):
         scene = Scene(siege=siege_mechanics.ENABLED)
         scene.raw_order.update(combat_mode='route', move_position=(0., 0., 60.))
         other = dict(scene.target, id=3, network_id=3, position=(15., 0., 80.))
         scene.runtime._targets = (other,)
+        scene.runtime.owner._records = {'bot:2': dict(state=dict(alive=False, health=0))}
         scene.decide('wait', candidate=False, reason='ordered_current_target_pending')
         result = scene.apply(.1)
         self.assertFalse(scene.owner.combat_owned)

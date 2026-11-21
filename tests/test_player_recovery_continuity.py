@@ -16,15 +16,9 @@ from gui.mods.offline_lan_0922.vehicle_control.attack_policy import AttackPolicy
 
 class SelectedPointRecoveryContinuityTests(unittest.TestCase):
     def confirm_clear_reentry(self, scene, start):
-        scene.candidate.update(line='clear', mechanical='reachable', armor='passed')
-        scene.decide('aim')
-        for step in range(10):
-            scene.apply(start + step * .2)
-            self.assertFalse(scene.owner.stop_allowed)
-        result = scene.apply(start + 2.)
-        self.assertTrue(scene.owner.stop_allowed)
+        scene.candidate['mechanical'] = 'reachable'
+        scene.confirm_clear_route_contact(start)
         self.assertIsNone(scene.owner._physical_recovery)
-        return result
 
     def scene(self, statuses=None):
         scene = Scene()

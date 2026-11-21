@@ -299,7 +299,9 @@ class HEVerificationFlowTests(unittest.TestCase):
         self.assertTrue(saw_native_load)
         self.assertEqual([1], [shot['shell_index'] for shot in scene.launches()], policy.status())
         self.assertTrue(scene.launches()[0]['is_he'])
-        self.assertEqual('current_he_fallback_contact', policy.decision['reason'])
+        candidate = policy.decision['candidate']
+        self.assertEqual(('he_fallback', 1, 'clear'),
+                         (candidate['mode'], candidate['shell_index'], candidate['line']))
         self.assertEqual((initial[0], initial[1] - 1), tuple(gun.ammo))
         self.assertEqual(5, gun.clip)
         self.assertEqual(1, scene.control.shot_commits)
@@ -402,9 +404,8 @@ class HEVerificationFlowTests(unittest.TestCase):
         scene, target = self.scene()
         gun, policy = scene.battle._gun_state, scene.runtime.attack_policy
         initial = tuple(gun.ammo)
-        # This low slab blocks the selected lower HE path. The original
-        # centre lane and some other AP sample paths remain physically open.
-        scene.world[:] = [((9., 1.35, 19.), (11., 1.50, 21.))]
+        # Cover every available HE path so no first-frame shot can be authorized.
+        scene.world[:] = [((9., 1.35, 19.), (11., 2.05, 21.))]
         saw_blocked = False
         for unused in range(15):
             self.tick(scene)
@@ -420,9 +421,18 @@ class HEVerificationFlowTests(unittest.TestCase):
             self.assertEqual(0, gun.shot_index)
             self.assertFalse(hasattr(policy, 'search_started'))
         self.assertTrue(saw_blocked)
-        scene.world[:] = []
+        # Reopen the coarse route lane while the low sample remains covered.
+        scene.world[:] = [((9., 1.35, 19.), (11., 1.50, 21.))]
         scene.pose(target, (20.1, 0., 40.))
-        self.run_until_shots(scene)
+        self.assertEqual({5: True}, scene.sample_original_lanes())
+
+        def observe():
+            self.assertFalse(any(row['shell_index'] == 1 for row in policy.rows.values()))
+
+        self.run_until_shots(scene, observe=observe)
+        candidate = policy.decision['candidate']
+        self.assertEqual('clear', candidate['line'])
+        self.assertNotEqual(0, candidate['sample'])
         self.assertEqual([0], [shot['shell_index'] for shot in scene.launches()])
         self.assertEqual((initial[0] - 1, initial[1]), tuple(gun.ammo))
 

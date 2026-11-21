@@ -363,7 +363,7 @@ class EmbeddedSharedImportOrderTests(unittest.TestCase):
         runtime.visible_targets = lambda: [target]
         runtime.attack_policy = policy_module.AttackPolicy(runtime, evaluator=object())
         # The native observer's current row is the only proof seam supplied
-        # here. _plannable/_executable/current_target_key remain production.
+        # here. _executable and current_target_key remain production.
         runtime.attack_policy.current_row = lambda candidate, require_line=True: candidate
         owner = owner_module.CombatStop(runtime)
         route = dict(combat_mode='route', move_position=dict(x=30., y=0., z=120.),
@@ -429,7 +429,7 @@ class EmbeddedSharedImportOrderTests(unittest.TestCase):
         runtime, owner, target, route = self.combat_movement_fixture()
         runtime.actor_kind = 'human'
         candidate = dict(target=target, armor='passed', line='clear',
-            mechanical='hull_laying', solution=dict(yaw=1., needs_hull=True),
+            mechanical='hull_laying', solution=dict(yaw=1., needs_hull=True, turn_only=True),
             mode='penetration', shell_index=0, key=(0, ('bot', 12), 0, 'penetration'))
         runtime.attack_policy.decision = dict(action='firing_position', candidate=candidate)
         runtime.now = 1.

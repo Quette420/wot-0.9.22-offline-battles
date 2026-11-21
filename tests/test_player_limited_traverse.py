@@ -14,12 +14,76 @@ from unittest import mock
 
 import test_player_fire_admission_complete as fire_tests
 from player_native_fixtures import descriptor
-from gui.mods.offline_lan_0922 import gun_mechanics, shot_geometry
+from gui.mods.offline_lan_0922 import destructibles_sensor, gun_mechanics, shot_geometry
 from gui.mods.offline_lan_0922.vehicle_control.player_binding import PlayerControl
 from gui.mods.offline_lan_0922.vehicle_control import attack_policy
+from gui.mods.offline_lan_0922.vehicle_control.geometry import SharedBattleGeometry
 from gui.mods.offline_lan_0922.vehicle_control.native_aim import (
     NATIVE_ANGLE_TOLERANCE, _direction, mechanical_reach)
 from gui.mods.offline_lan_0922.ai import driver
+
+
+def install_ground_observations(scene, around_center=True, track_center=1.5, slope=(0., 0.)):
+    """Add exact descriptor/support/empty-catalog native I/O to TraverseScene."""
+    descriptor, battle, runtime = scene.entity.typeDescriptor, scene.battle, scene.runtime
+    descriptor.chassis.rotationIsAroundCenter = around_center
+    descriptor.physics['trackCenterOffset'] = track_center
+    descriptor.physics.setdefault('weight', 35000.)
+    scene.entity.siegeState = 0
+    scene.catalog_calls, scene.ground_calls = [], []
+    scene.catalog_status, scene.scene_revision = 'clear', 0
+    scene.tree_status = 'clear'
+    scene.ground_function = lambda x, z: slope[0] * x + slope[1] * z
+
+    def ground(x, z, hint=0.):
+        scene.ground_calls.append((x, z, hint))
+        return scene.ground_function(x, z)
+
+    def support_hit(start, end, unused_filter):
+        height = ground(start.x, start.z, start.y - 2.)
+        if height is not None and end.y <= height <= start.y:
+            return battle._vector((start.x, height, start.z)), battle._vector((0., 1., 0.))
+        return None
+
+    def catalog(*args, **kwargs):
+        scene.catalog_calls.append((args, kwargs))
+        return dict(status=scene.catalog_status, token=None, accepted_now=False,
+                    requires_commit=False, used_kinetic_speed=False, kinds='-')
+
+    scene.sensor = types.SimpleNamespace(
+        _vehicle_body_bbox=destructibles_sensor._vehicle_body_bbox,
+        _catalog_motion_proposal=catalog,
+        _tree_motion_proposal=lambda *args, **kwargs: dict(status=scene.tree_status, token=None,
+            accepted_now=False, requires_commit=False, kinds='-'),
+        _spatial_revision_1513=lambda: scene.scene_revision)
+    battle._destructibles = scene.sensor
+    battle._collide_down = support_hit
+    runtime.geometry._ground_y = ground
+    # The broader runtime fixture has no debris. Restore the production
+    # landed-turret consumer here so an observed obstacle is really tested.
+    runtime.geometry._turret_motion_is_clear = types.MethodType(
+        SharedBattleGeometry._turret_motion_is_clear, runtime.geometry)
+    runtime.engine._turret_motion_probe = runtime.geometry._turret_motion_is_clear
+    plane = runtime.geometry._sample_ground_plane(scene.position, scene.body.yaw, descriptor)
+    if slope != (0., 0.):
+        battle._runtime.math.Matrix = fire_tests.SpatialPose
+        scene.body = fire_tests.SpatialPose()
+        scene.body.setRotateYPR((0., plane['pitch'], plane['roll']))
+        scene.body.translation = scene.position
+        scene.entity.matrix = scene.body
+        battle._local_matrix = battle._local_pose_matrix = scene.body
+    battle._local_ground_plane = plane
+    battle._local_terrain_pitch = plane['pitch']
+    battle._local_pitch, battle._local_roll = plane['pitch'], plane['roll']
+    battle._local_airborne = False
+    battle._local_speed = battle._local_turn_speed = battle._local_vertical_speed = 0.
+    battle._records['player:1']['state']['critical'] = dict(destroyed=[])
+    rotator = battle._avatar.gunRotator
+    scene.origin = shot_geometry.shot_origin_and_direction(descriptor,
+        tuple(scene.body.translation), scene.body.yaw, scene.body.pitch, scene.body.roll,
+        rotator.turretYaw, rotator.gunPitch)[0]
+    scene.observe()
+    return scene
 
 
 class TraverseScene(fire_tests.AutomaticFireScene):
@@ -241,6 +305,8 @@ class LimitedTraverseGeometryTests(TraverseHarness, unittest.TestCase):
         self.assertEqual('pitch_limit', reach['reason'])
         self.assertFalse(reach['needs_hull'])
         self.assertEqual('mechanical_limited', attack_policy._mechanical(
+            desc, _direction(.1, .2), (0., 0., 0.))['status'])
+        self.assertEqual('hull_laying', attack_policy._mechanical(
             desc, _direction(.7, .2), (0., 0., 0.))['status'])
 
     def test_full_or_already_in_arc_gun_does_not_acquire_a_hull_request(self):

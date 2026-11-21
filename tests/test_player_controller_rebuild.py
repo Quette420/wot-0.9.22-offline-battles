@@ -343,7 +343,9 @@ class FullControllerBoundaryTests(unittest.TestCase):
                 return 'manual'
         self.owner._avatar.inputHandler = handler = Handler()
         self.control.input_available = lambda: True
-        modules = dict(Keys=types.SimpleNamespace(KEY_GRAVE=41, KEY_LEFTMOUSE=256, KEY_RIGHTMOUSE=257),
+        drive_keys = dict(KEY_W=17, KEY_A=30, KEY_S=31, KEY_D=32, KEY_R=19, KEY_F=33)
+        modules = dict(Keys=types.SimpleNamespace(KEY_GRAVE=41, KEY_LEFTMOUSE=256,
+                                                KEY_RIGHTMOUSE=257, **drive_keys),
                        game=types.SimpleNamespace(convertKeyEvent=lambda value: value))
         with mock.patch.dict(sys.modules, modules), mock.patch.object(module, '_current', self.control):
             PlayerControl.bind_input(self.control)
@@ -352,6 +354,8 @@ class FullControllerBoundaryTests(unittest.TestCase):
                 for key in (256, 257):
                     self.assertEqual(True if active and fire else 'manual',
                                      handler.handleKeyEvent((True, key, 0, False)))
+                for key in drive_keys.values():
+                    self.assertEqual('manual', handler.handleKeyEvent((True, key, 0, False)))
             self.control.active = False
             self.control.features = {'fire'}
             self.owner._battle_live = False
@@ -365,6 +369,20 @@ class FullControllerBoundaryTests(unittest.TestCase):
             module.handle_key(False, 41)
             module.handle_key(True, 41)
             self.assertFalse(self.control.active)
+            self.control.features = {'drive'}
+            self.control.toggle()
+            self.assertTrue(self.control.owns_automatic_drive())
+            for key in drive_keys.values():
+                for down, repeat in ((True, False), (True, True), (False, False)):
+                    self.assertTrue(handler.handleKeyEvent((down, key, 0, repeat)))
+            self.control.input_available = lambda: False
+            self.assertEqual('manual', handler.handleKeyEvent((True, drive_keys['KEY_W'], 0, False)))
+            self.control.input_available = lambda: True
+            self.assertTrue(handler.handleKeyEvent((False, 41, 0, False)))
+            self.assertTrue(handler.handleKeyEvent((True, 41, 0, False)))
+            self.assertFalse(self.control.active)
+            for key in drive_keys.values():
+                self.assertEqual('manual', handler.handleKeyEvent((True, key, 0, False)))
         self.control.close()
         self.assertEqual('manual', handler.handleKeyEvent(None))
 
@@ -1125,6 +1143,9 @@ class FullRuntimeMissionOwnershipTests(unittest.TestCase):
                 # anonymous target that no planner selected.
                 contact = scene.runtime._targets[0] if has_contact else None
                 if not has_contact:
+                    # No contact before admission is distinct from a
+                    # temporary spotting loss after siege already owns it.
+                    scene.runtime.combat_stop.reset()
                     scene.battle._records['bot:42']['spot_visible'] = False
                     scene.observe()
                     scene.runtime._strategic_due = 0.

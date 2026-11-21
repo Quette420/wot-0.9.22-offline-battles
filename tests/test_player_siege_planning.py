@@ -1,7 +1,7 @@
 """Active hydraulic aim/finite-TD proofs, never prospective mode admission.
 
-Native observation fixtures feed production policy, source inversion,
-stationary collision certificates and hydraulic actuation. These tests do
+Native observation fixtures feed production policy, source inversion
+and hydraulic actuation. These tests do
 not establish physical Windows client timing/rendering acceptance.
 """
 from contextlib import redirect_stdout
@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 
 from test_player_siege_engagement import SiegeScene
-from test_player_stationary_plan import install_plan_observations, NativePlanScene
+from test_player_limited_traverse import install_ground_observations
 from gui.mods.offline_lan_0922 import shot_geometry, siege_mechanics, tank_collision, vehicle_physics
 from gui.mods.offline_lan_0922.vehicle_control import siege_planning
 from gui.mods.offline_lan_0922.vehicle_control.native_aim import (
@@ -21,18 +21,14 @@ from gui.mods.offline_lan_0922.vehicle_control.native_aim import (
 
 
 class ActualHydraulicScene(SiegeScene):
-    def configure_plan(self, **kwargs):
+    def configure_hydraulics(self, **kwargs):
         self.configure(**kwargs)
         enabled = self.entity.siegeState
         self.position = (0., 0., 0.)
-        self.plan_receipts = []
-        install_plan_observations(self)
+        install_ground_observations(self)
         self.entity.siegeState = enabled
         self.observe()
         return self
-
-    plan_frame = NativePlanScene.plan_frame
-    plan = NativePlanScene.plan
 
     def evaluated_row(self, sample=0, mode='penetration'):
         policy = self.runtime.attack_policy
@@ -62,7 +58,7 @@ class ActualSiegeAimTests(unittest.TestCase):
         scene = ActualHydraulicScene()
         scene.setUp()
         self.addCleanup(scene.doCleanups)
-        return scene.configure_plan(**kwargs)
+        return scene.configure_hydraulics(**kwargs)
 
     def test_future_mode_precheck_api_is_removed(self):
         for name in ('SiegePrecheck', 'project_solution', 'PRECHECK_CANDIDATES'):
@@ -124,43 +120,12 @@ class ActualSiegeAimTests(unittest.TestCase):
         angles.assert_not_called()
         self.assertEqual('inactive', scene.runtime.siege_aim.status()['status'])
 
-    def test_proved_sideways_turn_precedes_current_heading_hydraulic_pitch_limit(self):
-        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
-        scene.pose(scene.target, (100., 12., 0.))
-        row = None
-        for unused in range(30):
-            row = scene.evaluated_row()
-            if (row.get('stationary_plan') or {}).get('status') == 'proved':
-                break
-            scene.fixture.now += .11
-        policy = scene.runtime.attack_policy
-        planned = policy._planned_evidence(row)
-        self.assertIsNotNone(planned, row)
-        self.assertTrue(planned['solution']['needs_hull'])
-        hydraulic = active_hydraulic_pose(scene.runtime, policy.frame)
-        reach = hydraulic_reach(policy.frame['descriptor'],
-            planned['solution']['direction'], hydraulic['body'], hydraulic)
-        self.assertEqual('hydraulic_pitch_limit', reach['reason'])
-        before_world = len(scene.world_queries)
-        result = scene.runtime.siege_aim.candidate(policy.frame, scene.now, row)
-        self.assertIsNotNone(result, scene.runtime.siege_aim.status())
-        self.assertTrue(result['solution']['needs_hull'])
-        self.assertEqual(hydraulic['correction'], result['solution']['hydraulic_pitch'])
-        self.assertFalse(result['solution']['needs_hydraulic'])
-        self.assertFalse(policy._executable(result))
-        self.assertEqual(before_world, len(scene.world_queries))
-        # Removing the checked arc must not authorize this sideways input.
-        unproved = dict(row, stationary_plan=None)
-        policy.rows[row['key']] = unproved
-        self.assertIsNone(scene.runtime.siege_aim.candidate(policy.frame, scene.now, unproved))
-        self.assertEqual(0, scene.runtime.siege_aim.status()['native_calls'])
-
     def test_current_heading_pitch_refusal_logs_only_with_detailed_diagnostics(self):
         scene = self.scene(enabled_pitch=(0., 0.))
-        scene.pose(scene.target, (100., 12., 0.))
+        scene.pose(scene.target, (0., 55., 100.))
         row = scene.evaluated_row()
         policy, helper = scene.runtime.attack_policy, scene.runtime.siege_aim
-        row = dict(row, line='clear', stationary_plan=None)
+        row = dict(row, line='clear')
         policy.rows[row['key']] = row
         for enabled in ('0', '1'):
             output = StringIO()
@@ -340,14 +305,6 @@ class ActualSiegeAimTests(unittest.TestCase):
             self.assertIsNone(helper.candidate(scene.runtime.attack_policy.frame, scene.now, row))
         self.assertEqual('actual_hydraulic_observation_changed', helper.status()['reason'])
 
-    def test_all_point_certificate_progress_does_not_start_point_by_point_hydraulic_motion(self):
-        scene = self.scene()
-        row = scene.evaluated_row()
-        policy = scene.runtime.attack_policy
-        policy.selected = row['key']
-        policy.decision = dict(action='wait', reason='stationary_domain_review_pending')
-        self.assertIsNone(scene.runtime.siege_aim.candidate(policy.frame, scene.now))
-
     def test_hydraulic_compose_is_exact_on_rolled_ground_with_nonzero_pivot(self):
         position, flat, correction, center = (1., 2., 3.), (.4, .13, -.17), -.12, 1.5
         mounted, actual = hydraulic_body(position, flat, correction, center)
@@ -403,101 +360,6 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
     scene = ActualSiegeAimTests.scene
     # Separate current-mode point projections share the existing stationary
     # frontier/budgets; they are not an additional mode-entry search.
-    def test_zero_pitch_hydraulic_samples_close_independently_without_moving_actor(self):
-        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
-        original = scene.body.yaw, scene.body.pitch, tuple(scene.body.translation)
-        corrections = []
-        for sample in (0, 1, 2, 3):
-            frame, plan = scene.plan(sample=sample)
-            self.assertEqual('proved', plan['status'], plan)
-            self.assertFalse(plan['proof']['fire_permission'])
-            self.assertIsNotNone(plan['proof']['hydraulic'])
-            solution = plan['prediction']['solution']
-            self.assertTrue(solution['needs_hydraulic'])
-            self.assertFalse(solution['source_verified'])
-            corrections.append(solution['hydraulic_pitch'])
-            self.assertTrue(scene.planner.current(frame, plan['proof']))
-            scene.fixture.now += .11
-        self.assertGreater(len(set(round(v, 5) for v in corrections)), 1)
-        self.assertEqual(original, (scene.body.yaw, scene.body.pitch, tuple(scene.body.translation)))
-
-    def test_hydraulic_contact_blocked_is_pending_not_armour_failure(self):
-        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
-        with mock.patch.object(scene.runtime.geometry, '_turret_motion_is_clear', return_value=False):
-            frame, plan = scene.plan()
-            row = scene.evaluated_row()
-        self.assertEqual('pending', plan['status'])
-        self.assertEqual('stationary_hydraulic_sweep_blocked', plan['reason'])
-        self.assertEqual('unknown', row['armor'])
-        self.assertNotEqual('excluded', row.get('scope'))
-
-    def test_outside_hydraulic_range_stays_explicitly_unreachable(self):
-        scene = self.scene(enabled_pitch=(0., 0.))
-        scene.pose(scene.target, (0., 80., 100.))
-        unused, plan = scene.plan()
-        self.assertEqual('pending', plan['status'])
-        self.assertEqual('stationary_hydraulic_pitch_unreachable', plan['reason'])
-
-    def test_actual_pitch_change_retires_old_stationary_receipt(self):
-        scene = self.scene(enabled_pitch=(0., 0.))
-        frame, plan = scene.plan()
-        self.assertEqual('proved', plan['status'], plan)
-        scene.battle._local_siege_aim_pitch = -.1
-        self.assertFalse(scene.planner.current(frame, plan['proof']))
-
-    def test_active_hydraulic_yaw_uses_existing_shortest_arc_and_flat_support(self):
-        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=-1.5)
-        scene.pose(scene.target, (math.sin(.6) * 100., 12., math.cos(.6) * 100.))
-        frame, plan = scene.plan()
-        self.assertEqual('proved', plan['status'], plan)
-        self.assertTrue(plan['proof']['arc'])
-        self.assertGreater(plan['prediction']['solution']['hull_yaw'], .5)
-        self.assertTrue(plan['prediction']['solution']['needs_hydraulic'])
-        self.assertTrue(all(receipt['hydraulic']['native_clear'] for receipt in plan['proof']['arc']))
-        self.assertAlmostEqual(0., plan['proof']['source_support']['pitch'])
-        self.assertLess(sum(abs(receipt['end_yaw'] - receipt['start_yaw'])
-                            for receipt in plan['proof']['arc']), math.pi)
-
-    def test_hydraulic_turn_rechecks_the_complete_chassis_on_uneven_ground(self):
-        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
-        descriptor = scene.entity.typeDescriptor
-        width, length = tank_collision.chassis_shape(descriptor)[:2]
-        scene.ground_function = lambda x, z: .02 * x + .07 * (z / length) ** 2
-        battle = scene.battle
-        accepted = self.complete_ground_pose(scene)
-        scene.pose(scene.target, (math.sin(-.7) * 100., 8., math.cos(-.7) * 100.))
-        scene.ground_calls.clear()
-        frame, plan = scene.plan()
-        self.assertEqual('proved', plan['status'], plan)
-        proof = plan['proof']
-        self.assertEqual('full_chassis_contacts', proof['source_support']['kind'])
-        self.assertAlmostEqual(accepted['pitch'], proof['source_support']['pitch'], places=5)
-        self.assertAlmostEqual(accepted['roll'], proof['source_support']['roll'], places=5)
-        self.assertGreaterEqual(len(scene.ground_calls), 22)
-        self.assertLess(plan['flat_body'][0], -.5)
-        self.assertNotAlmostEqual(scene.position[1], proof['projected_position'][1])
-        # Independent complete-contact projections retain the native 0.1 mm
-        # position contract; they need not produce identical floating bits.
-        self.assertLessEqual(abs(proof['arc'][-1]['support'][-1]['center_y'] -
-                                 proof['projected_position'][1]), .0001)
-        self.assertIsNone(battle._local_legacy_support_sample)
-        self.assertFalse(proof['fire_permission'])
-        self.assertTrue(scene.planner.current(frame, proof))
-
-    def test_hydraulic_review_does_not_admit_missing_midpoint_support(self):
-        scene = self.scene(enabled_pitch=(0., 0.))
-        scene.pose(scene.target, (math.sin(.6) * 100., 12., math.cos(.6) * 100.))
-        params = vehicle_physics.derive_suspension_params(scene.entity.typeDescriptor)
-        angle = math.pi / 72.
-        missing = (vehicle_physics.suspension_world_points(params, scene.position, angle) +
-                   vehicle_physics.suspension_pseudo_world_points(params, scene.position, angle))
-        scene.ground_function = lambda x, z: (None if any(
-            math.hypot(x - px, z - pz) < .001 for px, pz in missing) else 0.)
-        unused, plan = scene.plan()
-        self.assertEqual('pending', plan['status'])
-        self.assertEqual('stationary_native_support_pending', plan['reason'])
-        self.assertFalse(scene.catalog_calls)
-
     def test_worker_keeps_motion_only_siege_sample_while_rechecking(self):
         from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
 
@@ -554,54 +416,6 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
                 state, waiting, None, scene.now))
             self.assertIsNone(binding._shared_aim_intention)
 
-    def test_worker_binding_proves_the_same_complete_hydraulic_turn(self):
-        from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
-        from gui.mods.offline_lan_0922.vehicle_control.stationary_plan import StationaryPlanner
-        scene = self.scene(enabled_pitch=(0., 0.), hydraulic_center=1.5)
-        descriptor = scene.entity.typeDescriptor
-        width, length = tank_collision.chassis_shape(descriptor)[:2]
-        scene.ground_function = lambda x, z: .02 * x + .07 * (z / length) ** 2
-        battle = scene.battle
-        accepted = self.complete_ground_pose(scene)
-        scene.pose(scene.target, (math.sin(-.7) * 100., 8., math.cos(-.7) * 100.))
-        scene.observe()
-        engine, actor = scene.runtime.engine, scene.runtime.actor_id
-        engine.states[actor]['_edge_support_active'] = True
-        record = dict(battle._records['player:1'], kind='bot', network_id=actor,
-                      local=False, state=engine.states[actor])
-        battle._records['bot:%s' % actor] = record
-        self.addCleanup(battle._records.pop, 'bot:%s' % actor, None)
-        binding = BotControlBinding(battle, engine, actor)
-        self.addCleanup(binding.close)
-        target = dict(scene.runtime.visible_targets()[0])
-        self.assertTrue(binding.observe(scene.now, [target]))
-        binding.combat_stop.active = binding.combat_stop.combat_owned = True
-        binding.combat_stop.targets = (target,)
-        planner = StationaryPlanner(binding)
-        planner.clock = lambda: 0.
-        state_before = dict(binding.state)
-        scene.ground_calls.clear()
-        for unused in range(30):
-            evaluator = binding.attack_policy.evaluator
-            frame = evaluator.snapshot(scene.now)
-            observed = next(row for row in frame['targets'] if row['entity'] is scene.target)
-            raw = evaluator._prediction(frame, frame['shells'][0], observed, 0)
-            plan = planner.project(frame, frame['shells'][0], observed, raw, scene.now, 'foreground')
-            if plan['status'] == 'proved' or not plan.get('progressing'):
-                break
-            scene.fixture.now += .11
-        self.assertEqual('proved', plan['status'], plan)
-        self.assertEqual('full_chassis_contacts', plan['proof']['source_support']['kind'])
-        self.assertAlmostEqual(accepted['pitch'], plan['proof']['source_support']['pitch'], places=5)
-        self.assertAlmostEqual(accepted['roll'], plan['proof']['source_support']['roll'], places=5)
-        self.assertGreaterEqual(len(scene.ground_calls), 22)
-        self.assertLess(plan['flat_body'][0], -.5)
-        self.assertTrue(plan['proof']['arc'])
-        self.assertTrue(all(row['hydraulic']['native_clear'] for row in plan['proof']['arc']))
-        self.assertFalse(plan['proof']['fire_permission'])
-        self.assertTrue(planner.current(frame, plan['proof']))
-        self.assertEqual(state_before, dict(binding.state))
-
     def test_worker_complete_support_survives_mode_cache_invalidation(self):
         from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
         scene = self.scene()
@@ -651,127 +465,8 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
         frame = binding.attack_policy.evaluator.snapshot(scene.now)
         self.assertIsNone(active_hydraulic_pose(binding, frame))
 
-    def test_travel_mode_uses_real_basic_contacts_over_a_supported_step(self):
-        from gui.mods.offline_lan_0922.vehicle_control.bot_binding import BotControlBinding
-        from gui.mods.offline_lan_0922.vehicle_control.stationary_plan import StationaryPlanner
-        from test_player_siege_engagement import pitch_limits
-        scene = self.scene(enabled=False)
-        # Isolate chassis proof from the gun's pitch restriction. The physical
-        # five contacts accept this small step; an independent coplanar fit
-        # rejects it even though no witness is missing.
-        scene.entity.typeDescriptor.gun.pitchLimits = pitch_limits(-.35, .35)
-        scene.ground_function = lambda x, z: .02 if z > 1. else 0.
-        scene.pose(scene.target, (math.sin(.7) * 100., 0., math.cos(.7) * 100.))
-        scene.observe()
-        engine, actor = scene.runtime.engine, scene.runtime.actor_id
-        engine.states[actor].pop('_edge_support_active', None)
-        key = 'bot:%s' % actor
-        scene.battle._records[key] = dict(scene.battle._records['player:1'],
-            kind='bot', network_id=actor, local=False, state=engine.states[actor])
-        self.addCleanup(scene.battle._records.pop, key, None)
-        binding = BotControlBinding(scene.battle, engine, actor)
-        self.addCleanup(binding.close)
-        target = dict(scene.runtime.visible_targets()[0])
-        self.assertTrue(binding.observe(scene.now, [target]))
-        binding.combat_stop.active = binding.combat_stop.combat_owned = True
-        binding.combat_stop.targets = (target,)
-        self.assertFalse(binding.complete_support())
-        planner = StationaryPlanner(binding)
-        planner.clock = lambda: 0.
-        before = dict(binding.state)
-        for unused in range(30):
-            evaluator = binding.attack_policy.evaluator
-            frame = evaluator.snapshot(scene.now)
-            observed = next(row for row in frame['targets'] if row['entity'] is scene.target)
-            shell = frame['shells'][0]
-            raw = evaluator._prediction(frame, shell, observed, 0)
-            plan = planner.project(frame, shell, observed, raw, scene.now, 'foreground')
-            if plan['status'] == 'proved' or not plan.get('progressing'):
-                break
-            scene.fixture.now += .11
-        self.assertEqual('proved', plan['status'], plan)
-        self.assertEqual('basic_chassis_contacts', plan['proof']['source_support']['kind'])
-        self.assertTrue(plan['proof']['arc'])
-        self.assertFalse(plan['proof']['fire_permission'])
-        self.assertEqual(before, dict(binding.state))
-        # Identical supported endpoints cannot conceal a missing witness in
-        # the middle of the turn. This still runs the physical basic sampler.
-        angle = math.pi / 36. * 3.5
-        length = max(1.5, float(binding.state.get('half_length', 3.5)))
-        missing = (math.sin(angle) * length, math.cos(angle) * length)
-        scene.ground_function = lambda x, z: (None if
-            math.hypot(x - missing[0], z - missing[1]) < .01 else 0.)
-        planner = StationaryPlanner(binding)
-        planner.clock = lambda: 0.
-        for unused in range(30):
-            plan = planner.project(frame, shell, observed, raw, scene.now, 'foreground')
-            if not plan.get('progressing'):
-                break
-            scene.fixture.now += .11
-        self.assertEqual('pending', plan['status'], plan)
-        self.assertEqual('stationary_native_support_pending', plan['reason'])
-
-    def test_rejected_endpoint_angles_are_logged_only_when_checked(self):
-        from gui.mods.offline_lan_0922.vehicle_control import stationary_plan
-        for enabled in ('0', '1'):
-            with self.subTest(detailed=enabled):
-                scene = self.scene()
-                frame, shell, target, raw = scene.plan_frame()
-                reach = stationary_plan.mechanical_reach
-                def refused(*args, **kwargs):
-                    return dict(reach(*args, **kwargs), reachable=False)
-                with mock.patch.dict(os.environ, {'WOT_OFFLINE_DIAGNOSTICS': '1',
-                        'WOT_OFFLINE_COMBAT_DIAGNOSTICS': enabled}), \
-                        mock.patch.object(stationary_plan, 'mechanical_reach', refused), \
-                        mock.patch('gui.mods.offline_lan_0922.native_input_diagnostics.write_json_record') as emit:
-                    with self.assertRaises(stationary_plan._Deferred) as raised:
-                        scene.planner._project_point(frame, shell, target, raw,
-                            dict(rotationIsAroundCenter=True))
-                self.assertEqual('stationary_projected_pitch_pending', raised.exception.reason)
-                rows = [call.args[1] for call in emit.call_args_list
-                        if call.args[0] == 'BATTLE REVIEW' and
-                        call.args[1].get('stage') == 'stationary_endpoint_rejected']
-                self.assertEqual(1 if enabled == '1' else 0, len(rows))
-                if rows:
-                    self.assertFalse(rows[0]['reach']['reachable'])
-                    self.assertIn('projected_body', rows[0])
-
-    def test_chassis_collision_surfaces_require_detailed_diagnostics(self):
-        for enabled in ('0', '1'):
-            with self.subTest(detailed=enabled):
-                scene = self.scene(enabled_pitch=(0., 0.))
-                output = StringIO()
-                with mock.patch.dict(os.environ, {'WOT_OFFLINE_DIAGNOSTICS': '1',
-                                                  'WOT_OFFLINE_COMBAT_DIAGNOSTICS': enabled}):
-                    with redirect_stdout(output), mock.patch(
-                            'gui.mods.offline_lan_0922.native_input_diagnostics.write_json_record') as emit:
-                        unused, plan = scene.plan()
-                self.assertEqual('proved', plan['status'], plan)
-                rows = [call.args[1] for call in emit.call_args_list
-                        if call.args[0] == 'BATTLE REVIEW' and
-                        call.args[1].get('stage') == 'stationary_chassis_support']
-                if enabled == '0':
-                    self.assertEqual([], rows)
-                    continue
-                self.assertTrue(rows)
-                self.assertEqual(22, len(rows[0]['columns']))
-                self.assertEqual({'spring', 'pseudo'},
-                                 {col['family'] for col in rows[0]['columns']})
-                self.assertTrue(all(col['layers'][0]['normal'] == [0., 1., 0.]
-                                    for col in rows[0]['columns']))
-
-    def test_blocked_shortest_active_arc_never_retries_reverse_long_arc(self):
-        scene = self.scene(enabled_pitch=(0., 0.))
-        scene.pose(scene.target, (math.sin(.6) * 100., 12., math.cos(.6) * 100.))
-        scene.catalog_status = 'hard'
-        unused, plan = scene.plan()
-        self.assertEqual('pending', plan['status'], plan)
-        self.assertEqual('stationary_native_rotation_blocked', plan['reason'])
-        self.assertFalse(plan['proved'])
-        self.assertTrue(scene.catalog_calls)
-
     def test_all_known_nonpenetrating_he_points_can_close_then_fallback(self):
-        scene = self.scene(enabled_pitch=(0., 0.), clip=3)
+        scene = self.scene(enabled_pitch=(-.2, .2), clip=3)
         scene.set_he(piercing=0.)
         scene.runtime.gun.ammo[1] = 0
         for name in ('chassis', 'hull', 'turret', 'gun'):
@@ -790,7 +485,7 @@ class ActualHydraulicStationaryTests(unittest.TestCase):
             self.fail('actual hydraulic finite domain never closed: %r' % policy.status())
         counts = policy._failure_domain((0,))
         self.assertTrue(counts['all_failed'], counts)
-        self.assertGreater(counts['projected_failed'], 0)
+        self.assertGreater(counts['failed'], 0)
         self.assertEqual(0., scene.battle._local_siege_aim_pitch)
 
 

@@ -283,7 +283,7 @@ class NativeHydraulicMagazineRulesTests(unittest.TestCase):
         scene = ActualHydraulicScene()
         scene.setUp()
         self.addCleanup(scene.doCleanups)
-        scene.configure_plan(enabled=True, enabled_pitch=(0., 0.), clip=3)
+        scene.configure_hydraulics(enabled=True, enabled_pitch=(-.2, .2), clip=3)
         scene.runtime.gun.clip = 2
         scene.runtime.attack_policy.atomic_time_budget = .25
         return scene
@@ -315,7 +315,7 @@ class NativeHydraulicMagazineRulesTests(unittest.TestCase):
             runtime.attack_policy._failure_domain((0,))['all_failed'])
         domain = runtime.attack_policy._failure_domain((0,))
         self.assertTrue(domain['all_failed'], domain)
-        self.assertGreater(domain['projected_failed'], 0)
+        self.assertGreater(domain['failed'], 0)
         for unused in range(12):
             scene.fixture.now += .11
             scene.observe()
@@ -364,7 +364,7 @@ class NativeHydraulicMagazineRulesTests(unittest.TestCase):
         before = tuple(gun.ammo)
         policy = runtime.attack_policy
         # Install the ordinary-HE fixture before starting its load review.
-        # configure_plan previously reviewed the same slot as AP.
+        # configure_hydraulics previously reviewed the same slot as AP.
         policy.reset()
         decision = self.review_until(scene, lambda row:
             (row.get('candidate') or {}).get('mode') == 'he_fallback')
@@ -373,7 +373,7 @@ class NativeHydraulicMagazineRulesTests(unittest.TestCase):
         self.assertIn(decision['action'], ('aim', 'firing_position'))
         domain = policy._failure_domain((0,))
         self.assertTrue(domain['all_failed'], domain)
-        self.assertGreater(domain['projected_failed'], 0)
+        self.assertGreater(domain['failed'], 0)
         self.assertIsNone(policy.next_plan)
         self.assertEqual(0, policy.ordered_load().he_fallback_rounds)
         self.assertIsNone(policy.reload_authority)

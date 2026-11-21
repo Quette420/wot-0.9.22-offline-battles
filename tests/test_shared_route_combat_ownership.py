@@ -17,9 +17,8 @@ import unittest
 from unittest import mock
 
 from test_player_combat_ownership import OwnershipScene
-from test_player_stationary_plan import install_plan_observations
+from test_player_limited_traverse import install_ground_observations
 from shared_multi_bot_scene import MultiBotScene
-from gui.mods.offline_lan_0922.vehicle_control import stationary_plan
 from gui.mods.offline_lan_0922.vehicle_control.geometry import SharedBattleGeometry
 
 
@@ -297,63 +296,11 @@ class SharedRouteCombatOwnershipTests(unittest.TestCase):
                     self.assertTrue(runtime.combat_stop.combat_owned)
                 self.assertEqual(0, reset.call_count)
 
-    def test_native_query_wait_does_not_release_the_previously_admitted_task(self):
-        with contextlib.redirect_stdout(io.StringIO()):
-            scene = self.player(limited=True)
-            scene.position = (0., 0., 0.)
-            install_plan_observations(scene)
-            geometry = scene.runtime.geometry
-            geometry._probe_bot_local_motion = types.MethodType(
-                SharedBattleGeometry._probe_bot_local_motion, geometry)
-            scene.runtime.engine.local_sweep_probe = geometry._probe_bot_local_motion
-            target = scene.eligible_enemy(5)
-            scene.pose(target, (0., 0., 40.))
-            self.assertEqual({5: True}, scene.sample_original_lanes())
-            scene.tick()
-            runtime, policy = scene.runtime, scene.runtime.attack_policy
-            self.assertEqual('aim', policy.decision['action'])
-            self.assertTrue(runtime.combat_stop.combat_owned)
-            selected = policy.selected
-            # The target moves outside the mounted gun's actual yaw limits.
-            # Saturate only the native sweep work budget; do not supply a
-            # policy decision, candidate, ray proof or ready-to-fire result.
-            scene.pose(target, (math.sin(.7) * 40., 0., math.cos(.7) * 40.))
-            observations = []
-            with mock.patch.object(stationary_plan, 'SLICES_PER_TICK', 0), \
-                    mock.patch.object(policy, 'reset', wraps=policy.reset) as reset:
-                for unused in range(8):
-                    scene.tick()
-                    observations.append(dict(
-                        raw=movement(scene.original_order()),
-                        action=policy.decision['action'], reason=policy.decision['reason'],
-                        candidate=policy.decision.get('candidate'), selected=policy.selected,
-                        wait_since=policy._evidence_wait_since,
-                        owned=runtime.combat_stop.combat_owned,
-                        final_mode=runtime._last_order['combat_mode'],
-                        inputs=(scene.battle._sender.forward, scene.battle._sender.turn,
-                                scene.battle._sender.handbrake)))
-                self.assertEqual(0, reset.call_count)
-            self.assertTrue(observations)
-            wait_since = observations[0]['wait_since']
-            self.assertIsNotNone(wait_since)
-            for row in observations:
-                self.assertEqual('route', row['raw']['mode'], row)
-                self.assertEqual(('wait', 'stationary_domain_review_pending'),
-                    (row['action'], row['reason']), row)
-                self.assertIsNone(row['candidate'], row)
-                self.assertEqual(selected, row['selected'], row)
-                self.assertEqual(wait_since, row['wait_since'], row)
-                self.assertTrue(row['owned'], row)
-                self.assertNotEqual('route', row['final_mode'], row)
-                self.assertEqual((0., 0., True), row['inputs'], row)
-            self.assertFalse(hasattr(policy, 'search_started'))
-            self.assertFalse(scene.launches())
-
     def test_native_safe_turn_can_admit_combat_before_a_current_executable_shot(self):
         with contextlib.redirect_stdout(io.StringIO()):
             scene = self.player(limited=True)
             scene.position = (0., 0., 0.)
-            install_plan_observations(scene)
+            install_ground_observations(scene)
             geometry = scene.runtime.geometry
             geometry._probe_bot_local_motion = types.MethodType(
                 SharedBattleGeometry._probe_bot_local_motion, geometry)
@@ -369,16 +316,16 @@ class SharedRouteCombatOwnershipTests(unittest.TestCase):
                     break
                 unowned.append((movement(scene.applied_order()),
                                 scene.battle._sender.forward, scene.battle._sender.turn))
-            self.assertTrue(unowned, 'the bounded native turn review must actually run')
             for order, unused_throttle, unused_turn in unowned:
                 self.assertEqual('route', order['mode'])
                 self.assertEqual((30., 0., 20.), order['destination'])
             candidate = policy.decision.get('candidate')
             self.assertIsNotNone(candidate, policy.status())
             self.assertEqual('firing_position', policy.decision['action'])
-            self.assertEqual('current_penetration_after_stationary_turn',
+            self.assertEqual('current_hull_turn_required',
                              policy.decision['reason'])
-            self.assertTrue(policy._plannable(candidate))
+            self.assertTrue(candidate['solution']['turn_only'])
+            self.assertEqual('unknown', candidate['armor'])
             self.assertFalse(policy._executable(candidate))
             self.assertTrue(runtime.combat_stop.combat_owned)
             self.assertTrue(runtime.combat_stop.stop_allowed)

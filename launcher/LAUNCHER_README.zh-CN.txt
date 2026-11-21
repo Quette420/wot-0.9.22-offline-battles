@@ -1,4 +1,4 @@
-wot-0.9.22-offline-battles v1.2.2
+wot-0.9.22-offline-battles v1.2.3
 中文使用说明
 
 安装和语言设置
@@ -158,8 +158,8 @@ BOT 战术、阵容和车辆属性
 发布说明和许可
 ----------------
 
-英文发布说明可在 GitHub 的 v1.2.2 发布页查看。
-https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.2.2
+英文发布说明可在 GitHub 的 v1.2.3 发布页查看。
+https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.2.3
 
 本离线 Mod 免费提供，禁止转卖。原版游戏由玩家自己提供。项目为非官方
 制作。许可原文见 README.en-US.txt、LICENSE、THIRD_PARTY_NOTICES.md 和 licenses。

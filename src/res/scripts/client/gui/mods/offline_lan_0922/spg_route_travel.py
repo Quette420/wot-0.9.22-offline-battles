@@ -157,7 +157,8 @@ def apply(runtime,state,order,now):
                         throttle_override=0.,route_join=False)
     if not active:return order
     if not defense and active['kind']=='defense':return order
-    if defense and order.get('throttle_override')==0.:return order
+    if defense and (order.get('defense_arrived') or order.get('throttle_override') == 0.):
+        return order
     if 'paused_at' in active:
         pause=now-active['paused_at']
         spg_route_recovery.resume(active,now)

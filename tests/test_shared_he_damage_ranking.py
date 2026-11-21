@@ -516,7 +516,7 @@ class SharedCurrentHEObservationTests(unittest.TestCase):
         self.assertEqual(7, len(scene.policy._current_he_observations))
         self.assertTrue(all(set(value) == {'identity', 'damage'}
                             for value in scene.policy._current_he_observations.values()))
-        self.assertIsNone(scene.policy._best_he(plannable=True),
+        self.assertIsNone(scene.policy._best_he(),
                           'CURRENT ranking hints cannot satisfy strict NEXT HE comparison')
         self.assertIsNone(scene.policy.next_shell)
         self.assertIsNone(scene.policy.next_plan)

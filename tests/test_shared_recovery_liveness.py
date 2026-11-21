@@ -111,7 +111,7 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
             mechanical='hull_laying', candidate=dict(scene.candidate),
             solution=dict(scene.candidate['solution']))
         scene.policy.retained_lay_candidate = lambda key, now: scene.lay_receipt
-        scene.decide('wait', candidate=False, reason='stationary_alternatives_pending')
+        scene.decide('wait', candidate=False, reason='obstructed_point_alternatives_pending')
         return scene
 
     def test_admitted_lay_keeps_current_point_across_pending_global_review(self):
@@ -158,7 +158,7 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
         scene.runtime._targets += (other,)
         scene.candidate = dict(scene.candidate, target=other,
             key=(0, ('bot', 3), 1, 'penetration'), target_key=('bot', 3), sample=1,
-            solution=dict(point=(-25., 1., 80.), yaw=-.7))
+            solution=dict(point=(-25., 1., 80.), yaw=-.7, turn_only=True))
         scene.decide('firing_position')
         result = scene.apply(.1)
         self.assertEqual(('bot', 2), (result['target_kind'], result['target_id']))
@@ -210,7 +210,7 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
         scene.runtime._targets += (other,)
         scene.candidate = dict(scene.candidate, target=other,
             key=(0, ('bot', 3), 1, 'penetration'), target_key=('bot', 3), sample=1,
-            solution=dict(point=(-25., 1., 80.), yaw=-.7))
+            solution=dict(point=(-25., 1., 80.), yaw=-.7, turn_only=True))
         scene.decide('firing_position')
         result = scene.confirm_clear_route_contact(6.2)
         self.assertTrue(scene.owner.stop_allowed)
@@ -275,7 +275,7 @@ class RecoveryAdmissionAndContinuityTests(unittest.TestCase):
         scene.policy.retained_lay_candidate = lambda key, now: dict(
             status='pending', candidate=scene.candidate,
             solution=scene.candidate['solution'], mechanical='hull_laying')
-        scene.decide('wait', candidate=False, reason='stationary_alternatives_pending')
+        scene.decide('wait', candidate=False, reason='obstructed_point_alternatives_pending')
         result = scene.apply(.3)
         self.assertIs(pivot, scene.owner.pivot)
         self.assertEqual((25., 1., 80.), result['face_position'])

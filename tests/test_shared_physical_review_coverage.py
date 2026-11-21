@@ -42,19 +42,14 @@ class PhysicalReviewCoverageTests(unittest.TestCase):
                          {row[4] for row in scene.calls if row[2] == 0 and row[3] == ('bot', 2)})
 
     def test_new_unfinished_observation_never_counts_as_completed_review(self):
-        for pending in ('line', 'review', 'stationary', 'projected'):
+        for pending in ('line', 'review'):
             with self.subTest(pending=pending):
                 scene = self.scene()
                 value = dict(armor='unknown', line='unknown', mechanical='unknown')
                 if pending == 'line':
                     value['line'] = 'pending'
-                elif pending == 'review':
-                    value['review_pending'] = True
-                elif pending == 'stationary':
-                    value['stationary_progress'] = True
                 else:
-                    value['stationary_plan'] = dict(status='proved', proof=dict(proved=True),
-                        armor='unknown', line='pending', mechanical='reachable')
+                    value['review_pending'] = True
                 scene.value(0, target=2, **value)
                 for step in range(10):
                     result = scene.tick(step * .05)

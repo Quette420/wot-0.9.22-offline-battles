@@ -36,7 +36,7 @@ class PhysicalRecoveryOwnershipTests(unittest.TestCase):
         marker = scene.owner._physical_recovery
         goal = marker['goal']
         self.assertEqual('gun_angle_adjust', first['combat_mode'])
-        scene.stationary()
+        scene.hull_lay()
         for now in (.1, .2, .3, 1.):
             result = scene.apply(now)
             self.assertIs(marker, scene.owner._physical_recovery)
@@ -86,7 +86,7 @@ class PhysicalRecoveryOwnershipTests(unittest.TestCase):
         scene.apply(0.)
         marker = scene.owner._physical_recovery
         goal = marker['goal']
-        scene.stationary()
+        scene.hull_lay()
         scene.candidate['fresh'] = False
         scene.position((.25, 0., 0.))
         result = scene.apply(.1)
@@ -165,7 +165,7 @@ class PhysicalRecoveryOwnershipTests(unittest.TestCase):
 
     def test_stationary_lay_has_no_independent_rear_or_gun_angle_finder(self):
         scene = self.scene()
-        scene.stationary()
+        scene.hull_lay()
         scene.state['_gun_angle_refusal'] = ('bot', 2)
         result = scene.apply(0.)
         self.assertEqual('native_lay', scene.owner.receipt['reason'])
@@ -185,7 +185,7 @@ class PhysicalRecoveryOwnershipTests(unittest.TestCase):
         scene.apply(0.)
         marker = scene.owner._physical_recovery
         goal = marker['goal']
-        scene.stationary()
+        scene.hull_lay()
         for now in (.1, .2, .3):
             result = scene.apply(now)
             self.assertNotEqual('native_lay', scene.owner.receipt['reason'])

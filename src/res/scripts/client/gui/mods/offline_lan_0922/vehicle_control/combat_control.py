@@ -19,7 +19,6 @@ from ..ai import driver as shared_driver
 from ..native_input_diagnostics import combat_detail, combat_detail_enabled
 from .combat_stop import MECHANICAL_STALL_SECONDS
 from .native_aim import NATIVE_ANGLE_TOLERANCE
-from .stationary_plan import trace_plan_use
 
 def _point(value):
     if isinstance(value, dict):
@@ -144,9 +143,6 @@ class CombatControl(object):
             ((row.get('kind'), row.get('network_id')) for row in self.combat_stop.targets)
             if self.combat_stop.active and key in visible)
 
-    def _stationary_review_wait(self):
-        return self.attack_policy.stationary_review_wait()
-
     def siege_aim_candidate(self, target=None):
         """Current enabled-mode actuator input, never a mode-entry gate."""
         candidate = self._siege_aim_candidate
@@ -213,7 +209,7 @@ class CombatControl(object):
                 observation(self).native_siege_state() != siege_mechanics.ENABLED):
             self.siege_aim.reset()
             return
-        if (self._mission_brakes() or
+        if (self._mission_brakes() or self.combat_stop.siege_contact_unobserved() or
                 not self.combat_stop.combat_owned or
                 self.attack_policy.decision.get('reason') == 'blocked_target_handoff' or
                 self.attack_policy.decision.get('action') not in
@@ -233,9 +229,15 @@ class CombatControl(object):
             return bool(pending['enabled'])
         if current in (siege_mechanics.SWITCHING_ON, siege_mechanics.SWITCHING_OFF):
             return current == siege_mechanics.SWITCHING_ON
+        if self.combat_stop.siege_hold_task is not None:
+            return True
+        if self.combat_stop.siege_departing:
+            return False
         if 'fire' in self.features:
             if self.combat_stop.navigation_owns(command):
                 return False
+            if self.combat_stop.siege_engagement_target() is not None:
+                return True
             # The policy may legitimately withhold its firing target while
             # armour/mechanical evidence is pending.  That is not a loss of
             # the already selected visible contact, nor a navigation handoff.
@@ -269,29 +271,17 @@ class CombatControl(object):
         if (row is None or row.get('pose_stamp') != candidate.get('pose_stamp') or
                 row.get('line_stamp') != candidate.get('line_stamp')):
             return None
-        planned = (policy._planned_evidence(row) if for_aim and
-                   row.get('mechanical') in ('hull_laying', 'mechanical_limited') and
-                   policy._plannable(row, mode) else None)
-        if planned is not None and not (planned.get('solution') or {}).get('needs_hull'):
-            planned = None
-        intention = planned or row
-        if ((not for_aim and not policy._executable(row, mode)) or
-                (for_aim and (not isinstance(intention.get('solution'), dict) or
-                    (row.get('mechanical') not in ('reachable', 'hull_laying') and
-                     planned is None) or
-                    intention.get('line') != 'clear' and policy.decision['action'] != 'preaim'))):
+        if not for_aim:
+            return row if policy._executable(row, mode) else None
+        if (not isinstance(row.get('solution'), dict) or
+                row.get('mechanical') not in ('reachable', 'hull_laying') or
+                row.get('line') != 'clear' and policy.decision['action'] != 'preaim'):
             return None
-        if policy.decision['action'] == 'firing_position' and (
-                (row.get('mechanical') != 'hull_laying' and planned is None) or
-                self._last_navigation.get('owner') != 'copied_combat_hull_aim'):
-            return None
-        if planned is not None:
-            # This detached view supplies a safe turn's future direction to
-            # the native aiming law. The policy row keeps its actual blocked
-            # line/mechanical limitation/unknown armour. The fire entrance
-            # above can never accept this planning-only view.
-            return dict(row, solution=dict(planned['solution'], _player_motion_only=True),
-                        _player_stationary_motion=True)
+        if policy.decision['action'] == 'firing_position':
+            if (row.get('mechanical') != 'hull_laying' or
+                    self._last_navigation.get('owner') != 'copied_combat_hull_aim'):
+                return None
+            return dict(row, solution=dict(row['solution'], _player_motion_only=True))
         return row
 
     def _gun_handoff_preserves_controls(self, candidate, command, after_movement=False):
@@ -308,6 +298,8 @@ class CombatControl(object):
                 not owner.contains(candidate.get('target')) or
                 not self.attack_policy._executable(candidate, candidate.get('mode', 'penetration'))):
             return False
+        if owner.defense_travel():
+            return bool(after_movement and command.get('combat_mode') == 'base_defense')
         task = owner.task_order
         capture_hold = owner.stationary_hold()
         if 'drive' in self.features and (task.get('throttle_override') != 0. or
@@ -445,7 +437,8 @@ class CombatControl(object):
 
     def _observe_attack_lay(self, state, target, intention, now):
         policy = self.attack_policy
-        if policy is None or policy.decision['reason'] == 'no_relevant_enemy':
+        if (state.get('siege_state') == siege_mechanics.ENABLED or
+                policy is None or policy.decision['reason'] == 'no_relevant_enemy'):
             self._attack_lay = None
             return
         if policy.decision['action'] != 'aim' or target is None:
@@ -535,16 +528,14 @@ class CombatControl(object):
                             destination=order.get('move_position'), throttle=throttle, turn=turn,
                             target=target_key, fire=order.get('fire_allowed')))
         self._last_order = order
-        if combat_detail_enabled() and self.state.get('siege_state') == siege_mechanics.ENABLED:
-            candidate = self._siege_aim_candidate or (self.combat_stop.pivot or {}).get('candidate')
-            trace_plan_use(self, 'controls', candidate, now,
-                (self.combat_stop.receipt.get('reason'), bool(abs(order['turn']) > 1.e-7)),
-                throttle=order['throttle'], turn=order['turn'], path_clear=bool(path_clear),
-                command_mode=order.get('combat_mode'), hull_aiming=self.state.get('hull_aiming'),
-                movement_intent=order.get('movement_intent'),
-                motion_probe=motion_probe, rotation_refused_until=self.state.get('_native_rotation_refused_until'),
-                policy_reason=self.attack_policy.decision.get('reason'),
-                siege_reason=(getattr(self.siege_aim, 'receipt', None) or {}).get('reason'))
+        pivot = self.combat_stop.pivot
+        if pivot is not None and combat_detail_enabled():
+            combat_detail(self, 'combat_turn_controls', self.actor_id, now,
+                (pivot.get('key'), abs(turn) > 1.e-7, self.combat_stop.receipt.get('reason')),
+                lambda: dict(point=pivot.get('key'), episode=self.combat_stop._episode,
+                    yaw=self.state['yaw'], turn=turn, throttle=throttle,
+                    mode=self.state.get('siege_state'), path_clear=bool(path_clear),
+                    fire_allowed=order.get('fire_allowed')))
         if self.combat_stop.stop_allowed and self.attack_policy is not None:
             action = self.attack_policy.decision['action']
             if action == 'firing_position':
@@ -862,7 +853,7 @@ class CombatControl(object):
             candidate = decision.get('candidate')
             if candidate is not None:
                 current = self.attack_policy.current_row(candidate)
-                if not self.attack_policy._plannable(current, candidate.get('mode', 'penetration')):
+                if not self.attack_policy._executable(current, candidate.get('mode', 'penetration')):
                     return
                 fence = getattr(self.attack_policy.evaluator, 'fence_next', None)
                 if callable(fence) and not fence(frame, (current,), False):
@@ -908,6 +899,8 @@ class CombatControl(object):
         """
         if not self.siege_capable():
             return True
+        if self.combat_stop.defense_travel():
+            return not self.combat_stop.mode_pending()
         physical = observation(self)
         return bool(physical.native_siege_state() == siege_mechanics.ENABLED and
             int((self.state or {}).get('siege_state', 0)) == siege_mechanics.ENABLED and
@@ -955,6 +948,9 @@ class CombatControl(object):
                 if self.combat_stop.waiting_for_siege():
                     self.attack_policy.decision = dict(action='wait',
                         reason='engagement_waits_native_siege', candidate=None)
+                elif self.combat_stop.siege_contact_unobserved():
+                    self.attack_policy.decision = dict(action='wait',
+                        reason='siege_contact_unobserved', candidate=None)
                 else:
                     self.attack_policy.update(now)
                 if trace_cost:

@@ -12,6 +12,8 @@ import os
 
 from gui.mods.offline_lan_0922.ui_i18n import tr
 
+from ..native_input_diagnostics import combat_detail_enabled
+
 _current = None
 
 
@@ -299,6 +301,17 @@ class PlayerControl(object):
             import game
             down, key, mods, repeat = game.convertKeyEvent(event)
             import Keys
+            drive_keys = (Keys.KEY_W, Keys.KEY_A, Keys.KEY_S, Keys.KEY_D, Keys.KEY_R, Keys.KEY_F)
+            if key in drive_keys and self.input_available():
+                automatic = self.owns_automatic_drive()
+                handled = True if automatic else original(event)
+                if down and not repeat and combat_detail_enabled():
+                    sender = self.owner._sender
+                    self.record('drive_key', key='WASDRF'[drive_keys.index(key)],
+                        automatic_drive=automatic, handled=bool(handled),
+                        forward=getattr(sender, 'forward', None), turn=getattr(sender, 'turn', None),
+                        cruise_mode=getattr(self.owner._avatar, '_PlayerAvatar__cruiseControlMode', None))
+                return handled
             if (self.active and 'fire' in self.features and self.input_available() and
                     key in (Keys.KEY_LEFTMOUSE, Keys.KEY_RIGHTMOUSE)):
                 # Consume before native shoot()/autoAim() start their own
@@ -395,6 +408,13 @@ class PlayerControl(object):
                 getattr(avatar, 'gunRotator', None) is rotator and self.live())
 
         try:
+            if 'drive' in features and hasattr(avatar, '_PlayerAvatar__cruiseControlMode'):
+                # The #1513 avatar stores cruise before writing to the
+                # movement mailbox. Neutralize the old manual input there
+                # once, so it cannot resume from a latched R/F preset.
+                avatar._PlayerAvatar__cruiseControlMode = 0
+                avatar._PlayerAvatar__updateCruiseControlPanel()
+                avatar.moveVehicle(0, False)
             if runtime.start(features) is False or not current():
                 raise RuntimeError('full_player_runtime_start_retired')
             self.navigation = runtime.navigation

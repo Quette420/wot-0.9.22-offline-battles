@@ -89,9 +89,11 @@ class Observations(object):
                  contact=None, expected_damage=None)))
         if sample is None or target['pose'] is None or shell.get('unavailable'):
             value.update(armor='unknown', line='unknown', mechanical='unknown')
-        value['solution'] = dict(point=target['value']['position'],
+        solution = dict(point=target['value']['position'],
             target_pose=target['pose'], source_pose=frame['pose'], sample=sample,
             sample_value=('hull', sample), velocity=(0., 0., 0.))
+        solution.update(value.get('solution') or {})
+        value['solution'] = solution
         if channel == 'atomic':
             self.atomic_receipt['world_chords'] += 1
         if self.on_evaluate is not None:
@@ -329,11 +331,11 @@ class RebuiltForegroundTests(unittest.TestCase):
         self.assertNotIn('fire_allowed', movement)
         self.assertTrue(command['fire_allowed'])
 
-    def test_stationary_review_only_closes_fire_without_parking_or_erasing_contact(self):
+    def test_pending_contact_keeps_motion_and_closes_fire(self):
         scene = Observations()
         scene.tick(0.)
         scene.policy.decision = dict(action='wait',
-            reason='stationary_domain_review_pending', candidate=None)
+            reason='ordered_current_target_pending', candidate=None)
         target = scene.frame['targets'][0]['value']
         order = dict(move_position=(30., 0., 50.), throttle_override=.75,
             throttle=.8, turn=-.25, brake=False, combat_mode='route',
@@ -347,9 +349,9 @@ class RebuiltForegroundTests(unittest.TestCase):
             for key in ('move_position', 'throttle_override', 'throttle', 'turn',
                         'brake', 'combat_mode', 'target_id', 'target_kind', 'face_position'):
                 self.assertEqual(order[key], result[key], key)
-            self.assertIsNone(result['aim_position'])
+            self.assertEqual(order['aim_position'], result['aim_position'])
             self.assertFalse(result['fire_allowed'])
-            self.assertNotIn('_player_attack_solution', result)
+        self.assertNotIn('_player_attack_solution', command)
         self.assertTrue(order['fire_allowed'])
 
     def test_late_shooting_callback_cannot_retarget_driver_or_create_contact(self):
@@ -1497,52 +1499,24 @@ class IndependentAmmoTraverseTests(unittest.TestCase):
                     self.assertFalse(hasattr(scene.policy, 'search_started'))
                     self.assertIsNone(scene.policy.reload_authority)
 
-    @staticmethod
-    def stationary_evidence(armor='failed', contact=None, damage=None, proved=True):
-        return dict(status='proved', proof=dict(proved=proved, source='native_stationary_arc'),
-            line='clear', mechanical='reachable', armor=armor, contact=contact,
-            expected_damage=damage, solution=dict(point=(20., 2., 100.),
-                source_point=(20., 2., 100.), needs_hull=True, reachable=False,
-                source_verified=False))
-
-    def test_stationary_failure_is_counted_separately_and_never_becomes_actual_fire(self):
+    def test_turn_only_row_leaves_plate_and_reload_unresolved(self):
         scene = Observations(clips=6, targets=2, points=1)
         scene.frame.update(limited_traverse=True, clip=3)
-        scene.value(0, target=2, armor='unknown', mechanical='hull_laying',
-                    stationary_plan=self.stationary_evidence())
+        scene.value(0, target=2, armor='unknown', line='clear', mechanical='hull_laying',
+                    solution=dict(point=(20., 2., 100.), needs_hull=True, turn_only=True))
         scene.prime(index=0)
         result = scene.tick(0.)
-        self.assertEqual('wait', result['action'])
-        domain = scene.policy.failure_domains[(0,)]
-        self.assertEqual((1, 1, True),
-            (domain['failed'], domain['projected_failed'], domain['all_failed']))
-        row = scene.policy.rows[0, ('bot', 2), 0, 'penetration']
-        self.assertEqual(('unknown', 'hull_laying'), (row['armor'], row['mechanical']))
-        self.assertFalse(scene.policy._executable(row))
+        self.assertEqual(('firing_position', 'current_hull_turn_required'),
+                         (result['action'], result['reason']))
+        self.assertFalse(scene.policy._failure_domain((0,))['all_failed'])
+        self.assertFalse(scene.policy.apply_order({})['fire_allowed'])
+        self.assertIsNone(scene.policy.reload_authority)
 
-    def test_incomplete_or_invalidated_stationary_arc_cannot_close_failure_domain(self):
-        for state in ('unproved', 'invalidated', 'blocked'):
-            with self.subTest(state=state):
-                scene = Observations(clips=6, targets=2, points=1)
-                scene.frame.update(limited_traverse=True, clip=3)
-                plan = self.stationary_evidence(proved=state != 'unproved')
-                if state == 'blocked':
-                    plan['line'] = 'world_blocked'
-                if state == 'invalidated':
-                    scene.stationary_plan_current = lambda frame, proof: False
-                scene.value(0, target=2, armor='unknown', mechanical='hull_laying',
-                            stationary_plan=plan)
-                scene.prime(index=0)
-                result = scene.tick(0.)
-                self.assertNotEqual('reload_clip', result['action'])
-                self.assertFalse(scene.policy.failure_domains[(0,)]['all_failed'])
-                self.assertIsNone(scene.policy.reload_authority)
-
-    def test_current_executable_he_contact_precedes_hypothetical_pivot_penetration(self):
+    def test_current_he_contact_precedes_an_unproved_turn(self):
         scene = Observations(clips=6, targets=2, points=1)
         scene.frame.update(loaded=2, limited_traverse=True)
         scene.value(2, target=2, armor='unknown', mechanical='hull_laying',
-                    stationary_plan=self.stationary_evidence('passed'))
+                    solution=dict(point=(20., 2., 100.), needs_hull=True, turn_only=True))
         scene.he(100., target=1)
         scene.prime()
         scene.prime('he_fallback')
@@ -1559,21 +1533,16 @@ class IndependentAmmoTraverseTests(unittest.TestCase):
         planned = scene.policy.rows[2, ('bot', 2), 0, 'penetration']
         self.assertFalse(scene.policy._executable(planned))
 
-    def test_next_rank_uses_safe_stationary_plan_but_first_trigger_rejects_it(self):
+    def test_next_rank_requires_actual_evidence_for_other_shell(self):
         scene = Observations(clips=6, targets=1, points=1)
         scene.passed(0)
         scene.value(2, armor='unknown', mechanical='hull_laying',
-                    stationary_plan=self.stationary_evidence('passed'))
+                    solution=dict(point=(20., 2., 100.), needs_hull=True, turn_only=True))
         scene.prime()
         result = scene.tick(0.)
         self.assertEqual(('aim', 0), (result['action'], result['candidate']['shell_index']))
-        self.assertEqual(2, scene.policy.next_shell)
-        planned, status = scene.policy.next_at_edge()
-        self.assertEqual('verified', status)
-        self.assertTrue(scene.policy._plannable(planned))
-        self.assertFalse(scene.policy._executable(planned))
-        scene.stationary_plan_current = lambda frame, proof: False
-        self.assertEqual((None, 'candidate_expired'), scene.policy.next_at_edge())
+        self.assertIsNone(scene.policy.next_shell)
+        self.assertIsNone(scene.policy.next_at_edge()[0])
 
     def test_next_he_fallback_does_not_require_current_clip_to_be_in_fallback(self):
         scene = Observations(clips=6, targets=1, points=1)
@@ -1607,13 +1576,12 @@ class IndependentAmmoTraverseTests(unittest.TestCase):
                 self.assertEqual('fallback_evidence_incomplete', scene.policy.next_status)
                 self.assertFalse(scene.policy.failure_domains[(1, 2)]['all_failed'])
 
-    def test_current_he_contact_is_not_delayed_by_a_future_higher_damage_turn(self):
+    def test_current_he_contact_is_not_delayed_by_an_unreviewed_turn(self):
         scene = Observations(clips=6, targets=2, points=1)
         scene.frame.update(loaded=2, limited_traverse=True)
         scene.he(0., target=1)
         scene.value(2, target=2, mode='he_fallback', armor='unknown',
-            mechanical='hull_laying', stationary_plan=self.stationary_evidence(
-                'failed', contact=True, damage=50.))
+            mechanical='hull_laying', solution=dict(point=(20., 2., 100.), needs_hull=True, turn_only=True))
         scene.prime()
         scene.prime('he_fallback')
         result = scene.tick(0.)

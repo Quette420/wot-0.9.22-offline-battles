@@ -165,6 +165,7 @@ class MissionControl(object):
             mission = self._mission = dict(id='auto-capture-%d' % self._mission_sequence,
                 action='capture_base', explicit=False, payload={}, status='running',
                 phase='capture_travel', reason='copied_route_capture_handoff',
+                capture_base_id=order.get('capture_base_id'),
                 progress=0., holding=False, started=now, deadline=now + 600.)
         if mission is None or mission['status'] != 'running' and not mission.get('holding'):
             return order
@@ -193,6 +194,11 @@ class MissionControl(object):
                 return order
             result = dict(order)
             self.planner._apply_base_capture_order(result, self._planner_bot(), target)
+            if order.get('capture_base_id') == target['id']:
+                mission['capture_base_id'] = target['id']
+            if not mission['explicit'] and mission.get('capture_base_id') != target['id']:
+                # Physical occupancy alone cannot grant task-owned siege.
+                result.pop('capture_base_id', None)
             result['capture_area'] = target
             return capture_orders.constrain(result, self.state)
         destination = None
@@ -243,6 +249,9 @@ class MissionControl(object):
                         throttle_override=0., fire_allowed=False, combat_mode='hold')
         if mission['action'] == 'capture_base' and mission.get('capture_area'):
             if not mission['explicit'] and mission['phase'] == 'defending' and not mission.get('capture_started'):
+                return order
+            if (not mission['explicit'] and self.combat_stop.stop_allowed and
+                    not capture_orders.inside(self.state, mission['capture_area'])):
                 return order
             return capture_orders.constrain(dict(order, capture_area=mission['capture_area']), self.state)
         if mission['action'] in ('attack', 'return_base', 'hold_position', 'defend_base') and mission.get('destination'):

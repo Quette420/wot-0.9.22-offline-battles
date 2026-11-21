@@ -18506,10 +18506,11 @@ class BotRuntime(SharedEngineControl):
                 gun_ready = gun_state.ready(reload_factor)
                 ammo_ready = gun_ready and ammo_state.can_fire()
                 fire_ready = ammo_ready
+            shared_direct = not is_spg and getattr(worker_control, 'actor_kind', None) == 'bot'
             fire_gate = 'line_precheck' if fire_ready else 'fire_preconditions'
             lane_verdict = {}
             if (fire_ready and
-                    (pending_intent is not None or
+                    (shared_direct or pending_intent is not None or
                      pending_reproof is not None or
                      self._shot_clear(
                         state, target, now,
@@ -18541,6 +18542,10 @@ class BotRuntime(SharedEngineControl):
                                 self._probe_finished(1, probe_started)
                         lane_clear, lane_verdict = \
                             self._friendly_lane_verdict(lane_value)
+                elif shared_direct:
+                    # The shared first-edge transaction computes the actual
+                    # barrel ray and the exact launch before debiting ammo.
+                    lane_clear = True
                 elif self._direct_aim_matches(state, target, ballistic_solution):
                     fire_gate = 'launch_preview_unavailable'
                     launch_preview = self._direct_launch_preview(
@@ -18562,7 +18567,7 @@ class BotRuntime(SharedEngineControl):
                         lane_clear, lane_verdict = \
                             self._friendly_lane_verdict(lane_value)
                 launch = launch_receipt if is_spg else launch_preview
-                if launch is not None and lane_clear:
+                if lane_clear and (shared_direct or launch is not None):
                     fired = self._fire(
                         state, gun_state, reload_factor, descriptor,
                         launch_receipt=launch_receipt,
@@ -18597,7 +18602,9 @@ class BotRuntime(SharedEngineControl):
                         gun_ready=gun_ready, ammo_ready=ammo_ready,
                         burst=burst_state.active, drowning=state.get('_drowning'),
                         overturned=state.get('_overturned'),
-                        gun_damaged='gunHealth' in destroyed_devices, lane=lane_verdict))
+                        gun_damaged='gunHealth' in destroyed_devices, lane=lane_verdict,
+                        refusal=getattr(worker_control, '_last_fire_failure', None)
+                            if fire_gate == 'trigger_not_submitted' else None))
             if is_spg and publish:
                 try:
                     self._record_artillery_gate(

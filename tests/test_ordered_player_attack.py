@@ -16,6 +16,35 @@ class OrderedPlayerAttackTests(unittest.TestCase):
         scene.policy.ordered = OrderedAttack()
         return scene
 
+    def test_siege_restarts_point_selection_and_observes_only_the_admitted_enemy(self):
+        scene = self.scene(targets=2, points=2, he=False)
+        policy = scene.policy
+        held = ('bot', 1)
+        policy.runtime.combat_stop = SimpleNamespace(combat_owned=True,
+            receipt=dict(selected=held, episode=1), siege_engagement_target=lambda: held)
+        scene.frame['ordered'] = True
+        policy.selected = (0, held, 1, 'penetration')
+        policy.ordered.covered.add(held)
+        scene.passed(target=2)
+
+        policy.begin_siege_engagement()
+        self.assertIsNone(policy.selected)
+        self.assertEqual(set(), policy.ordered.covered)
+        scene.value(0, armor='unknown', line='world_blocked')
+        scene.value(0, sample=1, armor='unknown', line='pending')
+        self.assertEqual('wait', scene.tick(0., background=False)['action'])
+        self.assertEqual('pending', policy.siege_contact_lane(held))
+        self.assertEqual({held}, {call[3] for call in scene.calls})
+
+        scene.value(0, sample=1, armor='unknown', line='world_blocked')
+        scene.frame['scene'] += 1
+        scene.tick(.2, background=False)
+        self.assertEqual('blocked', policy.siege_contact_lane(held))
+        scene.value(0, sample=1, armor='failed', line='clear', mechanical='reachable')
+        scene.frame['scene'] += 1
+        scene.tick(.4, background=False)
+        self.assertEqual('clear', policy.siege_contact_lane(held))
+
     def test_completed_blocked_pass_keeps_only_current_recovery_evidence(self):
         scene=self.scene(targets=1,points=2)
         for sample in range(2):scene.value(0,sample=sample,line='world_blocked',armor='unknown')
@@ -120,8 +149,7 @@ class OrderedPlayerAttackTests(unittest.TestCase):
 
     def test_all_blocked_siege_he_uses_existing_clear_lane_then_checks_new_target(self):
         scene = self.siege_he(1)
-        scene.value(2, line='unknown', mechanical='hull_laying', armor='unknown',
-            stationary_plan=dict(status='proved', proof=dict(proved=True), line='world_blocked'))
+        scene.value(2, line='world_blocked', mechanical='hull_laying', armor='unknown')
         scene.passed(2, target=2)
         scene.policy.frame = scene.snapshot(0.)
         other = next(job for job in scene.policy._jobs(shell_index=2) if job[0][1] == ('bot', 2))

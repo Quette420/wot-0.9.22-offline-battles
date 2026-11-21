@@ -124,7 +124,7 @@ class NativeGunAndPointRecoveryTests(unittest.TestCase):
         scene.apply(0.)
         phase = scene.owner._physical_recovery
         goal = phase['goal']
-        scene.stationary()
+        scene.hull_lay()
         scene.decide('wait', candidate=False, reason='native_query_pending')
         for now in (.1, .2, .3):
             result = scene.apply(now)

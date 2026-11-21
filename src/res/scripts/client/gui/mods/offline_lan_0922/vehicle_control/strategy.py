@@ -1112,7 +1112,9 @@ class BotPlanner(EmptyAmmoMixin, RouteTasksMixin, RouteRecoveryMixin):
                             "point": dict(selected["point"]),
                             "radius": selected['radius'],
                         }
-            result[team] = dict(responders)
+            threatened_bases = set(value['id'] for value in points)
+            result[team] = dict((actor, dict(record, search_active=record['base_id'] in threatened_bases))
+                                for actor, record in responders.items())
         return result
 
     def _defense_combat_progress(self, bot, record, contacts, contributor_keys, now):
@@ -1168,7 +1170,7 @@ class BotPlanner(EmptyAmmoMixin, RouteTasksMixin, RouteRecoveryMixin):
         order["route_join"] = False
         if order.get("target_id") is None:
             order["face_position"] = dict(base["point"])
-        arrived = self._inside_base(bot, base)
+        arrived = self._inside_defended_base(bot, base)
         order['tactical_evidence']['base_arrival'] = dict(
             kind='defense', base_id=base['base_id'], point=dict(base['point']),
             radius=base.get('radius', 50.0), arrived=arrived)
@@ -1319,7 +1321,7 @@ class BotPlanner(EmptyAmmoMixin, RouteTasksMixin, RouteRecoveryMixin):
         by_id = dict((bot['id'], bot) for bot in bots)
         for bot_id in sorted(defenders):
             bot = by_id.get(bot_id)
-            if bot is None or not self._inside_base(bot, defenders[bot_id]):
+            if bot is None or not self._inside_defended_base(bot, defenders[bot_id]):
                 continue
             choices = []
             for contact in self._contacts_for_bot(bot, contacts, now):

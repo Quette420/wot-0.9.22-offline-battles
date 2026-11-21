@@ -233,6 +233,10 @@ class CombatControl(object):
             return bool(pending['enabled'])
         if current in (siege_mechanics.SWITCHING_ON, siege_mechanics.SWITCHING_OFF):
             return current == siege_mechanics.SWITCHING_ON
+        if self.combat_stop.siege_hold_task is not None:
+            return True
+        if self.combat_stop.siege_hold_departing:
+            return False
         if 'fire' in self.features:
             if self.combat_stop.navigation_owns(command):
                 return False

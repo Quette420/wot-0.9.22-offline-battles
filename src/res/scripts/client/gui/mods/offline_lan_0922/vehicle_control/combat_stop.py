@@ -102,6 +102,10 @@ class CombatStop(object):
         self._target_departed = False
         self._capture_lay = None
         self._capture_lay_retry = {}
+        self._parking_face_target = None
+        self.siege_hold_departing = bool(
+            getattr(self, 'siege_hold_task', None) or getattr(self, 'siege_hold_departing', False))
+        self.siege_hold_task = None
         state = getattr(self.runtime, 'state', None)
         if state is not None:
             state.pop('_combat_movement_owner', None)
@@ -115,6 +119,7 @@ class CombatStop(object):
         """
         runtime = self.runtime
         self.task_order = dict(order)
+        self._update_siege_hold_task(order)
         visible = dict((_key(row), row) for row in runtime.visible_targets()
                        if live_contact(row) and row.get('visible', True))
         initial = order.get('initial_target_hint') or order
@@ -131,7 +136,8 @@ class CombatStop(object):
             (state.get('profile') or {}).get('class_tag') != 'SPG' and
             (mode in _COMBAT_MODES + ('route', 'hold', 'base_capture', 'base_screen') or retained) and
             visible and
-            not order.get('empty_ammo') and not runtime._mission_brakes())
+            not order.get('empty_ammo') and not runtime._mission_brakes() and
+            not self.siege_hold_departing)
         mission = getattr(runtime, '_mission', None) or {}
         destination = mission.get('destination')
         explicit_travel = bool(mission.get('explicit') and destination is not None and
@@ -195,7 +201,10 @@ class CombatStop(object):
         admitted = (sorted(visible, key=lambda key: ordinary_initial_key(
             state['position'], visible[key])) if self.active else [])
         self.targets = tuple(visible[key] for key in admitted)
-        if self.stationary_hold():
+        ordinary_parking = self._ordinary_parking_hold()
+        if not ordinary_parking:
+            self._parking_face_target = None
+        if self.stationary_hold() and not ordinary_parking:
             self._observe_capture_lay(runtime.now)
         else:
             self._capture_lay = None
@@ -266,6 +275,63 @@ class CombatStop(object):
             self.task_order.get('parking_phase') in ('waiting', 'queue') and
             self.task_order.get('throttle_override') == 0. and
             not self.runtime.state.get('airborne'))
+
+    def _ordinary_parking_hold(self):
+        area = self.task_order.get('parking_area')
+        return bool(self.active and 'drive' in self.runtime.features and
+                    self.task_order.get('parking_phase') == 'waiting' and
+                    self.task_order.get('throttle_override') == 0. and
+                    area and capture_orders.inside(self.runtime.state, area) and
+                    not self.runtime.state.get('airborne') and not self.runtime.siege_capable())
+
+    def _parking_facing_order(self, order, now):
+        # Facing the current enemy is a steering input for the waiting task.
+        # A plate or a muzzle receipt still only authorizes the gun.
+        contacts = dict((_key(row), row) for row in self.targets)
+        key = self._intent_target if self.combat_owned else self._parking_face_target
+        target = (contacts.get(key) or contacts.get(self.receipt.get('initial_hint')) or
+                  next(iter(self.targets), None))
+        if target is None:
+            return order
+        self._parking_face_target = _key(target)
+        if combat_detail_enabled():
+            runtime = self.runtime
+            combat_detail(runtime, 'parking_enemy_facing', runtime.actor_id, now,
+                self._parking_face_target, lambda: dict(target=self._parking_face_target,
+                    face_position=target['position'], position=runtime.state['position'],
+                    yaw=runtime.state['yaw'], throttle=0.))
+        return dict(order, face_position=target['position'], throttle_override=0.)
+
+    def _update_siege_hold_task(self, order):
+        runtime, previous = self.runtime, self.siege_hold_task
+        task = None
+        if ('drive' in runtime.features and order.get('throttle_override') == 0. and
+                not runtime.state.get('airborne') and not runtime._mission_brakes() and
+                runtime.siege_capable()):
+            if order.get('parking_phase') == 'waiting':
+                task = ('parking', order.get('route_id'), order.get('route_index'),
+                        order.get('parking_slot'))
+            else:
+                area, base = order.get('capture_area'), order.get('capture_base_id')
+                if area and base == area.get('id') and base is not None:
+                    capture = ('capture', base)
+                    if (capture_orders.inside(runtime.state, area) and
+                            (previous == capture or abs(runtime.state.get('speed', 0.)) <= .05)):
+                        task = capture
+        self.siege_hold_task = task
+        if task is not None:
+            self.siege_hold_departing = False
+        elif previous is not None:
+            self.siege_hold_departing = True
+        if (self.siege_hold_departing and
+                observation(runtime).native_siege_state() == siege_mechanics.DISABLED and
+                not self.mode_pending()):
+            self.siege_hold_departing = False
+        if task != previous and combat_detail_enabled():
+            combat_detail(runtime, 'siege_hold_task', runtime.actor_id, runtime.now,
+                (previous, task), lambda: dict(previous=previous, task=task,
+                    mode=observation(runtime).native_siege_state(),
+                    speed=runtime.state.get('speed', 0.), position=runtime.state['position']))
 
     def stationary_turn_allowed(self, target):
         return bool(self.combat_owned and self.stationary_hold() and self._capture_lay and
@@ -805,8 +871,8 @@ class CombatStop(object):
         else:
             hint = self.task_order.get('initial_target_hint') or self.task_order
             primary = _key(dict(kind=hint.get('target_kind'), id=hint.get('target_id')))
-            if (self.stationary_hold() and proposal is not None and
-                    proposal['target_key'] == self._intent_target and
+            if (self.stationary_hold() and not self._ordinary_parking_hold() and
+                    proposal is not None and proposal['target_key'] == self._intent_target and
                     (self.capture_can_lay(proposal) or
                      verified_shot is not None and self._capture_owns_aim(proposal))):
                 key = proposal['shell_index'], proposal['target_key']
@@ -827,6 +893,10 @@ class CombatStop(object):
             self._motion_order = dict((name, copy.deepcopy(order.get(name)))
                                       for name in _MOTION_FIELDS if name in order)
         self._publish_owner()
+        if self.siege_hold_departing:
+            point = tuple(self.runtime.state['position'])
+            return dict(order, move_position=point, face_position=point, throttle_override=0.,
+                        stable_hull_face=True, fire_allowed=False, aim_position=None)
         return order
 
     def _publish_owner(self):
@@ -1200,7 +1270,7 @@ class CombatStop(object):
                      observation(runtime).native_siege_state() != siege_mechanics.ENABLED))
 
     def waiting_for_siege(self):
-        return self.combat_owned and self.siege_aim_deferred()
+        return (self.combat_owned or self.siege_hold_task is not None) and self.siege_aim_deferred()
 
     def _stop(self, order, reason, now, face=None):
         self.receipt.update(status='stopped', reason=reason, at=now)
@@ -1252,6 +1322,8 @@ class CombatStop(object):
     def apply_order(self, order, now):
         """Supply only combat stop/release intent, before the original driver."""
         if not self.stop_allowed:
+            if self._ordinary_parking_hold():
+                return self._parking_facing_order(order, now)
             if self.combat_owned and self.stationary_hold():
                 return self._stationary_hold_order(order, now)
             return order

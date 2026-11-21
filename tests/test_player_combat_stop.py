@@ -956,6 +956,52 @@ class SiegeOriginalOwnershipTests(unittest.TestCase):
                 siege_correction=pitch, hydraulic_pitch=pitch, needs_hydraulic=True,
                 siege_aim=True, source_verified=False, reachable=False))
 
+    def test_waiting_owns_siege_without_a_target_and_releases_to_travel(self):
+        scene = Scene(siege=siege_mechanics.DISABLED, admitted=False)
+        scene.runtime._targets = ()
+        scene.raw_order.update(combat_mode='hold', parking_phase='waiting', target_id=None,
+                               fire_allowed=False, route_id='authored', route_index=1)
+        scene.decide('wait', candidate=False)
+
+        self.assertTrue(self.desired(scene, scene.apply(.1)))
+        self.assertTrue(scene.owner.waiting_for_siege())
+        scene.native_mode(siege_mechanics.ENABLED)
+        self.assertTrue(self.desired(scene, scene.apply(.5)))
+        self.assertFalse(scene.owner.combat_owned)
+
+        scene.raw_order.update(combat_mode='route', parking_phase=None,
+                               move_position=(30., 0., 0.), throttle_override=None)
+        departure = scene.apply(1.)
+        self.assertFalse(self.desired(scene, departure))
+        self.assertEqual(0., departure['throttle_override'])
+        self.assertEqual(scene.state['position'], departure['move_position'])
+        scene.native_mode(siege_mechanics.DISABLED)
+        self.assertEqual((30., 0., 0.), scene.apply(2.)['move_position'])
+
+    def test_capture_owns_siege_only_with_a_real_order_stopped_inside_its_circle(self):
+        scene = Scene(siege=siege_mechanics.DISABLED, admitted=False)
+        scene.runtime._targets = ()
+        area = dict(id='2:0', point=dict(x=0., y=0., z=0.), radius=5.)
+        scene.raw_order.update(combat_mode='base_capture', target_id=None,
+                               fire_allowed=False, capture_area=area)
+        scene.decide('wait', candidate=False)
+        self.assertFalse(self.desired(scene, scene.apply(.1)))
+
+        scene.raw_order['capture_base_id'] = area['id']
+        scene.position((0., 0., 6.))
+        self.assertFalse(self.desired(scene, scene.apply(.2)))
+        scene.position((0., 0., 1.))
+        scene.state['speed'] = 1.
+        self.assertFalse(self.desired(scene, scene.apply(.3)))
+
+        scene.state['speed'] = 0.
+        self.assertTrue(self.desired(scene, scene.apply(.4)))
+        scene.native_mode(siege_mechanics.ENABLED)
+        self.assertTrue(self.desired(scene, scene.apply(.5)))
+        scene.position((0., 0., 6.))
+        scene.raw_order['throttle_override'] = None
+        self.assertFalse(self.desired(scene, scene.apply(.6)))
+
     def test_siege_review_failure_needs_changed_aim_geometry_and_one_second(self):
         scene = Scene(siege=siege_mechanics.DISABLED, admitted=False)
         scene.raw_order.update(combat_mode='route', move_position=(0., 0., 60.),
@@ -1468,25 +1514,30 @@ class SupportAndStationaryOwnershipRegressionTests(unittest.TestCase):
             self.assertFalse(scene.owner.combat_owned)
         self.assertEqual(1, scene.owner._episode)
 
-    def test_waiting_point_allows_proved_turn_without_translational_recovery(self):
-        scene = Scene()
-        scene.raw_order.update(combat_mode='hold', parking_phase='waiting',
+    def test_waiting_faces_the_current_enemy_without_a_gun_proof_or_travel(self):
+        scene = Scene(admitted=False)
+        scene.raw_order.update(combat_mode='hold', parking_phase='waiting', target_id=None,
+            fire_allowed=False, initial_target_hint=dict(target_kind='bot', target_id=2),
             parking_area=dict(point=dict(x=0., y=0., z=0.), radius=8.))
-        plan = scene.stationary(line='clear')
-        scene.candidate['target_key'] = ('bot', 2)
-        scene.candidate['solution'] = dict(plan['solution'])
-        scene.decide('firing_position')
+        scene.target['position'] = (40., 0., 80.)
+        scene.decide('wait', candidate=False, reason='stationary_domain_review_pending')
         result = scene.apply(.1)
-        self.assertTrue(scene.owner.combat_owned)
-        self.assertFalse(scene.owner.can_request_movement)
+        self.assertFalse(scene.owner.combat_owned)
         self.assertFalse(scene.owner.stop_allowed)
         self.assertEqual('waiting', result['parking_phase'])
         self.assertEqual(0., result['throttle_override'])
         self.assertEqual(scene.state['position'], result['move_position'])
-        self.assertTrue(scene.owner.stationary_turn_allowed(scene.target))
-        self.assertIsNotNone(scene.owner.pivot)
+        self.assertEqual(scene.target['position'], result['face_position'])
+        self.assertFalse(result['fire_allowed'])
+
+        alternate = dict(scene.target, id=3, network_id=3, position=(-20., 0., 70.))
+        scene.runtime._targets += (alternate,)
+        scene.raw_order['initial_target_hint']['target_id'] = 3
+        scene.target['position'] = (42., 0., 80.)
+        self.assertEqual(scene.target['position'], scene.apply(.2)['face_position'])
+        scene.runtime._targets = (alternate,)
+        self.assertEqual(alternate['position'], scene.apply(.3)['face_position'])
         self.assertIsNone(scene.owner._physical_recovery)
-        self.assertEqual(plan['solution']['point'], result['face_position'])
 
 
 if __name__ == '__main__':

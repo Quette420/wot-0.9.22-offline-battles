@@ -214,8 +214,19 @@ class RouteRecoveryMixin:
         if recovery is not None:
             recovery['last_pose'] = (pose['x'], pose['z'])
             recovery['last_at'] = now
+        following = None
+        if (previous is not None and recovery and recovery['phase'] in ('forward', 'skip') and physical and
+                index + 1 < len(points) and bot_tactics.route_motion_identity(order)):
+            authored = bot_tactics.route_config(self.tactics, self.tactics_map, key[0], bot['team'])
+            if (not authored or index >= len(authored['points']) or
+                    not bot_tactics.waiting_positions(authored['points'][index])):
+                endpoint = points[index + 1]
+                moved_forward = ((pose['x'] - previous[0]) * (endpoint['x'] - goal['x']) +
+                                 (pose['z'] - previous[1]) * (endpoint['z'] - goal['z']))
+                if moved_forward > 1.e-9:
+                    following = (endpoint['x'], endpoint['z'])
         arrived = bot_tactics.route_disk_reached((pose['x'], pose['z']),
-            (goal['x'], goal['z']), None, previous)
+            (goal['x'], goal['z']), following, previous)
         if arrived and order.get('combat_mode') != 'parking_approach':
             if recovery is None:
                 self._wreck_route_progress.pop(bot_id, None)

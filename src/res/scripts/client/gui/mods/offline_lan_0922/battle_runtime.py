@@ -4162,6 +4162,7 @@ class BattleRuntime(object):
                     WORKER_NATIVE_PROBE_SECONDS if self._worker_mode else 0.0),
                 control_seconds=(
                     WORKER_CONTROL_SECONDS if self._worker_mode else None),
+                control_clock=(_PROFILE_CLOCK if self._worker_mode else None),
                 combat_diagnostics=self._combat_diagnostics)
             self._bots.support_context = self._stack_support_context
             self._bots.stack_impact = self._bot_stack_impact

@@ -81,6 +81,7 @@ DESTRUCTIBLE_SCAN_MIN_SPEED = 1.0
 # command and acquire a new physical corridor only after ongoing motion has
 # consumed or rotated beyond the previous proof.
 MAX_CONTROL_ELAPSED_SECONDS = 0.20
+WORKER_CONTROL_CALLBACK_SECONDS = 0.20
 LOCAL_ACTION_SECONDS = 0.10
 TACTICAL_REFRESH_SECONDS = 1.0
 # Eight protocol-maximum exact paths can share only two of the four native
@@ -2086,7 +2087,8 @@ class BotRuntime(object):
                  wreck_ground_probe=None, rotation_resolver=None, visibility_async_probe=None,
                  impact_contacts_resolver=None, navigation_surface_probe=None,
                  navigation_height_columns=None, local_sweep_probe=None,
-                 bot_descriptor_resolver=None, artillery_aim_samples_probe=None):
+                 bot_descriptor_resolver=None, artillery_aim_samples_probe=None,
+                 control_clock=None):
         self._navigation_height_columns = navigation_height_columns
         self._navigation_surface_probe = navigation_surface_probe
         self._navigation_surface_queue = []
@@ -2235,6 +2237,8 @@ class BotRuntime(object):
         self.states = {}
         self._accumulator = 0.0
         self._control_refresh_accumulator = 0.0
+        self._control_clock = control_clock
+        self._control_catchup_until = None
         # This is the pose's simulation clock, not the wall clock observed
         # after native probes and JSON preparation have finished.  The server
         # maps it onto its own motion epoch so variable worker execution time
@@ -3781,6 +3785,7 @@ class BotRuntime(object):
             self.states = {}
             self._accumulator = 0.0
             self._control_refresh_accumulator = 0.0
+            self._control_catchup_until = None
             self._sample_time_us = 0
             self._publication_edge_signature = None
             self._manifest_sent = False
@@ -10667,12 +10672,8 @@ class BotRuntime(object):
                     leg = (key, leg[1], metadata)
                     own['_occupied_route_leg'] = leg
                     epoch_action = 'geometry_revalidation'
-            if (leg is not None and metadata.get('phase') != 'completed' and
-                    _distance(position, leg[1]) <= ai_driver.WAYPOINT_ARRIVAL_RADIUS):
-                metadata.update(epoch=epoch, phase='completed', completed_at=now)
-                leg = (key, leg[1], metadata)
-                own['_occupied_route_leg'] = leg
-                cache[key] = (now+TACTICAL_REFRESH_SECONDS, None, True)
+            if self._observe_occupied_route_arrival(own, position, now, epoch[1]):
+                metadata = leg[2]
                 # Retire only this post-navigation modifier. Returning None
                 # leaves the original checked corner and driver/retry owners
                 # in charge; it is not permission to cross the occupied hull.
@@ -10772,6 +10773,47 @@ class BotRuntime(object):
         cache[key] = (now+TACTICAL_REFRESH_SECONDS, result, blocked)
         return finish(result, blocked, 'bypass_issued' if result is not None else
             'no_checked_bypass' if blocked else 'endpoint_unoccupied', 'sampled')
+
+    def _occupied_route_exit(self, own, position, goal, strategic, grid, now):
+        """Join the outgoing leg of an occupied authored gate after its bypass."""
+        if not bot_tactics.route_motion_identity(strategic):
+            return None
+        leg = own.get('_occupied_route_leg')
+        if (leg is None or len(leg) != 3 or leg[0] != (grid.cell_for(goal), False) or
+                leg[2].get('phase') != 'completed'):
+            return None
+        route = own.get('route') or {}
+        route_id = strategic.get('route_id')
+        if route.get('id') != route_id:
+            return None
+        waypoints = route.get('waypoints') or ()
+        index = int(_number(strategic.get('route_index'), -1))
+        if not 0 <= index < len(waypoints) - 1:
+            return None
+        authored = bot_tactics.route_config(self._bot_tactics, self._navigation_map_name,
+                                            route_id, own.get('team'))
+        if (authored and index < len(authored['points']) and
+                bot_tactics.waiting_positions(authored['points'][index])):
+            return None
+        px, pz = self._route_waypoint_xz(waypoints[index])
+        if math.hypot(px - goal[0], pz - goal[2]) > .01:
+            return None
+        nx, nz = self._route_waypoint_xz(waypoints[index + 1])
+        length = math.hypot(nx - px, nz - pz)
+        if length <= 1.e-6:
+            return None
+        # A short connector beyond the wreck can legally pass the original
+        # gate along the same finite outgoing lane used by route progress.
+        distance = min(12.0, length)
+        x, z = px + (nx - px) * distance / length, pz + (nz - pz) * distance / length
+        height = grid._baked_cell_height(grid.cell_for((x, goal[1], z)))
+        point = None if height is None else (x, height, z)
+        if (point is None or grid.point_has_baked_hazard(point, BAKED_FATAL_HAZARDS | BAKED_SHALLOW_WATER) or
+                not grid.dry_segment_clear(position, point, now)):
+            # A complete local bypass never hands steering back to the same
+            # occupied gate. The existing physical-block timeout can replan.
+            return tuple(position)
+        return point
 
     @staticmethod
     def navigation_planning_capability(bot_id=None, direction=1.0):
@@ -10910,6 +10952,12 @@ class BotRuntime(object):
             authority_state['route_wreck_blocked'] = False
             authority_state['_occupied_route_point'] = False
             authority_state['_occupied_route_bypass_observations'] = []
+            # Observe arrival before aim/route ownership can hide the bypass
+            # or the driver can carry the hull beyond its arrival radius.
+            nav_state = getattr(self.navigator, 'bot_states', {}).get(int(bot_id), {})
+            self._observe_occupied_route_arrival(
+                authority_state, position, state.get('now', 0.0),
+                nav_state.get('replan_generation', 0))
         stop_at_goal = mode not in ('route', 'advance')
         if self.navigator is None:
             state['navigation_stop_at_target'] = stop_at_goal
@@ -10919,6 +10967,15 @@ class BotRuntime(object):
         if mode in ('route', 'advance') and strategic.get('throttle_override') is None:
             occupied_goal = self._occupied_route_target(
                 bot_id, position, goal, float(state.get('now', 0.0)))
+            if occupied_goal is None and authority_state is not None and authority_state['_occupied_route_point']:
+                occupied_goal = self._occupied_route_exit(
+                    authority_state, position, goal, strategic, grid, float(state.get('now', 0.0)))
+                if occupied_goal is not None:
+                    target_receipt['occupied_exit'] = occupied_goal
+                    if occupied_goal == tuple(position):
+                        target_receipt.update(source='occupied_exit_wait', final_target=occupied_goal)
+                        state['navigation_stop_at_target'] = True
+                        return occupied_goal
         # Publish exact static-hull evidence, not a guess from a stalled pose.
         # Local A* gets the first opportunity to bypass it; the server may
         # abandon this macro lane only after sustained lack of progress.
@@ -10976,7 +11033,7 @@ class BotRuntime(object):
             anchor = (strategic.get('route_anchor')
                       if bool(strategic.get('route_join')) else None)
             lane_identity = (0, 0)
-            if mode in ('route', 'advance') and anchor is not None:
+            if mode in ('route', 'advance') and anchor is not None and occupied_goal is None:
                 goal, lane_identity = self._route_lane_goal(
                     bot_id, position, goal, strategic, now,
                     True)
@@ -11000,7 +11057,7 @@ class BotRuntime(object):
             anchor = None
         if occupied_goal is not None:
             path_key = ('local', int(bot_id), 'occupied_route', strategic.get('route_id'),
-                        route_index, grid.cell_for(goal))
+                        route_index, 'exit' if 'occupied_exit' in target_receipt else 'bypass')
         # Moving hulls are not terrain. The simultaneous tank-contact solver
         # keeps them solid and LocalDriver separates an existing overlap. Feeding
         # every live neighbour back into the navigation fallback made a moving
@@ -11079,11 +11136,13 @@ class BotRuntime(object):
         target_receipt.update(planning_goal=tuple(goal), path_key=path_key,
             selected_target=selected_target, source=('retained' if retained is not None
                 else 'direct' if direct_target else 'navigator'))
-        if retained is None and mode in ('route', 'advance') and anchor is None:
+        if (retained is None and occupied_goal is None and
+                mode in ('route', 'advance') and anchor is None):
             target = self._route_lane_target(
                 bot_id, position, goal, target, strategic, now)
         target_receipt['lane_target'] = tuple(target)
-        if retained is None and mode in ('route', 'advance') and strategic.get('throttle_override') is None:
+        if (retained is None and occupied_goal is None and mode in ('route', 'advance') and
+                strategic.get('throttle_override') is None):
             bypass = self._occupied_route_target(bot_id, position, target, now, True)
             if bypass is not None:
                 runtime_owner = dict(kind='occupied_route', base_target=tuple(target))
@@ -16569,7 +16628,7 @@ class BotRuntime(object):
         """Advance Bot motion in real time with bounded control refreshes.
 
         Fixed-control workers bank elapsed time and consume bounded physical
-        slices, retaining a sub-control remainder for the next callback. The
+        slices, retaining unprocessed time for the next callback. The
         first slice may think and observe when the control period is due;
         later slices keep its command until the next control refresh.
         Physical corridor proofs may
@@ -16591,6 +16650,8 @@ class BotRuntime(object):
         if self._fixed_control:
             self._control_refresh_accumulator += elapsed_input
         now = float(now)
+        control_clock = self._control_clock if self._fixed_control else None
+        deadline = control_clock() + WORKER_CONTROL_CALLBACK_SECONDS if control_clock else None
         self._drain_navigation_surface_trace(now)
         navigator_begin = getattr(self.navigator, 'begin_frame', None)
         navigator_end = getattr(self.navigator, 'end_frame', None)
@@ -16652,13 +16713,18 @@ class BotRuntime(object):
                             True))
                 else:
                     elapsed = self._accumulator
+                    catchup_until = self._control_catchup_until
+                    if catchup_until is not None and now - elapsed >= catchup_until - 1.e-9:
+                        self._control_catchup_until = catchup_until = None
+                    if catchup_until is not None:
+                        combat_count('bot_catchup_continuations')
                     # Burst-only callbacks consume physics time independently
                     # of the normal decision phase. Coalesce overdue decisions
                     # once, retaining their fractional phase for later frames.
                     refresh_periods = int(
                         (self._control_refresh_accumulator + 1.0e-9) /
                         self._control_seconds)
-                    refresh_control = refresh_periods > 0
+                    refresh_control = catchup_until is None and refresh_periods > 0
                     if refresh_control:
                         self._control_refresh_accumulator = max(
                             0.0, self._control_refresh_accumulator -
@@ -16675,15 +16741,32 @@ class BotRuntime(object):
                         # this slice, so publish each necessary short tail
                         # rather than predicting its future clock state.
                         publish_step = bool(
-                            refresh_control or
+                            refresh_control or control_clock is not None or
                             elapsed + 1.0e-9 < self._control_seconds)
                         self._last_update_control_steps += 1
                         self._last_update_max_control_step = max(
                             self._last_update_max_control_step, frame_step)
+                        slice_started = control_clock() if control_clock else None
                         outgoing.extend(self._run_update_once(
                             frame_step, step_now, players, neighbours,
                             refresh_control, publish_step, now))
                         refresh_control = False
+                        if catchup_until is not None and step_now >= catchup_until - 1.e-9:
+                            # The previous callback's work is complete. A new
+                            # decision can now use the next callback's time.
+                            self._control_catchup_until = None
+                            break
+                        if control_clock and self._bank_control_step(elapsed) > 0.0:
+                            spent_until = control_clock()
+                            if spent_until + (spent_until - slice_started) >= deadline:
+                                # Keep the last command and the group's original
+                                # end time. Replanning on every yielded slice
+                                # can cost more than the physical time it pays.
+                                self._control_catchup_until = (now if catchup_until is None
+                                                               else catchup_until)
+                                combat_count('bot_catchup_yields')
+                                combat_count('bot_catchup_banked_us', int(round(elapsed * 1000000.0)))
+                                break
                 # Deliver once per render callback, after every bounded
                 # physical slice has contributed only its own contact time.
                 self._apply_traffic_wait_lease()

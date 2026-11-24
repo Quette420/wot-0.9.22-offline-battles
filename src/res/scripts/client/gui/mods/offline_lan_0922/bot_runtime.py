@@ -10600,7 +10600,22 @@ class BotRuntime(object):
         own['_radio_ground_goal'] = (key, result)
         return result
 
-    def _occupied_route_target(self, bot_id, position, goal, now, direct_only=False):
+    @staticmethod
+    def _observe_occupied_route_arrival(own, position, now, replan_generation):
+        leg = own.get('_occupied_route_leg')
+        if leg is None or len(leg) != 3:
+            return False
+        key, target, metadata = leg
+        if (metadata.get('phase') != 'active' or
+                metadata['epoch'][1] != replan_generation or
+                _distance(position, target) > ai_driver.WAYPOINT_ARRIVAL_RADIUS):
+            return False
+        metadata.update(phase='completed', completed_at=now)
+        own.setdefault('_occupied_route_targets', {})[key] = (
+            now+TACTICAL_REFRESH_SECONDS, None, True)
+        return True
+
+    def _occupied_route_target(self, bot_id, position, goal, now, direct_only=False, receipt=None):
         """A bounded temporary bypass of an occupied travel point, never a wait."""
         own = self.states.get(int(bot_id))
         grid = getattr(self.navigator, 'grid', None)
@@ -10622,6 +10637,8 @@ class BotRuntime(object):
         epoch_action = 'unchanged'
         geometry_receipt = {}
         def finish(result, blocked, reason, source):
+            if receipt is not None:
+                receipt.update(goal=tuple(goal), blocked=bool(blocked), reason=reason)
             observations = own.setdefault('_occupied_route_bypass_observations', [])
             observations.append(dict(at=now, goal=tuple(goal), position=tuple(position),
                 target=result, blocked=bool(blocked), reason=reason, source=source,
@@ -11019,6 +11036,19 @@ class BotRuntime(object):
             and not driver_state.get('traffic_waiting', False)
             and int(bot_id) not in self._artillery_intents
             and int(bot_id) not in self._artillery_reproofs)
+        local_state = getattr(self.navigator, 'bot_states', {}).get(int(bot_id), {})
+        owner = local_state.get('runtime_target_owner') or {}
+        retire = getattr(self.navigator, 'retire_runtime_target', None)
+        if (movement_intent and owner.get('kind') == 'occupied_route' and
+                local_state.get('request_path_key') == tuple(path_key)):
+            # Revisit the point that caused this bypass, not the unrelated
+            # macro goal. Retaining the offset must not hide its expiry.
+            base = owner['base_target']
+            review = {}
+            self._occupied_route_target(bot_id, position, base, now, True, receipt=review)
+            if (review.get('reason') == 'endpoint_unoccupied' and
+                    not review.get('blocked') and callable(retire)):
+                retire(bot_id, position, now, 'occupied_endpoint_clear')
         retain = getattr(self.navigator, 'retained_local_target', None)
         retained = retain(bot_id, position, goal, path_key, now, movement_intent,
                           state.get('yaw')) if callable(retain) else None
@@ -11045,6 +11075,7 @@ class BotRuntime(object):
             ((direct_target and tuple(target) == tuple(goal)) or
              (not direct_target and callable(terminal) and terminal(bot_id))))
         selected_target = tuple(target)
+        runtime_owner = None
         target_receipt.update(planning_goal=tuple(goal), path_key=path_key,
             selected_target=selected_target, source=('retained' if retained is not None
                 else 'direct' if direct_target else 'navigator'))
@@ -11055,6 +11086,7 @@ class BotRuntime(object):
         if retained is None and mode in ('route', 'advance') and strategic.get('throttle_override') is None:
             bypass = self._occupied_route_target(bot_id, position, target, now, True)
             if bypass is not None:
+                runtime_owner = dict(kind='occupied_route', base_target=tuple(target))
                 target = bypass
                 state['navigation_stop_at_target'] = False
         if local_height is not None:
@@ -11063,6 +11095,7 @@ class BotRuntime(object):
             if status in ('other_surface','connected'):
                 target = resolved
             elif status in ('disconnected','water'):
+                runtime_owner = None
                 target_receipt['height_rejected_target'] = tuple(target)
                 # Use the existing candidate fan, costs and retry owner. Do not
                 # install a new route switch, edge blacklist or wait timer.
@@ -11077,17 +11110,20 @@ class BotRuntime(object):
         guide = getattr(self.navigator, 'narrow_passage_target', None)
         navigation_status = getattr(self.navigator, 'bot_states', {}).get(
             int(bot_id), {}).get('navigation_status', 'pending')
-        if (callable(guide) and mode in ('route', 'advance') and
+        passage_allowed = (mode in ('route', 'advance') and
                 strategic.get('throttle_override') is None and
-                not strategic.get('parking_phase') and navigation_status == 'safe' and
-                'half_length' in state and 'half_width' in state):
+                not strategic.get('parking_phase') and
+                'half_length' in state and 'half_width' in state)
+        if callable(guide) and passage_allowed and navigation_status == 'safe':
             original = target
             target = guide(bot_id,position,goal,target,now,
                 float(state.get('yaw',0.)),float(state['half_length']),float(state['half_width']))
             if target != original:
+                runtime_owner = dict(kind='narrow_passage', base_target=tuple(original),
+                    shape=(float(state['half_length']), float(state['half_width'])))
                 state['navigation_stop_at_target'] = False
                 target_receipt.update(source='narrow_passage', original_target=tuple(original))
-        else:
+        elif not passage_allowed:
             end_passage = getattr(self.navigator, 'end_narrow_passage', None)
             if callable(end_passage):
                 end_passage(bot_id,now,'navigation_owner_changed')
@@ -11109,7 +11145,7 @@ class BotRuntime(object):
                        'already_in_arrival_radius' if not unconsumed else
                        'remember_owner_unavailable')
         if movement_intent and horizontal_change and unconsumed and callable(remember):
-            accepted = remember(bot_id, position, goal, target, now)
+            accepted = remember(bot_id, position, goal, target, now, owner=runtime_owner)
             handoff['reason'] = 'horizontal_bypass_issued'
             if accepted is False:
                 handoff.update(reason='active_private_refusal', rejected=tuple(target))
@@ -11118,6 +11154,13 @@ class BotRuntime(object):
                     else tuple(position))
                 handoff['resolved'] = tuple(target)
         target_receipt['runtime_leg_handoff'] = handoff
+        released = getattr(self.navigator, 'bot_states', {}).get(
+            int(bot_id), {}).pop('runtime_target_release', None)
+        if released is not None:
+            release_alignment = getattr(driver, 'retire_local_target', None)
+            released['alignment_released'] = bool(callable(release_alignment) and
+                release_alignment(bot_id, released['target']))
+            target_receipt['retired_runtime_target'] = released
         target_receipt['occupied_refusal'] = dict(
             (self.states.get(int(bot_id), {}).get('_occupied_route_refusal') or {}))
         target_receipt['occupied_bypass'] = list(

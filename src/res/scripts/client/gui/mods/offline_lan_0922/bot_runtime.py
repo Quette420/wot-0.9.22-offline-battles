@@ -974,6 +974,8 @@ def _critical_factor(state, descriptor, stat):
         return device_damage.crew_stat_factor(crew_ko, stat) * module_factor
     base = bot_fittings.native_factors(descriptor)
     current = bot_fittings.native_factors(descriptor, state.get('critical'))
+    if stat == 'vision' and 'surveyingDeviceHealth' in destroyed:
+        module_factor *= crew_battle.from_native(current)['damaged_optics_recon_ratio']
     keys = {'reload': 'gun/reloadTime', 'aim_time': 'gun/aimingTime',
             'turret_speed': 'turret/rotationSpeed', 'vision': 'circularVisionRadius',
             'signal': 'radio/distance'}
@@ -1831,10 +1833,8 @@ def _dispersed_barrel_angles(bot_id, round_id, fire_seq, yaw, pitch,
     # #1513's aiming circle is a hard two-sigma angular boundary.  The former
     # three independent world-axis Gaussians were unbounded and could publish
     # a bot shell outside the circle used by the player gun and marker.
-    sigma = dispersion_angle / 2.0
-    radius = abs(generator.gauss(0.0, sigma))
-    if radius > dispersion_angle:
-        radius = dispersion_angle * generator.uniform(0.0, 1.0)
+    from gui.mods.offline_lan_0922 import shot_dispersion
+    radius = shot_dispersion.radius(dispersion_angle, generator.gauss, generator.uniform)
     azimuth = generator.uniform(0.0, 2.0 * math.pi)
 
     dx, dy, dz = direction
@@ -5394,8 +5394,11 @@ class BotRuntime(object):
             misc = _value(descriptor, 'miscAttrs', {}) or {}
             unused_key, dynamic = _player_dynamic_spotting(snapshot, source)
             devices, destroyed, unused_crew, yellow = _critical_parts(source)
+            from gui.mods.offline_lan_0922 import crew_battle
             module_factor = device_damage.module_stat_factor(
-                devices, destroyed, descriptor, 'vision', yellow)
+                devices, destroyed, descriptor, 'vision', yellow,
+                crew_battle.for_critical(snapshot, source.get('critical'))[
+                    'damaged_optics_recon_ratio'])
             damage_factor = device_damage.clamp_vision_factor(
                 dynamic.get('vision', 1.0) * module_factor)
             since = self._source_still.get(('human', player_id))
@@ -8961,6 +8964,8 @@ class BotRuntime(object):
         if (witnesses or ground_observed) and callable(self.impact_contacts_resolver):
             from gui.mods.offline_lan_0922 import environment_modules
             contacts = self.impact_contacts_resolver(state, witnesses, normal, impact_speed)
+            damage = environment_modules.suspension_hull_damage(
+                damage, self._descriptors.get(state['id'], {}), contacts, normal)
             shadow = _BotCriticalVehicle(state, self._descriptors.get(state['id'], {}),
                 None, _number(state.get('combat_fire_timer')))
             terminal_damage, payload = environment_modules.apply_impact(shadow, impact_speed, contacts)

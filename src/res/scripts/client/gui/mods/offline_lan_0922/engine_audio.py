@@ -15,6 +15,27 @@ _RELAYS = weakref.WeakValueDictionary()
 _HOOKS = None
 _VOLUME_OWNER = None
 _VOLUME_HISTORY = {}
+_APPEARANCE_HOOKS = {}
+
+
+def install_appearance_cleanup(appearance_type):
+    """Drop custom model owners before the stock appearance is destroyed."""
+    if appearance_type in _APPEARANCE_HOOKS:
+        return False
+    original = getattr(appearance_type, 'destroy', None)
+    if not callable(original):
+        return False
+
+    def destroy(appearance, *args, **kwargs):
+        try:
+            release(appearance)
+        finally:
+            result = original(appearance, *args, **kwargs)
+        return result
+
+    _APPEARANCE_HOOKS[appearance_type] = original, destroy
+    appearance_type.destroy = destroy
+    return True
 
 
 def _log(text):
@@ -311,11 +332,24 @@ def install(assembler=None):
 
 def release(appearance):
     owner = getattr(appearance, '_offlineEngineRelay', None)
-    if owner is not None:
-        owner.close()
-        appearance._offlineEngineRelay = None
-    if appearance is not None:
-        appearance._offlineEngineMotion = None
+    saved = getattr(appearance, '_offlineLANMutedEngine', None)
+    try:
+        if isinstance(saved, tuple) and len(saved) == 2:
+            from .native_input_diagnostics import detailed_enabled, write_json_record
+            if detailed_enabled():
+                write_json_record('MODEL OWNER', dict(stage='release_muted_generation',
+                    appearance=id(appearance), detailed=id(saved[0]), model=id(saved[1])))
+    except Exception:
+        # An observation failure must not change native ownership retirement.
+        pass
+    try:
+        if owner is not None:
+            owner.close()
+    finally:
+        if appearance is not None:
+            appearance._offlineEngineRelay = None
+            appearance._offlineEngineMotion = None
+            appearance._offlineLANMutedEngine = None
 
 
 def uninstall():
@@ -329,7 +363,11 @@ def uninstall():
         _VOLUME_OWNER = None
     _VOLUME_HISTORY.clear()
     for owner in list(_RELAYS.values()):
-        owner.close()
+        appearance = owner.appearance()
+        if appearance is not None:
+            release(appearance)
+        else:
+            owner.close()
     if _HOOKS is not None:
         module, old_a, old_s, new_a, new_s = _HOOKS
         if module.assembleVehicleAudition is new_a:
@@ -338,3 +376,7 @@ def uninstall():
             module.subscribeEngineAuditionToEngineState = old_s
         _HOOKS = None
     _probe.stop()
+    # The ownership-only destroy hooks outlive audio uninstallation. Stock
+    # fini may still destroy an appearance after guiModsFini, including a
+    # partially retired entity no longer present in the offline registry.
+    # These hooks retain classes/functions, never appearance/model instances.

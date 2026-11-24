@@ -3498,7 +3498,8 @@ class BattleState:
         with self.lock:
             if self.simulation_worker is not worker:
                 return None, False
-            was_round_active = self.phase in ("loading", "battle")
+            was_round_active = (self.phase in ("loading", "battle") and
+                                self.battle_result is None)
             # Fence the producer before changing any published lineage. The
             # socket shutdown stays outside the global state lock.
             worker._mark_disconnected()
@@ -3592,6 +3593,7 @@ class BattleState:
                 participant = self.round_participants.get(
                     player.account_key)
                 if participant is not None and player.participating:
+                    participant['critical'] = copy.deepcopy(player.critical)
                     participant['alive'] = bool(player.alive)
                     participant['health'] = int(player.health)
                     participant['death_reason'] = int(player.death_reason)
@@ -4900,6 +4902,7 @@ class BattleState:
             overturned = int(overturn.get("level", 0)) in (1, 2)
             participant = self.round_participants.get(player.account_key)
             if participant is not None:
+                participant['critical'] = copy.deepcopy(player.critical)
                 # Preserve the final participant state for the result receipt
                 # before the unobserved remainder is adjudicated from bot state.
                 participant["alive"] = was_alive
@@ -8690,7 +8693,7 @@ class BattleState:
                     PLAYER_ENVIRONMENT_CAPABILITY not in
                     player.capabilities or
                     not isinstance(message, dict) or
-                    set(message) - {'module_contacts', 'vehicle_contact'} != {
+                    set(message) - {'module_contacts', 'vehicle_contact', 'contact_normal'} != {
                         "type", "round_id", "authority_epoch",
                         "observation_seq", "input_seq", "impact_speed"} or
                     message.get("type") != "landing_observation" or
@@ -8716,6 +8719,7 @@ class BattleState:
             from gui.mods.offline_lan_0922 import environment_modules
             try:
                 module_contacts = environment_modules.normalize_contacts(message.get('module_contacts', []))
+                contact_normal = environment_modules.contact_normal(message.get('contact_normal'))
             except (ValueError, TypeError):
                 return False
             normalized = {
@@ -8724,6 +8728,7 @@ class BattleState:
                 "input_seq": input_seq,
                 "impact_speed": impact_speed,
                 "module_contacts": module_contacts,
+                "contact_normal": contact_normal,
             }
             from gui.mods.offline_lan_0922 import vehicle_stack
             carrier = None
@@ -8790,6 +8795,8 @@ class BattleState:
                 return False
             damage = vehicle_physics.fall_damage(
                 int(player.max_health), impact_speed)
+            damage = environment_modules.suspension_hull_damage(
+                damage, player_critical_mechanics._descriptor(player), module_contacts, contact_normal)
             # Freeze the contact's identities before either side can die in
             # the same impact. Later wreck pressure has a separate counter.
             upper_alive = bool(player.alive)
@@ -11731,6 +11738,18 @@ class BattleState:
                 }
                 if participant.get("vehicle_compact_descr"):
                     receipt["vehicle_compact_descr"] = participant["vehicle_compact_descr"]
+                from gui.mods.offline_lan_0922 import crew_injuries
+                terminal_critical = (live_player.critical if live_player is not None
+                    and live_player.participating else participant.get('critical'))
+                try:
+                    injuries = crew_injuries.from_critical(terminal_critical)
+                except ValueError as error:
+                    # A bounded optional injury fact must not suppress the
+                    # whole room's durable battle result.
+                    _server_log('CREW INJURIES unavailable player=%s reason=%s' % (player_id, error))
+                    injuries = None
+                if injuries is not None:
+                    receipt['crew_injuries'] = injuries
                 # Preserve the battle's actual configured durability and
                 # active seasonal outfits, even after a garage edit/disconnect.
                 for field in ("max_health", "vehicle_outfits"):

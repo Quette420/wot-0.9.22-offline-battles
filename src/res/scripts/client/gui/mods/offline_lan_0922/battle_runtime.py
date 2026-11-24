@@ -9809,6 +9809,11 @@ class BattleRuntime(object):
     def _crew_stat_factor(entity, stat, snapshot):
         """Combine damage penalties with the accepted crew's conditional effects."""
         value = critical_damage.stat_factor(entity, stat)
+        if stat == 'vision' and entity is not None and snapshot is not None:
+            from gui.mods.offline_lan_0922 import crew_battle
+            if 'surveyingDeviceHealth' in (getattr(entity, '_destroyed_devices', ()) or ()):
+                value *= crew_battle.for_critical(
+                    snapshot, crew_battle.critical_from_vehicle(entity))['damaged_optics_recon_ratio']
         if (stat not in ('reload', 'dispersion') or entity is None or
                 snapshot is None):
             return value
@@ -13572,7 +13577,7 @@ class BattleRuntime(object):
             return False
         return True
 
-    def _local_repair_factor(self, descriptor):
+    def _local_repair_factor(self, descriptor, entity=None):
         """This vehicle's live repair factor, unused large kit included.
 
         #1513 gives Repairkit no updateVehicleAttrFactors hook, so its
@@ -13580,9 +13585,15 @@ class BattleRuntime(object):
         live consumable ledger and ends when the kit is spent.
         """
         loadout = self._local_loadout(descriptor)
+        factor = max(0.0, _number(loadout['repair_factor'], 1.0))
+        snapshot = getattr(self, '_local_effective_params', None)
+        if snapshot is not None and entity is not None:
+            from . import crew_battle
+            factor = crew_battle.for_critical(snapshot,
+                crew_battle.critical_from_vehicle(entity))['repair_speed_factor']
         passives = equipment_mechanics.passive_effects(
             self._equipment_state or ())
-        return max(0.0, _number(loadout['repair_factor'], 1.0)) * (
+        return factor * (
             1.0 + max(0.0, _number(
                 passives.get('repairkitBonusValue'), 0.0)))
 
@@ -13653,7 +13664,7 @@ class BattleRuntime(object):
             entity.maxHealth = int(entity.typeDescriptor.maxHealth)
         now = self._clock()
         payload = self._tick_local_track_repair(
-            entity, dt, self._local_repair_factor(entity.typeDescriptor))
+            entity, dt, self._local_repair_factor(entity.typeDescriptor, entity))
         if payload is not None:
             record['critical_state'] = self._critical_state(payload)
             state = dict(record.get('state') or {})
@@ -13685,7 +13696,7 @@ class BattleRuntime(object):
         if cache is None:
             cache = {}
             entity._offline_lan_repair_progress = cache
-        repair_factor = self._local_repair_factor(entity.typeDescriptor)
+        repair_factor = self._local_repair_factor(entity.typeDescriptor, entity)
         for name in tuple(destroyed):
             if name in critical_damage._device_damage.NO_REPAIR_PROGRESS_DEVICES:
                 continue
@@ -25237,7 +25248,8 @@ class BattleRuntime(object):
         context = getattr(self,'_stack_context',None)
         carrier = (context.get('impact_carrier', context.get('contact_carrier',
             context['actor'].get('_stack_carrier'))) if context else None)
-        observation = dict(impact_speed=impact_speed,module_contacts=contacts)
+        observation = dict(impact_speed=impact_speed, module_contacts=contacts,
+                           contact_normal=list(normal) if normal is not None else None)
         if carrier:
             observation['vehicle_contact'] = list(carrier)
         self._pending_landing_impacts.append(observation if contacts or carrier else impact_speed)
@@ -25300,8 +25312,14 @@ class BattleRuntime(object):
         sender = getattr(self._sender, 'send_current', None)
         publish = getattr(self.client, 'send_landing_observation', None)
         carrier = observation.get('vehicle_contact') if isinstance(observation,dict) else None
-        sent = (publish(impact_speed,contacts,vehicle_contact=carrier) if carrier else
-                publish(impact_speed,contacts) if contacts else publish(impact_speed)) if callable(publish) and callable(sender) and sender() else False
+        normal = observation.get('contact_normal') if isinstance(observation, dict) else None
+        kwargs = {}
+        if carrier:
+            kwargs['vehicle_contact'] = carrier
+        if normal is not None:
+            kwargs['contact_normal'] = normal
+        sent = ((publish(impact_speed, contacts, **kwargs) if contacts or kwargs else
+                 publish(impact_speed)) if callable(publish) and callable(sender) and sender() else False)
         if not sent:
             return False
         del self._pending_landing_impacts[0]

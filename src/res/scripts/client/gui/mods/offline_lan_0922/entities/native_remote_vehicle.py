@@ -136,10 +136,11 @@ def set_engine_audible(entity, audible):
             return saved is not None
         probe.note(appearance, 'before_audio_remove', requested_audible=False)
         # Publish ownership before the ComponentDescriptor can re-enter.
+        from gui.mods.offline_lan_0922 import engine_audio
+        engine_audio.install_appearance_cleanup(type(appearance))
         appearance._offlineLANMutedEngine = (
             detailed, getattr(appearance, 'compoundModel', None))
         if detailed is not None:
-            from gui.mods.offline_lan_0922 import engine_audio
             engine_audio.suspend(appearance)
         appearance.engineAudition = None
         probe.note(appearance, 'after_audio_remove', requested_audible=False)

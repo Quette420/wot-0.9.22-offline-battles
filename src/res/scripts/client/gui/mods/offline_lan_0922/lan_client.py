@@ -1423,6 +1423,11 @@ def _valid_battle_receipt(message):
     if rewards.get('repair_cost') != 0 or rewards.get('ammo_cost') != 0:
         return False
     try:
+        from . import crew_injuries
+        crew_injuries.canonical(message.get('crew_injuries'))
+    except (TypeError, ValueError):
+        return False
+    try:
         friendly_fire.facts(message.get('friendly_fire'))
     except (TypeError, ValueError, OverflowError):
         return False
@@ -2498,6 +2503,8 @@ class LANClient(object):
             }
             if pending.get('module_contacts'):
                 wire['module_contacts'] = list(pending['module_contacts'])
+            if pending.get('contact_normal') is not None:
+                wire['contact_normal'] = list(pending['contact_normal'])
             if pending.get('vehicle_contact'):
                 wire['vehicle_contact'] = list(pending['vehicle_contact'])
             pending['wire'] = wire
@@ -2508,7 +2515,8 @@ class LANClient(object):
             pending.pop('refresh_input_on_retry', None)
         return sent
 
-    def send_landing_observation(self, impact_speed, module_contacts=None, vehicle_contact=None):
+    def send_landing_observation(self, impact_speed, module_contacts=None, vehicle_contact=None,
+                                 contact_normal=None):
         """Publish one physical landing observation, never a damage verdict."""
         if (isinstance(impact_speed, bool) or
                 not isinstance(impact_speed, integer_types + (float,))):
@@ -2526,6 +2534,7 @@ class LANClient(object):
         from gui.mods.offline_lan_0922 import environment_modules
         try:
             module_contacts = environment_modules.normalize_contacts(module_contacts or [])
+            contact_normal = environment_modules.contact_normal(contact_normal)
         except (TypeError, ValueError):
             return False
         if vehicle_contact is not None:
@@ -2558,6 +2567,7 @@ class LANClient(object):
                 'impact_speed': round(impact_speed, 6),
                 'module_contacts': module_contacts,
                 'vehicle_contact': vehicle_contact,
+                'contact_normal': contact_normal,
             })
             if (not pending.get('sent', False) and
                     pending.get('retry_on_input', False)):
@@ -2572,6 +2582,7 @@ class LANClient(object):
             'impact_speed': round(impact_speed, 6),
                 'module_contacts': module_contacts,
             'vehicle_contact': vehicle_contact,
+            'contact_normal': contact_normal,
             'sent': False,
             'reported': False,
         }
@@ -2590,6 +2601,7 @@ class LANClient(object):
             'input_seq': int(queued['input_seq']),
             'impact_speed': float(queued['impact_speed']),
             'module_contacts': list(queued.get('module_contacts', ())),
+            'contact_normal': queued.get('contact_normal'),
             'vehicle_contact': queued.get('vehicle_contact'),
             'sent': False,
             'reported': True,

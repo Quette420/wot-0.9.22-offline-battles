@@ -1134,6 +1134,8 @@ def _apply_module_damage(target_mock, all_hits, start_pos, end_pos, dmg, _shell,
 				# protection. Apply the artefact value at the crew-hit roll.
 				_chance *= max(
 					0.0, 1.0 - 0.5 * _medkit_bonus_value(target_mock))
+				_chance *= _device_damage._misc_factor(
+					_device_td(target_mock), 'crewChanceToHitFactor')
 				_draw = random.random() if _crew_on else None
 				_audit_rolls.append((_name, _chance, _draw))
 				if _crew_on and _draw < _chance:
@@ -1685,7 +1687,7 @@ def apply_payload(vehicle, payload):
 
 
 def tick_repair(vehicle, dt, repair_skill=100.0, repair_factor=None):
-    """Advance copied 0.8.2 repair law; transport/presentation stay outside."""
+    """Advance the shared repair work/crew law; presentation stays outside."""
     if vehicle is None or dt is None or dt <= 0.0:
         return None
     if float(getattr(vehicle, 'health', 0.0) or 0.0) <= 0.0:
@@ -1708,9 +1710,13 @@ def tick_repair(vehicle, dt, repair_skill=100.0, repair_factor=None):
                 bool(getattr(vehicle, 'is_on_fire', False))):
             continue
         if devices[name] < cap:
+            previous_hp = devices[name]
             devices[name] = _device_damage.repair_step_hp(
                 devices[name], name, descriptor, dt, repair_skill,
-                repair_factor)
+                repair_factor, getattr(vehicle, '_crew_ko', ()))
+            _device_damage.report_repair_step(vehicle, name, descriptor,
+                previous_hp, devices[name], dt, repair_factor,
+                getattr(vehicle, '_crew_ko', ()))
         was_destroyed = name in destroyed
         if was_destroyed and devices[name] >= cap:
             destroyed.discard(name)

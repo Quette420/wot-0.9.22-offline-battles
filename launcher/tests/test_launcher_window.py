@@ -305,7 +305,7 @@ class WindowTest(unittest.TestCase):
             "offerKinds": ("gold", "reward")}))
 
     def test_layout_separates_play_vehicle_and_repair_controls(self):
-        self.assertEqual("1.1.1", wot_launcher.LAUNCHER_VERSION)
+        self.assertEqual("1.1.2", wot_launcher.LAUNCHER_VERSION)
         self.assertEqual(
             "Single player",
             self.window.battle_tabs.tab(self.window.single_panel).get("text"))
@@ -361,12 +361,12 @@ class WindowTest(unittest.TestCase):
 
     def test_launcher_session_identity_is_visible_and_persisted(self):
         self.assertIn(
-            "Launcher session: version=1.1.1 build=unknown role=launcher",
+            "Launcher session: version=1.1.2 build=unknown role=launcher",
             self._log_text())
         with open(core.launcher_log_path(), encoding="utf-8") as stream:
             persisted = stream.read()
         self.assertIn(
-            "Launcher session: version=1.1.1 build=unknown role=launcher",
+            "Launcher session: version=1.1.2 build=unknown role=launcher",
             persisted)
 
     def test_first_run_prompts_once_when_the_launcher_starts(self):
@@ -586,13 +586,16 @@ class WindowTest(unittest.TestCase):
             "missing": ("hidden-worker.log",),
             "notRun": (),
         }
+        physical = os.path.join(self.settings_dir, "LocalCache", "report.zip")
         notice = mock.Mock()
         tkinter = mock.Mock(messagebox=mock.Mock(showinfo=notice))
         with mock.patch.object(
                 wot_launcher.error_reports, "create_report",
                 return_value=report) as create, mock.patch.object(
                     wot_launcher.error_reports, "select_in_explorer") \
-                as select, mock.patch.dict("sys.modules", {"tkinter": tkinter}):
+                as select, mock.patch.dict("sys.modules", {"tkinter": tkinter}), \
+                mock.patch.object(wot_launcher.os.path, "realpath",
+                                  return_value=physical):
             self.assertTrue(self.window._create_error_report())
             for unused in range(200):
                 if not self.window._report_busy:
@@ -604,9 +607,9 @@ class WindowTest(unittest.TestCase):
         notice.assert_called_once_with(
             "Error report ready",
             "Please send this ZIP file to the author to report the problem:"
-            "\n\n%s" % report["path"],
+            "\n\n%s" % physical,
             parent=self.window.root)
-        self.assertIn("Created error report", self._log_text())
+        self.assertIn("Created error report: %s" % physical, self._log_text())
         self.assertIn("server.log, visible-client.log", self._log_text())
         self.assertIn("hidden-worker.log", self._log_text())
 

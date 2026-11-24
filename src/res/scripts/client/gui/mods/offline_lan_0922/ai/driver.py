@@ -1263,6 +1263,15 @@ class LocalDriver(object):
 		return dict(throttle=1.0, turn=0.0, target_yaw=escape['yaw'],
 			recovery_mode='forward_escape', recovery_probe_distance=remaining)
 
+	def retire_local_target(self, bot_id, target):
+		"""Release only the alignment lease of an expired navigation modifier."""
+		state = self.states.get(int(bot_id))
+		alignment = state.get('alignment_target') if state is not None else None
+		if alignment is not None and _distance(alignment, target) <= 1.e-4:
+			state.pop('alignment_target', None)
+			return True
+		return False
+
 	@observed('driver.drive')
 	def drive(self, bot_id, team_slot, position, yaw, speed, dt, target,
 			neighbours, direction_clear, velocity=None,

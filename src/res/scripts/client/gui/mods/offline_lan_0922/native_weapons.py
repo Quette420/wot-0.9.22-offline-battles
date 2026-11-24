@@ -358,9 +358,8 @@ class NativeWeapons(object):
                  (int(group) & 0x7fffffff) * 6113 +
                  (int(burst_index) & 0xffff) * 3571) & 0x7fffffff)
         generator = random.Random(seed)
-        radius = abs(generator.gauss(0.0, dispersion_angle / 2.0))
-        if radius > dispersion_angle:
-            radius = dispersion_angle * generator.uniform(0.0, 1.0)
+        from gui.mods.offline_lan_0922 import shot_dispersion
+        radius = shot_dispersion.radius(dispersion_angle, generator.gauss, generator.uniform)
         azimuth = generator.uniform(0.0, 2.0 * math.pi)
         if base_direction is None:
             horizontal = math.cos(pitch)

@@ -3,7 +3,7 @@ name: Tests
 on:
   # PR branches run once through pull_request; main still verifies pushes.
   push:
-    branches: [main]
+    branches: [main, release/v1.1.x]
   pull_request:
   # Forks do not run push-triggered workflows; dispatch keeps CI available.
   workflow_dispatch:
@@ -374,7 +374,7 @@ jobs:
           -w /work python:2.7.18
           sh -c 'python tests/test_port_0922_barracks_sorting.py -v && python build_wotmod.py'
       - name: Verify all current client bytecode
-        run: docker run --rm -v "$PWD:/work" -w /work python:2.7.18 python tools/verify_release0100_code.py dist/org.colorfulmeans.offline_lan_0922_1.1.1.wotmod
+        run: docker run --rm -v "$PWD:/work" -w /work python:2.7.18 python tools/verify_release0100_code.py dist/org.colorfulmeans.offline_lan_0922_1.1.2.wotmod
       - name: Validate 0.9.22 wotmod package
         run: >-
           python tools/validate_wotmod.py
@@ -641,19 +641,21 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File launcher/build_launcher.ps1
       - uses: actions/upload-artifact@v4
-        id: launcher_download
         with:
           name: wot-0.9.22-offline-battles-launcher
           # Upload the runnable folder; Actions supplies the only outer ZIP.
           path: launcher/dist/wot-0.9.22-offline-battles/
           if-no-files-found: error
           overwrite: true
+
+  windows-launcher-download:
+    needs: windows-launcher
+    runs-on: windows-latest
+    steps:
       - name: Extract the actual download once
         uses: actions/download-artifact@v4
         with:
-          artifact-ids: ${{ steps.launcher_download.outputs.artifact-id }}
-          merge-multiple: true
-          github-token: ${{ github.token }}
+          name: wot-0.9.22-offline-battles-launcher
           path: ${{ runner.temp }}/launcher-download
       - name: Verify that the bundled servers run from the launcher
         shell: pwsh

@@ -350,7 +350,7 @@ class PortSourceTests(unittest.TestCase):
         build_script = (PORT_ROOT / 'build_for_client.sh').read_text(
             encoding='utf-8')
 
-        self.assertEqual('1.1.1', packager.MOD_VERSION)
+        self.assertEqual('1.1.2', packager.MOD_VERSION)
         self.assertEqual(packager.MOD_VERSION, package.PORT_VERSION)
         self.assertEqual(packager.MOD_VERSION, meta_version)
         self.assertIn(
@@ -367,10 +367,10 @@ class PortSourceTests(unittest.TestCase):
             self.assertEqual([packager.MOD_VERSION], values, filename)
         for directory in ('launcher', 'server'):
             source = (PORT_ROOT / directory / 'version_info.txt').read_text()
-            self.assertIn("StringStruct('FileVersion', '1.1.1')", source)
-            self.assertIn("StringStruct('ProductVersion', '1.1.1')", source)
-            self.assertIn('filevers=(1, 1, 1, 0)', source)
-            self.assertIn('prodvers=(1, 1, 1, 0)', source)
+            self.assertIn("StringStruct('FileVersion', '1.1.2')", source)
+            self.assertIn("StringStruct('ProductVersion', '1.1.2')", source)
+            self.assertIn('filevers=(1, 1, 2, 0)', source)
+            self.assertIn('prodvers=(1, 1, 2, 0)', source)
 
     def test_port_sources_are_python_2_compatible_syntax(self):
         source_root = PORT_ROOT / 'src'
@@ -493,7 +493,7 @@ class PortSourceTests(unittest.TestCase):
                 config_path.parent / packager.BUILD_IDENTITY_FILENAME
             ).read_text(encoding='utf-8'))
             self.assertEqual(1, identity['schema'])
-            self.assertEqual('1.1.1', identity['semanticVersion'])
+            self.assertEqual('1.1.2', identity['semanticVersion'])
             self.assertRegex(
                 identity['buildIdentity'],
                 r'^local-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$')
@@ -7309,6 +7309,8 @@ class BootstrapContractTests(unittest.TestCase):
             'gui.mods.offline_lan_0922.config': config,
             'gui.mods.offline_lan_0922.engine_audio': types.SimpleNamespace(install=lambda: None, uninstall=lambda: None),
             'gui.mods.offline_lan_0922.runtime_diagnostics': types.SimpleNamespace(install_exit_trace=lambda: None),
+            'game': types.SimpleNamespace(fini=lambda:None),
+            'gui.mods.offline_lan_0922.native_shutdown': types.SimpleNamespace(install=lambda game,cleanup:None),
             'gui.mods.offline_lan_0922.depot_styles': types.SimpleNamespace(install=lambda: None),
             'gui.mods.offline_lan_0922.offline_replay': types.SimpleNamespace(replay_request=lambda: None),
             'gui.mods.offline_lan_0922.instance_guard': instance_guard,

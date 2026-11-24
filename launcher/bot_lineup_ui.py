@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 try:
-    from . import ui_layout
+    from . import ui_layout, vehicle_class_labels
 except ImportError:
     import ui_layout
+    import vehicle_class_labels
 import copy
 from collections import Counter
 try:
@@ -15,8 +16,7 @@ except ImportError:
 
 SKILL_CHOICES = ((None, 'Random (mixed distribution)'), ('rookie', 'Rookie'),
                  ('regular', 'Regular'), ('veteran', 'Veteran'), ('elite', 'Elite'))
-CLASSES = ((None, 'All'), ('lightTank', 'Light tank'), ('mediumTank', 'Medium tank'),
-           ('heavyTank', 'Heavy tank'), ('AT-SPG', 'Tank destroyer'), ('SPG', 'SPG'))
+CLASSES = ((None, 'All'),) + vehicle_class_labels.CHOICES
 ZH = {
     'Exact Bot lineup: %s': '自定义 Bot 阵容：%s', 'Team 1 Bot': '队伍 1 Bot',
     'Team 2 Bot': '队伍 2 Bot', 'Nation': '国家', 'Type': '类型', 'Vehicle': '车辆',
@@ -47,6 +47,7 @@ ZH = {
     'Slots keep their numbers. Humans replace enabled slots from first to last. Random difficulty is drawn once per Bot per round from the mixed distribution. Explicit tactics may override difficulty. Changes apply after saving and restarting the room.':
     '槽位编号保持不变。真人按有效槽位顺序替换 Bot。随机难度每局按混合分布为各 Bot 生成一次；明确的战术配置可覆盖难度。保存并重新开启房间后生效。',
 }
+ZH.update(vehicle_class_labels.CHINESE)
 RANDOM = '__random__'
 CLEAR = '__clear__'
 INDIVIDUAL = '__individual__'

@@ -132,8 +132,8 @@ class NarrowPassageTests(unittest.TestCase):
         def load():
             module=original();start=module.BotRuntime.battle_start
             remember=TerrainNavigator.remember_runtime_target
-            def tracked(nav,bot,current,goal,target,now):
-                accepted=remember(nav,bot,current,goal,target,now)
+            def tracked(nav,bot,current,goal,target,now,**kwargs):
+                accepted=remember(nav,bot,current,goal,target,now,**kwargs)
                 receipt=nav.bot_states.get(int(bot),{}).get('narrow_passage_receipt') or {}
                 if receipt.get('outcome')=='guided' and tuple(receipt['target'])==tuple(target):
                     issued.append((accepted,nav.bot_states[int(bot)].get('local_fallback_target'),tuple(target)))

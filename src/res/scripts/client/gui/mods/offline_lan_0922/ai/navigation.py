@@ -2291,13 +2291,40 @@ class TerrainNavigator(object):
 		if target is not None and state.get('last_target') == target:
 			# Pending-path bridging must not resurrect a consumed local point.
 			state.pop('last_target', None)
-		state.pop('local_fallback_target', None)
-		state.pop('local_fallback_intent', None)
-		state.pop('local_fallback_start', None)
-		state.pop('local_target_progress_at', None)
-		state.pop('local_target_best_distance', None)
-		state.pop('local_target_best_heading', None)
+		self._record_runtime_target_release(state, now, reason)
+		self._clear_local_fallback(state)
 		return None
+
+	@staticmethod
+	def _clear_local_fallback(state):
+		for name in ('local_fallback_target', 'local_fallback_intent',
+				'local_fallback_start', 'local_target_progress_at',
+				'local_target_best_distance', 'local_target_best_heading',
+				'runtime_target_owner'):
+			state.pop(name, None)
+
+	@staticmethod
+	def _record_runtime_target_release(state, now, reason):
+		if state.get('runtime_target_owner') and state.get('local_fallback_target') is not None:
+			state['runtime_target_release'] = dict(at=float(now),
+				target=tuple(state['local_fallback_target']), reason=reason,
+				owner=state['runtime_target_owner'])
+
+	def retire_runtime_target(self, bot_id, current, now, reason):
+		"""Expire a modifier's endpoint, leaving the next leg to normal proof."""
+		state = self.bot_states.get(int(bot_id))
+		if state is None or not state.get('runtime_target_owner'):
+			return False
+		target = state.get('local_fallback_target')
+		if target is None:
+			return False
+		self._local_target_event(state, now, reason, current=tuple(current))
+		self._record_runtime_target_release(state, now, reason)
+		state['local_target_end_reason'] = reason
+		if state.get('last_target') == target:
+			state.pop('last_target', None)
+		self._clear_local_fallback(state)
+		return True
 
 	def _record_local_retry_refusal(self, state, current, goal, now):
 		"""A proved short-leg refusal survives reacquiring the same cached path."""
@@ -2343,14 +2370,15 @@ class TerrainNavigator(object):
 			request=state.get('request_key'), replan_generation=state.get('replan_generation'),
 			progress_at=state.get('local_target_progress_at'),
 			best_distance=state.get('local_target_best_distance'),
-			best_heading=state.get('local_target_best_heading'))
+			best_heading=state.get('local_target_best_heading'),
+			runtime_owner=state.get('runtime_target_owner'))
 		event.update(details)
 		history = state.setdefault('local_target_events', [])
 		history.append(event)
 		del history[:-32]
 		write_json_record('BOT LOCAL HANDOFF', event)
 
-	def _remember_local_fallback(self, target, goal, state, start=None, now=None):
+	def _remember_local_fallback(self, target, goal, state, start=None, now=None, owner=None):
 		previous = state.get('local_fallback_target')
 		intent = self._local_fallback_intent(goal, state)
 		# Native float32 ground resolution may vary by a few ulps. It is
@@ -2360,7 +2388,8 @@ class TerrainNavigator(object):
 			all(abs(float(previous[i])-float(target[i])) <= 1.e-4 for i in range(3)))
 		if not same_leg:
 			self._local_target_event(state, now, 'new_leg', current=start, goal=goal,
-				replacement=tuple(target))
+				replacement=tuple(target), replacement_owner=owner)
+			state.pop('runtime_target_owner', None)
 			state.pop('local_target_best_heading', None)
 			state['local_target_progress_at'] = float(now if now is not None else state.get('macro_progress_at', 0.0))
 			state['local_target_best_distance'] = _distance_2d(start, target) if start is not None else float('inf')
@@ -2370,6 +2399,8 @@ class TerrainNavigator(object):
 		state['local_fallback_target'] = tuple(target)
 		state['local_fallback_intent'] = intent
 		state['local_fallback_episode'] = intent
+		if owner is not None:
+			state['runtime_target_owner'] = dict(owner)
 
 	def retained_local_target(self, bot_id, current, goal, path_key, now, movement_intent=True, yaw=None):
 		"""Let the runtime's direct shortcut respect an already issued local leg."""
@@ -2383,11 +2414,20 @@ class TerrainNavigator(object):
 				self._local_target_event(state, now, 'runtime_intent_handoff', current=current,
 					goal=goal, planned_goal=planned, movement_intent=movement_intent,
 					path_key=tuple(path_key), request_path_key=state.get('request_path_key'))
-			state.pop('local_fallback_target', None)
+			self._record_runtime_target_release(state, now, 'runtime_intent_handoff')
+			self._clear_local_fallback(state)
 			state.pop('local_retry_progress', None)
 			self._retire_path_frontier(state, now, 'movement_handoff')
 			state.pop('reached_path_corner', None)
 			return None
+		owner = state.get('runtime_target_owner') or {}
+		if owner.get('kind') == 'narrow_passage' and yaw is not None:
+			shape = owner['shape']
+			if not self._narrow_passage_samples(current, yaw, shape[0], shape[1]):
+				# Expiry is not a forward-motion receipt. The normal selector
+				# must prove its next target from the hull's current pose.
+				self.end_narrow_passage(bot_id, now, 'body_clear_of_passage', current)
+				return None
 		target = state.get('local_fallback_target')
 		if target is not None and yaw is not None:
 			origin = state.get('local_fallback_start') or current
@@ -2400,7 +2440,7 @@ class TerrainNavigator(object):
 					state['local_target_progress_at'] = float(now)
 		return self._retained_local_fallback(bot_id, current, planned, now, state)
 
-	def remember_runtime_target(self, bot_id, current, goal, target, now):
+	def remember_runtime_target(self, bot_id, current, goal, target, now, owner=None):
 		"""Publish the final proved bypass, rather than its pre-offset A* vertex."""
 		state = self.bot_states.get(int(bot_id))
 		if state is not None:
@@ -2408,7 +2448,8 @@ class TerrainNavigator(object):
 				self._local_target_event(state, now, 'runtime_target_refused',
 					target=tuple(target), current=tuple(current), goal=tuple(goal))
 				return False
-			self._remember_local_fallback(target, state.get('planned_goal') or goal, state, current, now)
+			self._remember_local_fallback(target, state.get('planned_goal') or goal,
+				state, current, now, owner)
 			state['last_target'] = tuple(target)
 		return True
 
@@ -2518,9 +2559,8 @@ class TerrainNavigator(object):
 				self._local_target_event(state, now, 'connector_rejected', current=current,
 					goal=goal, connector=dict(connector))
 			state.pop('local_completed_target', None)
-			state.pop('local_fallback_target', None)
-			state.pop('local_fallback_intent', None)
-			state.pop('local_fallback_start', None)
+			self._record_runtime_target_release(state, now, 'connector_rejected')
+			self._clear_local_fallback(state)
 			# Retire the unreachable anchor but keep the actual hull's wall,
 			# water and deferred-proof hold for this decision.
 			return tuple(current)
@@ -4174,11 +4214,26 @@ class TerrainNavigator(object):
 		finally:
 			self._boundary_actor=previous
 
-	def end_narrow_passage(self, bot_id, now, reason):
+	def end_narrow_passage(self, bot_id, now, reason, current=None):
 		state = self.bot_states.get(int(bot_id)) or {}
+		owner = state.get('runtime_target_owner') or {}
+		if owner.get('kind') == 'narrow_passage':
+			self.retire_runtime_target(bot_id, current or state.get('local_fallback_start'), now, reason)
 		if state.pop('narrow_passage_target', None) is not None:
 			state.setdefault('narrow_passage_receipt', {}).update(
 				at=float(now), outcome=reason)
+
+	def _narrow_passage_samples(self, current, yaw, half_length, half_width):
+		turn_span = 2.0 * math.hypot(half_length, half_width) + self.grid.cell_size
+		forward = (math.sin(yaw), math.cos(yaw))
+		samples = []
+		for offset in (0.0, -half_length, half_length):
+			probe = (current[0]+forward[0]*offset, current[1],
+				current[2]+forward[1]*offset)
+			corridor = self.grid.local_corridor(probe)
+			if corridor is not None and corridor[1] < turn_span:
+				samples.append((corridor[1], corridor[0], probe, offset))
+		return samples
 
 	@observed('nav.narrow_passage')
 	def narrow_passage_target(self, bot_id, current, goal, selected, now,
@@ -4193,35 +4248,42 @@ class TerrainNavigator(object):
 		grid = self.grid
 		if state is None or not grid.prebaked:
 			return selected
-		if (_distance_2d(selected, goal) > WAYPOINT_ARRIVAL_RADIUS or
+		owner = state.get('runtime_target_owner') or {}
+		own_selected = (owner.get('kind') == 'narrow_passage' and
+			state.get('local_fallback_target') is not None and
+			_distance_2d(selected, state['local_fallback_target']) < 1.e-4)
+		if ((_distance_2d(selected, goal) > WAYPOINT_ARRIVAL_RADIUS and not own_selected) or
 				_distance_2d(current, selected) <= WAYPOINT_ARRIVAL_RADIUS or
 				half_length <= 0.0 or half_width <= 0.0):
-			self.end_narrow_passage(bot_id,now,'owned_corner_or_arrival')
+			self.end_narrow_passage(bot_id,now,'owned_corner_or_arrival',current)
 			return selected
 		# The baked span includes a whole quantised cell. A rotating rectangle
 		# needs its diagonal plus that sampling allowance, not only its width.
-		turn_span = 2.0 * math.hypot(half_length, half_width) + grid.cell_size
 		forward = (math.sin(yaw), math.cos(yaw))
-		candidates = []
-		for offset in (0.0, -half_length, half_length):
-			probe = (current[0]+forward[0]*offset, current[1],
-				current[2]+forward[1]*offset)
-			corridor = grid.local_corridor(probe)
-			if corridor is not None and corridor[1] < turn_span:
-				candidates.append((corridor[1], corridor[0], probe))
+		candidates = self._narrow_passage_samples(current, yaw, half_length, half_width)
 		if not candidates:
-			self.end_narrow_passage(bot_id,now,'body_clear_of_passage')
+			self.end_narrow_passage(bot_id,now,'body_clear_of_passage',current)
 			return selected
-		width, angle, probe = min(candidates)
+		if own_selected:
+			# The finite leg has already been checked by retained_local_target.
+			# Its own endpoint is not a newly acquired A* corner.
+			return selected
+		width, angle, probe, unused_offset = min(candidates)
 		axis = (math.sin(angle), math.cos(angle))
 		dx, dz = goal[0]-current[0], goal[2]-current[2]
 		if dx*axis[0]+dz*axis[1] < 0.0:
 			axis = (-axis[0], -axis[1])
+		exiting = (all(sample[3] < 0.0 for sample in candidates) and
+			dx*forward[0]+dz*forward[1] > WAYPOINT_ARRIVAL_RADIUS*2.0)
+		if exiting:
+			# Only the tail remains narrow. Continue its actual exit heading;
+			# a rear coarse-cell centre must not pull the nose back sideways.
+			axis = forward
 		remaining = dx*axis[0]+dz*axis[1]
 		if remaining <= WAYPOINT_ARRIVAL_RADIUS * 2.0:
-			self.end_narrow_passage(bot_id,now,'goal_not_forward')
+			self.end_narrow_passage(bot_id,now,'goal_not_forward',current)
 			return selected
-		centre = grid.point_for(grid.cell_for(probe), current[1])
+		centre = current if exiting else grid.point_for(grid.cell_for(probe), current[1])
 		along = (current[0]-centre[0])*axis[0]+(current[2]-centre[2])*axis[1]
 		length = min(remaining, max(grid.cell_size*2.0, half_length*2.0+grid.cell_size))
 		candidate = (centre[0]+axis[0]*(along+length), current[1],
@@ -4239,7 +4301,8 @@ class TerrainNavigator(object):
 		height = grid._baked_cell_height(grid.cell_for(candidate))
 		receipt = dict(at=float(now), origin=tuple(current), goal=tuple(goal),
 			selected=tuple(selected), axis=axis, span=width, target=tuple(candidate),
-			shape=(half_length,half_width), outcome='unsupported_target')
+			shape=(half_length,half_width), axis_source='exit_heading' if exiting else 'baked_corridor',
+			outcome='unsupported_target')
 		state['narrow_passage_receipt'] = receipt
 		if height is None:
 			return selected
@@ -4358,7 +4421,8 @@ class TerrainNavigator(object):
 			if state.get('local_fallback_target') is not None:
 				self._local_target_event(state, now, 'request_changed', current=current,
 					goal=goal, replacement_request=request_key)
-			state.pop('local_fallback_target', None)
+			self._record_runtime_target_release(state, now, 'request_changed')
+			self._clear_local_fallback(state)
 			retired = state.get('local_target_retired')
 			if (state.get('local_target_retired_source') != 'hard_body' or
 					retired is None or float(now) >= retired[1]):
@@ -4404,7 +4468,8 @@ class TerrainNavigator(object):
 			self._retire_path_frontier(state, now, 'movement_handoff')
 			if state.get('local_fallback_target') is not None:
 				self._local_target_event(state, now, 'movement_hold', current=current, goal=goal)
-			state.pop('local_fallback_target', None)
+			self._record_runtime_target_release(state, now, 'movement_hold')
+			self._clear_local_fallback(state)
 			state.pop('reached_path_corner', None)
 		elif not request_changed:
 			issued = state.get('last_target')

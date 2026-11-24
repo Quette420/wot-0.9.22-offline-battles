@@ -1730,6 +1730,10 @@ class BotRuntimeTests(unittest.TestCase):
         self._modules = dict((key, value) for key, value in sys.modules.items()
                              if key == 'gui' or key.startswith('gui.'))
         self.module = _load(); self.adapters = []
+        # Legacy continuity fixtures compare exact HP. Freeze ignition strength,
+        # while the separate RNG lifecycle case exercises the high bound.
+        fire_rng = mock.patch('gui.mods.offline_lan_0922.fire_model.ignition_scale', return_value=1.)
+        fire_rng.start(); self.addCleanup(fire_rng.stop)
         # Each case is an independent diagnostic session. A preceding long
         # motion test must not consume the next case's trace evidence budget.
         from gui.mods.offline_lan_0922 import native_input_diagnostics as diagnostics
@@ -13899,7 +13903,7 @@ class BotRuntimeTests(unittest.TestCase):
             2.0, self.module._critical_factor(
                 state, descriptor, 'reload'))
 
-    def test_bot_fire_burns_five_percent_per_second_and_ends_at_ten_seconds(self):
+    def test_bot_fire_decays_and_ends_at_calibrated_ten_seconds(self):
         descriptor = _critical_descriptor()
         runtime = self.module.BotRuntime(
             1, descriptor_resolver=lambda unused: descriptor,
@@ -13908,7 +13912,9 @@ class BotRuntimeTests(unittest.TestCase):
             ground_probe=lambda *unused: 0.0,
             physics_ground_probe=lambda *unused: 0.0,
             spawn_resolver=_spawn_resolver, baked_graph=_graph())
-        runtime.battle_start(self.start)
+        with mock.patch.object(self.module.native_simulation.NativeSimulation,
+                               'create', return_value=None):
+            runtime.battle_start(self.start)
         burning = _critical_payload({
             'name': 'fuelTankHealth', 'hp': 0.0, 'max_hp': 100.0,
             'state': 'destroyed'}, destroyed=['fuelTankHealth'], fire=True)
@@ -13920,18 +13926,41 @@ class BotRuntimeTests(unittest.TestCase):
         outgoing = None
         for index in range(49):
             outgoing = bot_state_rows.bots(runtime.update(.20, index * .20)[0])[0]
-        self.assertEqual(550, outgoing['health'])
+        self.assertEqual(751, outgoing['health'])
         self.assertTrue(outgoing['critical']['fire'])
 
         outgoing = bot_state_rows.bots(runtime.update(.20, 9.8)[0])[0]
         fuel = outgoing['critical']['devices'][0]
-        self.assertEqual(500, outgoing['health'])
+        self.assertEqual(750, outgoing['health'])
         self.assertFalse(outgoing['critical']['fire'])
         self.assertEqual(0.0, outgoing['combat_fire_elapsed'])
         self.assertEqual(0.0, outgoing['combat_fire_timer'])
         self.assertEqual(40.0, fuel['hp'])
         self.assertEqual('critical', fuel['state'])
         self.assertNotIn('fuelTankHealth', outgoing['critical']['destroyed'])
+
+    def test_bot_strong_ignition_survives_ten_seconds_and_draws_only_once(self):
+        descriptor = _critical_descriptor()
+        runtime = self.module.BotRuntime(
+            1, descriptor_resolver=lambda unused: descriptor,
+            adapter_factory=lambda *args, **kwargs: _Adapter(*args),
+            direction_probe=lambda *unused: {'clear': True, 'slope': 0.0},
+            ground_probe=lambda *unused: 0.0, physics_ground_probe=lambda *unused: 0.0,
+            spawn_resolver=_spawn_resolver, baked_graph=_graph())
+        with mock.patch.object(self.module.native_simulation.NativeSimulation,
+                               'create', return_value=None):
+            runtime.battle_start(self.start)
+        burning = _critical_payload({'name':'fuelTankHealth','hp':0.,'max_hp':100.,
+            'state':'destroyed'},destroyed=['fuelTankHealth'],fire=True)
+        runtime.apply_snapshot({'server_tick':1,'bots':[_snapshot_bot(
+            critical=burning,revision=1,base_revision=1)]})
+        with mock.patch('gui.mods.offline_lan_0922.fire_model.ignition_scale',return_value=1.2) as rng:
+            for index in range(60):
+                outgoing=bot_state_rows.bots(runtime.update(.2,index*.2)[0])[0]
+                if index==50:self.assertTrue(outgoing['critical']['fire'])
+            rng.assert_called_once_with()
+        self.assertFalse(outgoing['critical']['fire'])
+        self.assertEqual(640,outgoing['health'])
 
     def test_worker_projects_terminal_critical_and_fire_uses_same_wreck(self):
         descriptor = _critical_descriptor()

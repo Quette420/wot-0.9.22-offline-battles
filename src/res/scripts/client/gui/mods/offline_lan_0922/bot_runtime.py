@@ -254,7 +254,7 @@ FRIENDLY_REPOSITION_RETRY_SECONDS = 8.0
 # exact hard receipt still vetoes motion immediately.
 MAX_WORLD_RECEIPTS_PER_FRAME = 13
 FIRE_DURATION_SECONDS = 10.0
-FIRE_TICK_SECONDS = 1.0
+FIRE_TICK_SECONDS = 10.000001
 SIEGE_ENABLE_DEBOUNCE_SECONDS = 0.30
 SIEGE_DISABLE_DEBOUNCE_SECONDS = 0.80
 SIEGE_LONG_TRAVEL_METRES = 35.0
@@ -4837,8 +4837,15 @@ class BotRuntime(object):
         fire_damage = 0
         fire_payload = None
         if advance_fire:
+            from gui.mods.offline_lan_0922 import bot_fittings, fire_model
+            decay = (bot_fittings.battle_factors(descriptor, state.get('critical'))['fire_decay_factor']
+                     if bot_fittings.context(descriptor) is not None else 0.57)
+            if was_on_fire and fire_elapsed == 0.0:
+                state['_fire_initial_scale'] = fire_model.ignition_scale()
+                critical_damage.report_fire_model(shadow, decay)
             fire_damage, fire_payload = critical_damage.tick_fire(
-                shadow, step, now=now)
+                shadow, step, now=now, native_decay_factor=decay,
+                initial_scale=state.get('_fire_initial_scale', 1.0))
             if state.get('_environment_fire') and fire_payload is not None:
                 critical_statistics.accumulate(self._environment_critical_totals,
                     state['id'], 'fire', repair_payload or state.get('critical'), fire_payload)

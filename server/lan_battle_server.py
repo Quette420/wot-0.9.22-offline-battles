@@ -2279,6 +2279,7 @@ class Player(_EndpointSendMixin):
     speed: float = 0.0
     siege_state: int = SIEGE_DISABLED
     siege_transition_ticks: int = 0
+    siege_transition_total_ticks: int = 0
     fire_seq: int = 0
     shell_index: int = 0
     next_shell_index: int = 0
@@ -3574,6 +3575,7 @@ class BattleState:
             player.health = max_health
             player.siege_state = SIEGE_DISABLED
             player.siege_transition_ticks = 0
+            player.siege_transition_total_ticks = 0
             player.outfits = outfits
             player.marks_on_gun = marks_on_gun
             player.vehicle_compact_descr = vehicle_compact_descr
@@ -3739,6 +3741,7 @@ class BattleState:
             player.speed = 0.0
             player.siege_state = SIEGE_DISABLED
             player.siege_transition_ticks = 0
+            player.siege_transition_total_ticks = 0
             player.fire_seq = 0
             player.shell_index = 0
             player.next_shell_index = 0
@@ -12951,30 +12954,40 @@ class BattleState:
             for device in critical.get("devices") or ())
 
     def _request_siege_state(self, player, enabled):
-        """Begin one #1513 four-state transition from an exact BOOL request."""
+        """Apply one #1513 four-state request from an exact BOOL, reversals included.
+
+        Stock SiegeModeControl sends the opposite request while a transition
+        runs (enable=False during SWITCHING_ON, True during SWITCHING_OFF).
+        Bots already honour it through siege_mechanics.request_transition;
+        a human request uses the same law and keeps the suspension progress.
+        """
         params = self._siege_params(player)
         if (not player.participating or not isinstance(enabled, bool) or
-                params is None or self._engine_destroyed(player) or
-                player.siege_state in (
-                    SIEGE_SWITCHING_ON, SIEGE_SWITCHING_OFF)):
+                params is None or self._engine_destroyed(player)):
             return False
-        if enabled:
-            if player.siege_state == SIEGE_ENABLED:
-                return True
-            next_state = SIEGE_SWITCHING_ON
-            duration = params[0]
+        stable = player.siege_state not in (
+            SIEGE_SWITCHING_ON, SIEGE_SWITCHING_OFF)
+        remaining = max(0, int(player.siege_transition_ticks))
+        total = max(remaining, int(player.siege_transition_total_ticks))
+        state, left, length, changed = siege_mechanics.request_transition(
+            player.siege_state, remaining, total, str(player.vehicle),
+            enabled, self._engine_damaged(player))
+        if not changed:
+            return True
+        # Only a transition out of a stable mode needs a stopped drivetrain;
+        # the drivetrain is already locked while switching.
+        if stable and player.speed != 0.0:
+            return False
+        player.siege_state = state
+        if state in (SIEGE_SWITCHING_ON, SIEGE_SWITCHING_OFF):
+            player.siege_transition_ticks = max(
+                1, int(round(float(left) * TICK_HZ)))
+            player.siege_transition_total_ticks = max(
+                player.siege_transition_ticks,
+                int(round(float(length) * TICK_HZ)))
         else:
-            if player.siege_state == SIEGE_DISABLED:
-                return True
-            next_state = SIEGE_SWITCHING_OFF
-            duration = params[1]
-        if player.speed != 0.0:
-            return False
-        if self._engine_damaged(player):
-            duration *= params[3]
-        player.siege_state = next_state
-        player.siege_transition_ticks = max(
-            1, int(round(float(duration) * TICK_HZ)))
+            player.siege_transition_ticks = 0
+            player.siege_transition_total_ticks = 0
         player.forward = 0.0
         player.turn = 0.0
         player.speed = 0.0
@@ -12994,11 +13007,13 @@ class BattleState:
             if player.siege_state not in (
                     SIEGE_SWITCHING_ON, SIEGE_SWITCHING_OFF):
                 player.siege_transition_ticks = 0
+                player.siege_transition_total_ticks = 0
                 continue
             player.siege_transition_ticks = max(
                 0, int(player.siege_transition_ticks) - 1)
             if player.siege_transition_ticks != 0:
                 continue
+            player.siege_transition_total_ticks = 0
             player.siege_state = (
                 SIEGE_ENABLED
                 if player.siege_state == SIEGE_SWITCHING_ON

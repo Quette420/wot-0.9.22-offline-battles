@@ -1680,6 +1680,79 @@ class ServerProjectileLedgerTests(unittest.TestCase):
         self.assertEqual(SIEGE_SWITCHING_ON, player.siege_state)
         self.assertEqual(120, player.siege_transition_ticks)
 
+    def test_player_siege_reversal_keeps_the_suspension_progress(self):
+        """Stock SiegeModeControl sends the opposite request mid-transition."""
+        state = _state()
+        player = state.players[1]
+        player.vehicle = 'sweden:S11_Strv_103B'
+        _update_player_input(state, 1, siege_enabled=True, speed=0.0)
+        self.assertEqual((SIEGE_SWITCHING_ON, 60, 60), (
+            player.siege_state, player.siege_transition_ticks,
+            player.siege_transition_total_ticks))
+        for unused_tick in range(45):
+            state._advance_siege_states()
+
+        # A repeated request in the same direction changes nothing.
+        _update_player_input(state, 1, siege_enabled=True)
+        self.assertEqual((SIEGE_SWITCHING_ON, 15), (
+            player.siege_state, player.siege_transition_ticks))
+
+        # 75% of the way down: 75% of the 1.3 s switch-off remains to go back.
+        _update_player_input(state, 1, siege_enabled=False)
+        self.assertEqual((SIEGE_SWITCHING_OFF, 29, 39), (
+            player.siege_state, player.siege_transition_ticks,
+            player.siege_transition_total_ticks))
+        self.assertEqual(967, state._public_player(
+            player)['siege_time_left_ms'])
+        for unused_tick in range(28):
+            state._advance_siege_states()
+        self.assertEqual(SIEGE_SWITCHING_OFF, player.siege_state)
+        state._advance_siege_states()
+        self.assertEqual((SIEGE_DISABLED, 0, 0), (
+            player.siege_state, player.siege_transition_ticks,
+            player.siege_transition_total_ticks))
+
+    def test_player_siege_reversal_during_switch_off_returns_to_siege(self):
+        state = _state()
+        player = state.players[1]
+        player.vehicle = 'sweden:S11_Strv_103B'
+        _update_player_input(state, 1, siege_enabled=True, speed=0.0)
+        for unused_tick in range(60):
+            state._advance_siege_states()
+        self.assertEqual(SIEGE_ENABLED, player.siege_state)
+        _update_player_input(state, 1, siege_enabled=False, speed=0.0)
+        self.assertEqual((SIEGE_SWITCHING_OFF, 39), (
+            player.siege_state, player.siege_transition_ticks))
+        for unused_tick in range(13):
+            state._advance_siege_states()
+
+        _update_player_input(state, 1, siege_enabled=True)
+
+        # One third of the switch-off is done: one third of 2 s to return.
+        self.assertEqual((SIEGE_SWITCHING_ON, 20, 60), (
+            player.siege_state, player.siege_transition_ticks,
+            player.siege_transition_total_ticks))
+        for unused_tick in range(20):
+            state._advance_siege_states()
+        self.assertEqual(SIEGE_ENABLED, player.siege_state)
+
+    def test_an_immediate_player_siege_reversal_cancels_the_switch(self):
+        state = _state()
+        player = state.players[1]
+        player.vehicle = 'sweden:S11_Strv_103B'
+        _update_player_input(state, 1, siege_enabled=True, speed=0.0)
+        _update_player_input(state, 1, siege_enabled=False)
+        self.assertEqual((SIEGE_DISABLED, 0, 0), (
+            player.siege_state, player.siege_transition_ticks,
+            player.siege_transition_total_ticks))
+
+    def test_a_moving_player_still_cannot_start_a_siege_switch(self):
+        state = _state()
+        player = state.players[1]
+        player.vehicle = 'sweden:S11_Strv_103B'
+        _update_player_input(state, 1, siege_enabled=True, speed=3.0)
+        self.assertEqual(SIEGE_DISABLED, player.siege_state)
+
     def test_server_trusts_worker_projectile_during_siege_transition(self):
         state = _state()
         player = state.players[1]

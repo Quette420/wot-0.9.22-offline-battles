@@ -153,12 +153,20 @@ SANDBOX_WALLET = {
 # to price them.  The prices are server state the client never receives, so
 # free, 20000 credits and 200 gold are the long-published retail numbers,
 # chosen the same way the gold exchange rate and the garage slot price were.
-# ``baseRoleLoss`` and ``classChangeRoleLoss`` stay at zero because retraining
-# does not exist offline yet, and the recruit window reads both.
-def _tankman_cost(credits_amount, gold, role_level, premium=False):
+#
+# The same tuple prices retraining. #1513 TankmanDescr.respecialize keeps the
+# level for the current vehicle, subtracts ``baseRoleLoss`` for another
+# vehicle, adds ``classChangeRoleLoss`` for another vehicle class, rounds
+# ``roleLevel * (1 - loss)`` and floors it at the school's ``roleLevel``.
+# The client carries no loss values. Community supplement (long-published
+# retail rules, medium-high confidence): the free course loses 20% plus 20%
+# across classes, the credit school 10% plus 10%, the gold academy nothing.
+# Sandbox keeps these rules and changes only the price.
+def _tankman_cost(credits_amount, gold, role_level, base_loss, class_loss,
+                  premium=False):
     return {
         'credits': credits_amount, 'gold': gold, 'roleLevel': role_level,
-        'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0,
+        'baseRoleLoss': base_loss, 'classChangeRoleLoss': class_loss,
         'isPremium': premium,
     }
 
@@ -170,14 +178,14 @@ CAREER_DEVICE_REMOVAL = {'gold': 10}
 SANDBOX_DEVICE_REMOVAL = {'gold': 10}
 
 CAREER_TANKMAN_COSTS = (
-    _tankman_cost(0, 0, 50),
-    _tankman_cost(20000, 0, 75),
-    _tankman_cost(0, 200, 100, premium=True),
+    _tankman_cost(0, 0, 50, 0.2, 0.2),
+    _tankman_cost(20000, 0, 75, 0.1, 0.1),
+    _tankman_cost(0, 200, 100, 0.0, 0.0, premium=True),
 )
 SANDBOX_TANKMAN_COSTS = (
-    _tankman_cost(0, 0, 50),
-    _tankman_cost(0, 0, 75),
-    _tankman_cost(0, 0, 100, premium=True),
+    _tankman_cost(0, 0, 50, 0.2, 0.2),
+    _tankman_cost(0, 0, 75, 0.1, 0.1),
+    _tankman_cost(0, 0, 100, 0.0, 0.0, premium=True),
 )
 
 

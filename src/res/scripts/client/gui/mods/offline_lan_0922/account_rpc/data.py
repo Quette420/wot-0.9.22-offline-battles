@@ -60,14 +60,16 @@ PERSONAL_MISSION_REGULAR_MAX_ID = (
     PERSONAL_MISSION_REGULAR_OPERATIONS)
 
 
+# Free fallback schools with the retail retraining losses documented beside
+# economy.CAREER_TANKMAN_COSTS.
 DEFAULT_TANKMAN_COSTS = (
     {
         'credits': 0, 'gold': 0, 'roleLevel': 50,
-        'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0, 'isPremium': False,
+        'baseRoleLoss': 0.2, 'classChangeRoleLoss': 0.2, 'isPremium': False,
     },
     {
         'credits': 0, 'gold': 0, 'roleLevel': 75,
-        'baseRoleLoss': 0.0, 'classChangeRoleLoss': 0.0, 'isPremium': False,
+        'baseRoleLoss': 0.1, 'classChangeRoleLoss': 0.1, 'isPremium': False,
     },
     {
         'credits': 0, 'gold': 0, 'roleLevel': 100,

@@ -1276,7 +1276,7 @@ class GarageState(object):
 
     # ---- customization 2.0 ---------------------------------------------
 
-    def _outfit_stock_plan(self, record, replacement):
+    def _outfit_stock_plan(self, record, replacement, purchase_missing=False):
         # Stock #1513 getItemInventoryCount is free inventory + original -
         # modified units. Persist that transfer when accepting CMD 119.
         totals = []
@@ -1290,7 +1290,7 @@ class GarageState(object):
                             counts[key] = counts.get(key, 0) + count
                 totals.append(counts)
             before, after = totals
-            updates = {}
+            updates, purchases = {}, []
             for kind, identifier in set(before) | set(after):
                 change = before.get((kind, identifier), 0) - after.get((kind, identifier), 0)
                 if not change:
@@ -1310,8 +1310,18 @@ class GarageState(object):
                             bindings[binding] -= taken
                             needed -= taken
                     if needed:
-                        raise GarageError('not enough customization units to install')
+                        if not purchase_missing:
+                            raise GarageError('not enough customization units to install')
+                        purchases.extend((_int(item.compactDescr), needed))
                 updates[kind, identifier] = bindings
+            if purchases:
+                # #1513 MainView.buyAndExit sends no CMD 118: its OutfitApplier
+                # calls Shop.buyAndEquipOutfit, which is CMD 119. The retail
+                # command therefore buys every unit the outfit lacks. Nothing
+                # above has been committed; buy only the deficits, then
+                # recompute the transfer from the purchased inventory.
+                self.buy_customizations(record['id'], purchases)
+                return self._outfit_stock_plan(record, replacement)
             return updates
         except GarageError:
             raise
@@ -1345,21 +1355,24 @@ class GarageState(object):
         except Exception as error:
             raise GarageError('the client refused the outfit: %s' % error)
 
-        staged = copy.deepcopy(record)
-        outfits = staged.setdefault('outfits', {})
-        # Vehicle.getOutfit prioritizes a styled outfit.  Leaving the previous
-        # ALL-season style beside a newly applied custom season would make the
-        # accepted CMD 119 invisible in both garage and battle.
-        if season != CUSTOMIZATION_ALL_SEASONS:
-            outfits.pop(CUSTOMIZATION_ALL_SEASONS, None)
-        outfits[season] = (canonical, True)
-        stock_updates = self._outfit_stock_plan(record, outfits)
-        self._commit_outfit_stock(stock_updates)
-        record.clear()
-        record.update(staged)
-        self._touched.add(_int(vehicle_inventory_id))
-        self.revision += 1
-        self.report_customization(record.get('vehicleTypeCompactDescr'), 'equip_staged')
+        # The purchase and the installation succeed or fail together.
+        with self._transaction():
+            staged = copy.deepcopy(record)
+            outfits = staged.setdefault('outfits', {})
+            # Vehicle.getOutfit prioritizes a styled outfit.  Leaving the
+            # previous ALL-season style beside a newly applied custom season
+            # would make the accepted CMD 119 invisible in garage and battle.
+            if season != CUSTOMIZATION_ALL_SEASONS:
+                outfits.pop(CUSTOMIZATION_ALL_SEASONS, None)
+            outfits[season] = (canonical, True)
+            stock_updates = self._outfit_stock_plan(
+                record, outfits, purchase_missing=True)
+            self._commit_outfit_stock(stock_updates)
+            record.clear()
+            record.update(staged)
+            self._touched.add(_int(vehicle_inventory_id))
+            self.revision += 1
+            self.report_customization(record.get('vehicleTypeCompactDescr'), 'equip_staged')
         return record
 
     def apply_style(self, vehicle_inventory_id, style_id):

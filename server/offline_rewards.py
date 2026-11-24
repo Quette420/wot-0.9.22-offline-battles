@@ -102,9 +102,11 @@ def compute_offline_rewards(statistics, won, participated=True,
             return 0
 
     damage = value("damage_dealt")
-    assist = (value("damage_assisted_track") +
-              value("damage_assisted_radio") +
-              value("damage_assisted_stun"))
+    # Track, spotting and stun assistance can describe the same enemy HP.
+    # Pay the largest category once rather than counting overlaps twice.
+    assist = max(value("damage_assisted_track"),
+                 value("damage_assisted_radio"),
+                 value("damage_assisted_stun"))
     spotted = value("spotted")
     capture = value("capture_points")
     dropped_capture = value("dropped_capture_points")

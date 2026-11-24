@@ -163,6 +163,17 @@ class CreditStructureTests(unittest.TestCase):
         self.assertEqual(plain['credits'], assisted['credits'])
         self.assertGreater(assisted['xp'], plain['xp'])
 
+    def test_overlapping_assist_categories_pay_the_largest_once(self):
+        radio = _credits(damage_assisted_radio=1500, vehicle_tier=8)
+        overlap = _credits(damage_assisted_radio=1500, damage_assisted_track=1500,
+                           damage_assisted_stun=900, vehicle_tier=8)
+        self.assertEqual(radio['xp'], overlap['xp'])
+        track = _credits(damage_assisted_track=2000, vehicle_tier=8)
+        mixed = _credits(damage_assisted_radio=1500, damage_assisted_track=2000,
+                         vehicle_tier=8)
+        self.assertEqual(track['xp'], mixed['xp'])
+        self.assertGreater(mixed['xp'], radio['xp'])
+
     def test_free_xp_is_five_percent_and_costs_stay_zero(self):
         rewards = _credits(damage_dealt=1200, kills=2, won=True,
                            vehicle_tier=8)

@@ -105,8 +105,6 @@ class ContactWireRepairTests(unittest.TestCase):
     def test_relative_traverse_addition_preserves_every_legacy_column(self):
         row = cf.codec.encode_row(cf._bot_state())
         legacy = list(row)
-        hydraulic = legacy.pop(cf.codec._SCALAR_INDEX['suspension_pitch'])
-        self.assertEqual(0, hydraulic)
         relative = legacy.pop(cf.codec._SCALAR_INDEX['turret_yaw'])
         self.assertEqual(13776, relative)
         digest = hashlib.sha256(json.dumps(legacy, separators=(',', ':')).encode()).hexdigest()

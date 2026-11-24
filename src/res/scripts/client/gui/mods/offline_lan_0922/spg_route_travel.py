@@ -3,7 +3,7 @@
 import copy
 import math
 
-from gui.mods.offline_lan_0922 import bot_tactics, bot_tactics_runtime, route_network, spg_route_recovery, spg_modes, empty_ammo, spg_positions, equipment_test
+from gui.mods.offline_lan_0922 import bot_tactics, bot_tactics_runtime, route_network, spg_route_recovery, spg_modes, empty_ammo, spg_positions
 
 
 def xy(value):
@@ -63,10 +63,6 @@ def _return_points(active,zone,pose):
 
 def apply(runtime,state,order,now):
     if (state.get('profile') or {}).get('class_tag')!='SPG':return order
-    # The diagnostic server deliberately publishes stationary/no-fire orders.
-    # Do not replace them with worker-owned deployment/sortie/capture tasks.
-    # The governor fixture explicitly retains normal artillery travel.
-    if equipment_test.stationary_mode():return order
     if order.get('empty_ammo'):
         empty_ammo.handoff(runtime, state, order)
         if state.get('_spg_mode') != 'empty':runtime._spg_modes_tick=None
@@ -157,8 +153,7 @@ def apply(runtime,state,order,now):
                         throttle_override=0.,route_join=False)
     if not active:return order
     if not defense and active['kind']=='defense':return order
-    if defense and (order.get('defense_arrived') or order.get('throttle_override') == 0.):
-        return order
+    if defense and order.get('throttle_override')==0.:return order
     if 'paused_at' in active:
         pause=now-active['paused_at']
         spg_route_recovery.resume(active,now)

@@ -2082,39 +2082,6 @@ def _loaded_chunk_signature_1513(manager, chunk_ids):
 	return tuple(result)
 
 
-def _stationary_collision_revision_1513(position, radius):
-	"""Fence retained turn work to its hull envelope and streamed chunks."""
-	import AreaDestructibles
-	batch = globals().get('g_offh_destr_spatial_mutation_batch', {})
-	if batch.get('global'):
-		return None
-	x, y, z = position
-	extent = radius + _SOLID_CONTACT_RADIUS_1513
-	lower = _destructible_bin_key(x - extent, z - extent)
-	upper = _destructible_bin_key(x + extent, z + extent)
-	if any(lower[0] <= cell[0] <= upper[0] and
-			lower[1] <= cell[1] <= upper[1] for cell in batch.get('bin_keys', ())):
-		return None
-	envelope = ((x, y, z),
-		((radius, 0., 0.), (0., 0., radius), (0., 0., 0.)))
-	status, chunks = _tree_motion_required_chunks_1513((envelope,))
-	manager = getattr(AreaDestructibles, 'g_destructiblesManager', None)
-	loaded = getattr(manager, '_DestructiblesManager__loadedChunkIDs', None)
-	accepted = getattr(_get_destr_authority(), 'destroyed_keys', None)
-	if status != 'ready' or not isinstance(loaded, dict) or not callable(accepted):
-		if batch.get('bin_keys') or batch.get('chunk_ids'):
-			return None
-		return ('global_revision', _spatial_revision_1513())
-	if any(chunk in batch.get('chunk_ids', ()) for chunk in chunks):
-		return None
-	# The accepted ledger grows within a battle, independently of index
-	# publication. The native loaded counts also catch a streaming change
-	# before its exact tree registry is rebuilt.
-	return (_collision_region_revision_1513(lower, upper),
-		_spatial_chunk_signature_1513(chunks),
-		tuple((chunk, loaded.get(chunk), len(accepted(chunk))) for chunk in chunks))
-
-
 def _proximity_receipt_key_1513(spaceID, current_chunk, pos, vehicle_box):
 	origin_bounds = (float(pos.x) - _DESTRUCTIBLE_ORIGIN_RADIUS,
 		float(pos.x) + _DESTRUCTIBLE_ORIGIN_RADIUS,

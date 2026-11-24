@@ -1,4 +1,4 @@
-wot-0.9.22-offline-battles v1.2.3
+wot-0.9.22-offline-battles v1.1.2
 
 Supported client: Chinese HD World of Tanks 0.9.22.0.1 #1513 (32-bit).
 The launcher and bundled server require 64-bit Windows.
@@ -8,12 +8,6 @@ beside wot-0.9.22-offline-battles.exe, run the launcher and select the game.
 Use the existing save and vehicle profile. An update does not require resetting
 saves, recordings or settings. Do not mix old and new launcher files or install
 another mod copy manually; the launcher installs its matching client payload.
-
-Choose English, Chinese or Auto with the launcher's language selector. Auto
-uses the Windows display language. The launcher updates its own display when
-you change the selection. The Mod's in-game text uses the selection at the
-next game launch. The first startup notice displays Chinese and English
-together. A Chinese guide is included as README.zh-CN.txt.
 
 The route toolbar groups creation, copy/delete and undo/redo on its first row;
 main/reserve, map checks, view and background-image import are on the second.
@@ -66,61 +60,15 @@ Replay preflight uses the same 8-GiB cumulative decompressed bound as recording
 and playback. Data is streamed; the 2-MiB record limit, footer/count and gzip
 integrity checks still apply. Compressed file size is not the replay size bound.
 
-Use the launcher’s Testing tab to enable detailed diagnostics or select a
-single-player test scene before starting a battle. The ordinary launcher is
-the package’s only entry. With diagnostics off, it
+Use the launcher's built-in vehicle editor and error-report controls. The player
+download includes START_DIAGNOSTIC_TEST.bat for detailed gameplay diagnostics,
+and the normal EXE for regular play. The normal EXE
 uses small key-event logs. Detailed geometry logs are limited to 2 MiB/minute
 and 32 MiB per client process, with explicit suppression notices. Exhausted
 budgets skip further JSON encoding; motion histories also skip construction
 until the budget reopens. Test captures split rotation catalog/native costs
 without changing collision queries. Errors and
 lifecycle messages remain enabled after the diagnostic budget is exhausted.
-
-The Testing tab has six checkboxes. All are unchecked by default.
-
-- Collect detailed diagnostic logs records more game and combat detail.
-- Collect detailed collision logs records collision checks and contact detail.
-- Automatic driving takes over hull movement and steering.
-- Automatic aiming and fire takes over target selection, lock, aiming and shots.
-- Automatic consumables uses equipped consumables when needed.
-- Start automatic control at battle start starts the selected features when the battle is ready.
-
-Before opening the game, select Start automatic control at battle start and
-at least one feature. From the battle controls, press the backtick key
-(`) immediately to the left of 1 on the main keyboard's number row to
-restore manual control. Press the same backtick key (`) again to turn
-the selected features back on. The player control panel offers Attack, Return
-to base, Defend base,
-Hold position, Capture base, Halt, Release to manual and the existing bounded
-drive, gun, held-aim, equipment and siege test commands. A submitted command is
-not complete until its matching visible-client receipt says so; fire completion
-means committed physical rounds, not a proved hit.
-
-Each LAN participant computes their own player navigation, traffic, target and
-fire-admission decisions in their visible client. The required room worker still
-owns Bots and world simulation, but does not execute player commands. Player
-route searches, recovery, ammunition and command ownership are independent of
-Bot actors. Players and Bots use one vehicle_control implementation, with
-separate actor state and physical input/output bindings. The foreground binding
-observes the local player's real vehicle and sends native input; Bot bindings
-use their existing worker-owned vehicles. Neither creates shadow physics.
-The old duplicated decision trees and their synchronization tools are removed;
-there is no legacy behaviour fallback. Tactical retreat, cover-peeking and
-flanking are removed, while blocked-waypoint skipping, bounded recovery and
-real collision checks remain. Shared attack planning validates current ammunition
-first and budgets other candidates independently. Obstruction is not proof that
-armour cannot be penetrated. Ordinary acquisition starts with the nearest live
-enemy, using lower armour only at equal distance; valid current penetration
-engagements are not interrupted by attacker or player-priority scores. Artillery
-ranks reachable targets by proved-arc HE damage estimates, retaining all native
-obstruction and launch checks.
-Releasing control stops future decisions without cancelling any unlaunched
-shells in an already committed multi-shell trigger. Each physical shell still
-uses the current native barrel and dispersion and settles separately. Manual
-firing and Bots use this same trigger contract. Install matching packages on all
-participants and restart the room before testing a changed build. Python/CI
-results are not a substitute for observing native #1513 driving and dual-LAN
-handover; see README.md and COMPATIBILITY_REVIEW.md for the current boundary.
 
 Customize save -> Appearance inventory has My style and Preset styles pages,
 with nation/type/vehicle filters, garage-only targets and vehicle-name search.
@@ -152,7 +100,7 @@ assignments. The vehicle modifier has aligned nation/type/tier and
 vehicle/modification-category/field rows, using localized garage-order nations.
 
 English release notes:
-https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.2.3
+https://github.com/colorfulmeans/wot-0.9.22-offline-battles/releases/tag/v1.1.2
 
 This mod is free; resale is prohibited. World of Tanks game assets are not
 included. This unofficial project is not endorsed by Wargaming.
@@ -169,12 +117,6 @@ Independent development, equipment, ammunition, consumables and coupled crew
 presets inherit from the existing scope hierarchy. Ammunition uses digit ratios;
 all zero carries no ammunition. Magazine ratios count magazines, not rounds.
 Stock development only allows no equipment, in the dropdown and validation.
-Room and lineup difficulty now select physical fitting presets, not artificial
-gunner delays or errors. Module development, crew training/skills, equipment,
-directives, consumables and other explicit fitting choices remain distinct.
-Native aiming time, gun dispersion and reload effects still apply; the shared
-controller adds no rating-based reaction, patience, scatter, aim-point or lead
-penalties, and no player-priority or attacker-retaliation target override.
 
 Both room interfaces default to Random per-team vehicle types. Random shows
 all five class icons checked and disabled, while preserving the manual mask.
@@ -496,8 +438,7 @@ Previously pending female requests retry automatically; do not add duplicates.
 Effective settings preview is a read-only table of settings, values and rule
 sources. It includes rules already added to the current draft, not unsubmitted
 form fields. All selected scopes are resolved; inherited difficulty retains
-the room's fitting-rating sampling. Opening this window does not save or apply
-the profile.
+room rating sampling. Opening this window does not save or apply the profile.
 
 The current default-seed revision replaces obsolete Default progress and old
 Default backups once, without keeping a backup or importing legacy progress.

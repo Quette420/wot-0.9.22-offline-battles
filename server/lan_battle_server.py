@@ -43,7 +43,7 @@ _CLIENT_SCRIPT_ROOT = os.path.join(
 if _CLIENT_SCRIPT_ROOT not in sys.path:
     sys.path.insert(0, _CLIENT_SCRIPT_ROOT)
 
-from gui.mods.offline_lan_0922.vehicle_control.strategy import BotPlanner
+from server_bot_ai import BotPlanner
 from offline_rewards import compute_offline_rewards, tier_weight
 from vehicle_overlay_store import (
     MAX_OVERLAY_MEMBER_BYTES,
@@ -56,7 +56,7 @@ from gui.mods.offline_lan_0922 import state_transfer
 from gui.mods.offline_lan_0922 import snapshot_delta
 from gui.mods.offline_lan_0922 import battle_bonds, tank_collision, credit_coefficients
 from gui.mods.offline_lan_0922 import xp_coefficients
-from gui.mods.offline_lan_0922 import spg_positions, spg_reservations, bot_tactics, lineup_slots
+from gui.mods.offline_lan_0922 import spg_positions, bot_tactics, lineup_slots
 from gui.mods.offline_lan_0922 import turret_obstacle_schema
 from gui.mods.offline_lan_0922.battle_achievements import (
     ACHIEVEMENT_CONDITIONS, AWARDABLE_ACHIEVEMENTS, RECEIPT_STAT_NAMES,
@@ -77,6 +77,9 @@ from gui.mods.offline_lan_0922 import stun_mechanics
 from gui.mods.offline_lan_0922 import vehicle_physics
 from gui.mods.offline_lan_0922.ai import planner as bot_planner
 from gui.mods.offline_lan_0922.ai.maps import get_tactical_map
+from gui.mods.offline_lan_0922.ai.maps_0922_extra import (
+    TACTICAL_MAPS_0922_EXTRA as _MAPS_0922_DATA,
+)
 from gui.mods.offline_lan_0922.navigation_graph_schema import (
     SUPPORTED_MAPS as _SUPPORTED_MAPS_0922,
 )
@@ -217,7 +220,6 @@ BOT_CALLSIGNS_0922 = (
     "四零四号履带", "八十八号停车位", "半格信号", "两杯热茶",
 )
 ROUND_SCOPED_MESSAGE_TYPES = frozenset((
-    "spg_parking_request",
     "start_battle", "input", "bot_manifest", "bot_state",
     "bot_observation", "bot_ram_report", "fire_intent",
     "fire_intent_result",
@@ -233,7 +235,6 @@ ROUND_SCOPED_MESSAGE_TYPES = frozenset((
     "team_chat",
 ))
 MODERN_VISIBLE_MESSAGE_TYPES = frozenset((
-    "spg_parking_request",
     "input", "projectile_launch", "projectile_progress",
     "projectile_ricochet", "projectile_resolve",
     "landing_observation", "start_battle",
@@ -271,7 +272,7 @@ TEAM_COMMAND_COOLDOWN_TICKS = int(10 * TICK_HZ)
 TEAM_GUARD_TRAVEL_TICKS = int(90 * TICK_HZ)
 TEAM_GUARD_SAFE_TICKS = int(30 * TICK_HZ)
 TEAM_COMMAND_MOVEMENT = frozenset((
-    "ATTACK", "BACKTOBASE", "HELPME", "HELPMEEX", "FOLLOWME",
+    "ATTACK", "BACKTOBASE", "HELPME", "HELPMEEX", "FOLLOWME", "TURNBACK",
     "ATTENTIONTOCELL",
 ))
 # A radio call asks nearby teammates to respond.  This is a product response
@@ -294,7 +295,7 @@ TEAM_COMMAND_ALLY_TARGETS = frozenset((
 ))
 TEAM_COMMAND_CELL_TARGETS = frozenset(("ATTENTIONTOCELL",))
 TEAM_COMMAND_PURE_BROADCAST = frozenset((
-    "POSITIVE", "NEGATIVE", "TURNBACK", "SPG_AIM_AREA", "RELOADINGGUN",
+    "POSITIVE", "NEGATIVE", "SPG_AIM_AREA", "RELOADINGGUN",
     "RELOADING_CASSETE", "RELOADING_READY", "RELOADING_READY_CASSETE",
     "RELOADING_UNAVAILABLE",
 ))
@@ -2439,15 +2440,7 @@ class BattleState:
                  team_size=15,
                  receipt_state_path=None, team1_size=None, team2_size=None,
                  bot_tier_mode='random', bot_lineup=None,
-                 bot_skill_mode=None, bot_excluded_vehicles=None, bot_tactics_path=None,
-                 mobile_test=False):
-        self.mobile_test = bool(mobile_test)
-        if self.mobile_test:
-            from gui.mods.offline_lan_0922 import mobile_combat_test
-            map_name = mobile_combat_test.MAP
-            team1_size = team2_size = 15
-            bot_lineup = mobile_combat_test.lineup()
-            bot_excluded_vehicles = None
+                 bot_skill_mode=None, bot_excluded_vehicles=None, bot_tactics_path=None):
         self.map_option = map_name
         self.map_name = self._choose_map()
         self.client_build = None
@@ -3065,23 +3058,14 @@ class BattleState:
         occupied = {1: set(), 2: set()}
         plan = []
         automatic = []
-        from gui.mods.offline_lan_0922.bot_fitting_data import CLASSES
-
-        def available_slots(participant, team):
-            vehicle = participant.vehicle
-            if self.mobile_test:
-                from gui.mods.offline_lan_0922 import mobile_combat_test
-                vehicle = mobile_combat_test.player_slot_vehicle(vehicle)
-            return [slot for slot in self._team_slots(team) if slot not in occupied[team]
-                    and (not self.mobile_test or
-                         self._lineup_pins_vehicle(team, slot, vehicle,
-                                                   CLASSES.get(participant.vehicle)))]
         for participant in players:
             requested = self._requested_team_for_player(participant)
             if requested == 0:
                 automatic.append(participant)
                 continue
-            available = available_slots(participant, requested)
+            available = [
+                slot for slot in self._team_slots(requested)
+                if slot not in occupied[requested]]
             if not available:
                 return None
             slot = (participant.slot if not self.lineup_locked and participant.team == requested and
@@ -3091,7 +3075,7 @@ class BattleState:
         for participant in automatic:
             candidates = [
                 team for team in (1, 2)
-                if available_slots(participant, team)]
+                if len(occupied[team]) < self.team_sizes[team]]
             if not candidates:
                 return None
             smallest = min(len(occupied[team]) for team in candidates)
@@ -3099,7 +3083,9 @@ class BattleState:
                 team for team in candidates
                 if len(occupied[team]) == smallest]
             team = random.choice(candidates)
-            slot = available_slots(participant, team)[0]
+            slot = next(
+                value for value in self._team_slots(team)
+                if value not in occupied[team])
             occupied[team].add(slot)
             plan.append((participant, team, slot))
         return plan
@@ -3929,71 +3915,19 @@ class BattleState:
             self._elect_bot_authority()
         self.state_revision += 1
 
-    def _spg_parking_book(self):
-        book = getattr(self, '_spg_reservations', None)
-        if book is None or book.round_id != self.round_id:
-            book = self._spg_reservations = spg_reservations.Registry(self.round_id)
-        def alive(owner):
-            row = self.players.get(owner[1]) if owner[0] == 'human' else self.bot_states.get(owner[1])
-            return bool(row and (row.connected and row.alive if owner[0] == 'human'
-                                 else row.get('alive', True) and row.get('health', 1) > 0))
-        book.prune(alive)
-        return book
-
-    def update_spg_parking(self, sender_id, message):
-        """Atomically grant a sourced region across foreground and worker owners."""
-        with self.lock:
-            book = self._spg_parking_book()
-            kind, actor = message.get('actor_kind'), message.get('actor_id')
-            code, accepted = 'invalid_owner', False
-            valid = (kind in ('human', 'bot') and isinstance(actor, int) and
-                     not isinstance(actor, bool) and actor > 0 and
-                     self._message_round_matches(message) and self.phase in ('loading', 'battle'))
-            if valid:
-                valid = (sender_id == actor if kind == 'human' else
-                         sender_id == self.bot_authority_id and
-                         message.get('authority_epoch') == self.authority_epoch)
-            if valid:
-                row = self.players.get(actor) if kind == 'human' else self.bot_states.get(actor)
-                if row is None:
-                    code = 'not_ready'
-                else:
-                    team = row.team if kind == 'human' else row.get('team')
-                    vehicle = self._actor_vehicle_name('player' if kind == 'human' else kind, actor)
-                    live = (row.connected and row.alive if kind == 'human' else
-                            row.get('alive', True) and row.get('health', 1) > 0)
-                    if not live:
-                        code = 'actor_dead'
-                    elif message.get('action') == 'release':
-                        book.release((kind, actor))
-                        accepted, code = True, 'released'
-                    elif self._vehicle_is_spg(vehicle):
-                        plan = spg_positions.canonical_plan(message.get('plan'),
-                            self.map_name, vehicle, team=team, tactics=self.bot_tactics)
-                        if plan is not None:
-                            accepted = book.claim((kind, actor), team, plan)
-                            code = 'granted' if accepted else 'region_owned_or_full'
-                        else:
-                            code = 'invalid_plan'
-            return dict(type='spg_parking_ack', protocol=PROTOCOL_VERSION,
-                round_id=self.round_id, seq=message.get('seq'), actor_kind=kind,
-                actor_id=actor, accepted=accepted, code=code, spg_parking=book.snapshot())
-
     def _authority_fields(self):
-        book = self._spg_parking_book()
-        parking = dict(spg_parking=book.snapshot()) if book.revision else {}
         worker = self.simulation_worker
         if worker is not None and worker.connected:
-            return dict(parking, **{
+            return {
                 "worker_status": "connected",
                 "worker_failure_reason": "",
-            })
+            }
         if self.worker_failure_reason:
-            return dict(parking, **{
+            return {
                 "worker_status": "failed",
                 "worker_failure_reason": self.worker_failure_reason,
-            })
-        return dict(parking, worker_status="missing")
+            }
+        return {"worker_status": "missing"}
 
     def lobby_message(self):
         with self.lock:
@@ -4209,12 +4143,7 @@ class BattleState:
                             classes=policy.required(row,pinned))
                         return None,'bot_class_pool_empty'
             try:
-                if self.mobile_test:
-                    from gui.mods.offline_lan_0922 import mobile_combat_test
-                    requested_map = mobile_combat_test.MAP
-                    proposed_tactics = mobile_combat_test.tactics()
-                else:
-                    proposed_tactics = bot_tactics.load(self.bot_tactics_path)
+                proposed_tactics = bot_tactics.load(self.bot_tactics_path)
                 from gui.mods.offline_lan_0922.bot_fittings import validate_profile
                 validate_profile(proposed_tactics)
             except bot_tactics.TacticsError as error:
@@ -4231,11 +4160,6 @@ class BattleState:
                     if requested_map not in active_map_pool:
                         return None, "invalid_map"
                     self.map_name = requested_map
-            try:
-                round_tactics = bot_tactics.effective_round(proposed_tactics, self.map_name)
-            except bot_tactics.TacticsError as error:
-                _server_log("BOT TACTICS refused: %s" % error)
-                return None, "invalid_bot_tactics"
             # Every accepted start owns the round length, so a host that stops
             # publishing one returns the room to the default round.
             self.battle_duration_seconds = battle_duration_seconds
@@ -4256,7 +4180,7 @@ class BattleState:
             self.bot_roster = (self._new_bot_roster(occupied_slots)
                                if battle_mode == "regular" or training_bots else [])
             self.roster_finalized = True
-            self.bot_tactics = round_tactics
+            self.bot_tactics = bot_tactics.for_round(proposed_tactics, self.map_name)
             self.bot_planner.tactics = copy.deepcopy(self.bot_tactics)
             self.bot_planner.tactics_map = self.map_name
             _server_log("BOT TACTICS pinned round=%d profile=%s profile_sha256=%s round_sha256=%s document=%s" % (
@@ -4368,7 +4292,6 @@ class BattleState:
                 "team_killer": bool(participant.team_killer),
                 "battle_booster": int(((participant.effective_params or {}).get(
                     "battle_booster") or {}).get("compact_descr", 0)),
-                "critical": copy.deepcopy(participant.critical),
             }
             # The accepted start freezes the equipment that earned passive
             # benefits, including participants who subsequently disconnect.
@@ -4599,9 +4522,6 @@ class BattleState:
                 "bot_manifest": list(self.bot_manifest),
                 "bot_order_revision": self.bot_orders["revision"],
                 "rules": self.rules_state,
-                # Foreground planners consume the same committed capture
-                # facts as Bots, never inferred instantaneous membership.
-                "defense": self._bot_defense_context(),
                 "battle_result": self.battle_result,
                 "destructible_revision": self.destructible_revision,
                 "destructibles": list(self.destructibles.values()),
@@ -5746,7 +5666,9 @@ class BattleState:
                 return True
             if not self._combat_accepting():
                 return False
-            if not isinstance(message.get("contacts"), (list, tuple)):
+            if (not isinstance(message.get("contacts"), (list, tuple)) or
+                    ("affordances" in message and
+                     not isinstance(message.get("affordances"), (list, tuple)))):
                 return False
             players = [
                 self._public_player(p, include_outfits=False)
@@ -6039,6 +5961,8 @@ class BattleState:
             valid_hidden = any(
                 self._valid_hidden_observation(contact, known_targets)
                 for contact in contacts)
+            accepted_affordances = self.bot_planner.report_affordances(
+                message.get("affordances"), known_bots, known_targets, now)
             self._replace_bot_spotted(direct_bot_spots)
             self._replace_player_spotted(direct_player_spots)
             self.player_mission_view_ranges = mission_ranges or {}
@@ -6061,7 +5985,7 @@ class BattleState:
             # worker dispatcher can advance its liveness fence without noisy
             # false rejection logs.
             return bool(
-                accepted_contacts > 0 or
+                accepted_contacts > 0 or accepted_affordances > 0 or
                 valid_hidden or stale_observation)
 
     def _replace_bot_spotted(self, direct_spots):
@@ -6281,8 +6205,11 @@ class BattleState:
         if (current_order or {}).get('route_attempt', {}).get('phase') not in (None, 'normal', 'complete'):
             return False
         if (combat_mode in (
-                "engage", "advance_contact",
-                "route_transfer", "recovery_return", "base_defense") or
+                "magazine_reload_retreat", "magazine_reload_hold", "engage", "flank", "advance_contact", "take_cover", "cover_hold", "cover_peek", "cover_return", "support_hold",
+                "route_transfer", "recovery_return", "base_defense",
+                "low_health_retreat", "low_health_defend",
+                "under_fire_withdraw", "under_fire_hold",
+                "crossfire_withdraw", "crossfire_hold") or
                 (combat_mode == "base_defense" and
                  command != "BACKTOBASE")):
             return False
@@ -6748,7 +6675,7 @@ class BattleState:
     @staticmethod
     def _sanitize_bot_burst(raw, fire_seq, shell_index):
         """Validate one complete physical-burst clock publication."""
-        fields = burst_mechanics.TriggerClock.WIRE_FIELDS
+        fields = burst_mechanics.BurstClock.WIRE_FIELDS
         present = tuple(name in raw for name in fields)
         if not any(present):
             return BattleState._ordinary_bot_burst(fire_seq, shell_index)
@@ -6805,7 +6732,7 @@ class BattleState:
             raise ValueError("bot burst fire sequence moved backwards")
         previous_burst = dict(previous or {})
         if not all(name in previous_burst for name in
-                   burst_mechanics.TriggerClock.WIRE_FIELDS):
+                   burst_mechanics.BurstClock.WIRE_FIELDS):
             previous_burst.update(BattleState._ordinary_bot_burst(
                 previous_fire, previous_burst.get("shell_index", 0)))
         current_group = int(current["burst_group_seq"])
@@ -7206,13 +7133,6 @@ class BattleState:
                 BattleState._validate_bot_ammo_transition(previous, shot)
                 return BattleState._validate_bot_ammo_transition(shot, current)
             if loaded != burst_shell or loaded != expected_loaded:
-                if battle_review_diagnostics.combat_detail_enabled():
-                    battle_review_diagnostics.validation_event('bot_firing_shell_transition_unproven',
-                        bot=current.get('id'), previous_loaded=previous_loaded,
-                        expected_loaded=expected_loaded, loaded=loaded, burst_shell=burst_shell,
-                        previous_pending=previous_pending, pending=pending,
-                        previous_clip=previous_clip, clip=clip, next_shell=next_shell,
-                        before=before, after=after, fire_delta=fire_delta)
                 raise ValueError("bot loaded shell changed while firing")
             if (expected_clip < 0 or loaded >= len(expected) or
                     expected[loaded] < fire_delta):
@@ -7376,7 +7296,6 @@ class BattleState:
         for name in ("shot_yaw", "shot_pitch"):
             if name in raw:
                 result[name] = raw[name]
-        result['suspension_pitch'] = raw.get('suspension_pitch', 0.0)
         # Contact acknowledgements and velocity must advance atomically even
         # when an unrelated combat ledger is contained.
         result['push_x'] = raw.get('push_x', 0.0)
@@ -7915,32 +7834,6 @@ class BattleState:
                 return self._set_protocol_reject(
                     "bot_state", "batch_members",
                     "missing=%s" % sorted(set(identities) - set(next_states)))
-            try:
-                movement_owners = dict((entry['id'], entry['owner']) for entry in
-                    bot_state_codec.normalize_combat_movement_owners(
-                        message.get('combat_movement_owners', [])))
-            except bot_state_codec.BotStateCodecError:
-                # Malformed advisory metadata cannot cancel another actor's
-                # admitted task or reject an otherwise valid motion batch.
-                movement_owners = None
-            for bot_id, current in next_states.items():
-                if bot_id in next_unavailable_checkpoints:
-                    # An identity-only row is not an observation of release.
-                    if not current.get('alive'):
-                        # Canonical death already ended that actor's task.
-                        # Do not mutate the previous checkpoint before commit.
-                        current = next_states[bot_id] = dict(current)
-                        current.pop('_combat_movement_owner', None)
-                    continue
-                current.pop('_combat_movement_owner', None)
-                if not current.get('alive'):
-                    continue
-                owner = ((self.bot_states.get(bot_id) or {}).get(
-                    '_combat_movement_owner') if movement_owners is None else
-                    movement_owners.get(bot_id))
-                owner = bot_state_codec.normalize_combat_movement_owner(owner)
-                if owner is not None:
-                    current['_combat_movement_owner'] = owner
             self._commit_human_ram_armors(human_ram_armors)
             progress = message.get('push_contacts', {})
             if not isinstance(progress, dict):
@@ -10663,24 +10556,16 @@ class BattleState:
                 'resolved_time_ms': resolved_time_ms,
             }
             record["_mission_kill_events"] = []
-            settled = True
             for proposal in effects:
                 try:
                     self._apply_projectile_effect_observed(record, proposal, 'terminal_commit')
                 except Exception as error:
-                    settled = False
                     # Contain this victim's failure; other independently
                     # validated direct/splash contacts still need a result.
                     _server_log(
                         "PROJECTILE EFFECT failed id=%s target=%s:%s error=%s: %s" %
                         (projectile_id, proposal["target_kind"],
                          proposal["target_id"], type(error).__name__, error))
-            from gui.mods.offline_lan_0922.bot_fitting_data import CLASSES
-            if CLASSES.get(record.get('source_vehicle')) == 'SPG':
-                # The queued impact precedes the health events for presentation,
-                # but the ammo observer needs the completed settlement.
-                impact_event['artillery_ammo'] = dict(known=settled,
-                    direct=bool(record.get('_ammo_hit')), damage=record.get('_ammo_damage', 0))
             self._bot_ammo_terminal(record)
             self._finalize_projectile_mission_health(record)
             self._record_projectile_piercing(
@@ -14791,6 +14676,10 @@ class BattleState:
         target = (str(target[0]), int(target[1]))
         self.enemy_damage_received[target] = int(
             self.enemy_damage_received.get(target, 0)) + damage
+        if target[0] == "bot":
+            self.bot_planner.report_damage(
+                target[1], attacker[0], attacker[1], damage,
+                self._monotonic())
         attacker_row = self._statistics_row(*attacker)
         if not attacker_row["team"] and attacker_team in (1, 2):
             attacker_row["team"] = attacker_team
@@ -15579,7 +15468,8 @@ class BattleState:
                 self.tick >= int(round(PREBATTLE_SECONDS * TICK_HZ)))
 
     def _map_rule_data(self):
-        return get_tactical_map(self.map_name) or {}
+        return (get_tactical_map(self.map_name) or
+                _MAPS_0922_DATA.get(self.map_name) or {})
 
     @staticmethod
     def _capture_vehicle_key(kind, vehicle_id):
@@ -16019,9 +15909,6 @@ class BattleState:
                 "timing": self._timing_payload(),
             }
             snapshot.update({
-                # This is the same committed producer used by BotPlanner;
-                # foreground control only receives a detached observation.
-                "defense": self._bot_defense_context(),
                 "authority_epoch": self.authority_epoch,
                 "server_time_ms": tick_server_time_ms,
                 "motion_time_us": self._logical_motion_time_us(),
@@ -16754,8 +16641,6 @@ class ClientHandler(socketserver.BaseRequestHandler):
             return server.state.resolve_worker_ping(worker, message)
         if message_type == "snapshot_resync":
             return server.state.request_snapshot_resync(worker)
-        if message_type == "spg_parking_request":
-            return worker.send(server.state.update_spg_parking(authority_id, message))
         if message_type == "simulation_progress":
             accepted = server.state.update_simulation_progress(worker, message)
         elif message_type == "player_environment":
@@ -17267,9 +17152,7 @@ class ClientHandler(socketserver.BaseRequestHandler):
                                 "VISIBLE COMMAND rejected sender=%d type=%s" % (
                                     player.player_id, message_type))
                             continue
-                        if message_type == "spg_parking_request":
-                            player.send(server.state.update_spg_parking(player.player_id, message))
-                        elif message_type == "input":
+                        if message_type == "input":
                             if server.state.update_input(
                                     player.player_id, message) is False:
                                 # Rate-limit per player *and* typed reason so
@@ -17699,8 +17582,7 @@ def run_server(host, port, map_name, max_players,
                team1_size=None, team2_size=None,
                bot_tier_mode="random", bot_lineup=None,
                bot_skill_mode=None,
-               vehicle_overlay_root=None, bot_excluded_vehicles=None, bot_tactics_path=None,
-               mobile_test=False):
+               vehicle_overlay_root=None, bot_excluded_vehicles=None, bot_tactics_path=None):
     if receipt_state_path is None:
         receipt_state_path = _default_result_receipt_state_path(port)
     state = BattleState(map_name=map_name, max_players=max_players,
@@ -17711,7 +17593,7 @@ def run_server(host, port, map_name, max_players,
                         bot_lineup=bot_lineup,
                         bot_skill_mode=bot_skill_mode,
                         bot_excluded_vehicles=bot_excluded_vehicles,
-                        bot_tactics_path=bot_tactics_path, mobile_test=mobile_test)
+                        bot_tactics_path=bot_tactics_path)
     if vehicle_overlay_root:
         try:
             overlay = VehicleOverlayStore(vehicle_overlay_root)

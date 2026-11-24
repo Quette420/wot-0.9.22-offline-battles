@@ -57,9 +57,9 @@ for relative in stage_payload.PAYLOAD_FILES['0.9.22']:
 for directory in stage_payload.PAYLOAD_TREES['0.9.22']:
     server_sources.extend(path.relative_to(ROOT).as_posix()
                           for path in (ROOT / directory).rglob('*.py'))
-assert 'src/res/scripts/client/gui/mods/offline_lan_0922/vehicle_control/route_recovery.py' in server_sources
-assert 'src/res/scripts/client/gui/mods/offline_lan_0922/vehicle_control/route_tasks.py' in server_sources
-assert 'src/res/scripts/client/gui/mods/offline_lan_0922/vehicle_control/empty_ammo_tasks.py' in server_sources
+assert 'server/server_route_recovery.py' in server_sources
+assert 'server/server_route_tasks.py' in server_sources
+assert 'server/server_empty_ammo.py' in server_sources
 for relative in server_sources:
     bundled = app / '_internal/servers/0.9.22' / relative
     assert bundled.read_bytes().replace(b'\r\n', b'\n') == (ROOT / relative).read_bytes().replace(b'\r\n', b'\n'), relative
@@ -68,7 +68,7 @@ with zipfile.ZipFile(app / '_internal/client/0.9.22.zip') as client:
     verify_bytes(str(ROOT), client.read('mods/0.9.22.0.1/offline_math_batch_native.pyd'))
     assert client.read('offline_worker_starter.exe') == (ROOT / 'native/offline_worker_starter.exe').read_bytes()
     mod_name = next(n for n in client.namelist() if n.endswith('.wotmod'))
-    assert mod_name.endswith('_1.2.3.wotmod')
+    assert mod_name.endswith('_1.1.2.wotmod')
     with tempfile.TemporaryDirectory(prefix='release0100-') as temp:
         path = Path(temp) / mod_name
         path.parent.mkdir(parents=True)
@@ -78,7 +78,7 @@ with zipfile.ZipFile(app / '_internal/client/0.9.22.zip') as client:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         command = module.prepare_runtime(temp)
-        # Execute the official runtime that the installed 1.2.3 mod supplied.
+        # Execute the official runtime that the installed 1.1.2 mod supplied.
         result = subprocess.check_output(command[:3] + ['-c', 'import sys;print(sys.version_info[:3])'], creationflags=0x08000000)
         assert b'(3, 11, 9)' in result, result
         with zipfile.ZipFile(path) as mod:

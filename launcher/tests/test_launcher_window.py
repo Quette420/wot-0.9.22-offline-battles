@@ -46,19 +46,6 @@ class _Widget(object):
         return self.options.get(name)
 
 
-class _Canvas(_Widget):
-    configure = _Widget.config
-    def create_window(self, *args, **kwargs): return 1
-    def bbox(self, *args): return (0, 0, 640, 400)
-    def itemconfigure(self, *args, **kwargs): pass
-    def yview(self, *args): pass
-    def yview_scroll(self, *args): pass
-
-
-class _Scrollbar(_Widget):
-    def set(self, *args): pass
-
-
 class _Entry(_Widget):
     """The real Entry keeps its own text, which the balance panel reads."""
 
@@ -90,9 +77,6 @@ class _Text(_Widget):
 
     def insert(self, unused_index, text):
         self.lines.append(text)
-
-    def delete(self, first, last):
-        self.lines.clear()
 
     def see(self, unused_index):
         pass
@@ -187,7 +171,6 @@ class _FakeTk(object):
     Tk = _Root
     Toplevel = _Root
     Frame = _Widget
-    Canvas = _Canvas
     LabelFrame = _Widget
     Label = _Widget
     Entry = _Entry
@@ -200,7 +183,6 @@ class _FakeTk(object):
 
 
 class _FakeTtk(object):
-    Scrollbar = _Scrollbar
     Combobox = _Widget
     Spinbox = _Widget
     Notebook = _Notebook
@@ -323,7 +305,7 @@ class WindowTest(unittest.TestCase):
             "offerKinds": ("gold", "reward")}))
 
     def test_layout_separates_play_vehicle_and_repair_controls(self):
-        self.assertEqual("1.2.3", wot_launcher.LAUNCHER_VERSION)
+        self.assertEqual("1.1.2", wot_launcher.LAUNCHER_VERSION)
         self.assertEqual(
             "Single player",
             self.window.battle_tabs.tab(self.window.single_panel).get("text"))
@@ -360,10 +342,14 @@ class WindowTest(unittest.TestCase):
             "Create error report...",
             self.window.report_button.cget("text"))
         self.assertIn("bold", str(self.window.report_button.cget("font")))
-        self.assertIn("distributed free of charge", self.window.distribution_notice_text.get())
+        self.assertEqual(
+            "本mod免费传播、开源、欢迎二创，使用无需付费，售卖与本人无关，仅供个人学习交流",
+            self.window.distribution_notice_text.get())
+        self.assertEqual(
+            "readonly", self.window.distribution_notice_entry.cget("state"))
         self.assertIs(
             self.window.distribution_notice_text,
-            self.window.distribution_notice_label.cget("textvariable"))
+            self.window.distribution_notice_entry.cget("textvariable"))
         self.assertFalse(self.window.collect_crash_reports.get())
         self.assertFalse(self.window.full_crash_dumps.get())
         self.assertEqual(
@@ -375,27 +361,13 @@ class WindowTest(unittest.TestCase):
 
     def test_launcher_session_identity_is_visible_and_persisted(self):
         self.assertIn(
-            "Launcher session: version=1.2.3 build=unknown role=launcher",
+            "Launcher session: version=1.1.2 build=unknown role=launcher",
             self._log_text())
         with open(core.launcher_log_path(), encoding="utf-8") as stream:
             persisted = stream.read()
         self.assertIn(
-            "Launcher session: version=1.2.3 build=unknown role=launcher",
+            "Launcher session: version=1.1.2 build=unknown role=launcher",
             persisted)
-
-    def test_language_switch_refreshes_existing_activity_and_distribution_notice(self):
-        raw = "REPLAY_ENTRY: The selected replay file does not exist."
-        self.window._log(raw)
-        self.assertIn(raw, self._log_text())
-        self.window.language_choice.set("中文")
-        self.window._language_selected()
-        self.assertIn("本mod免费传播", self.window.distribution_notice_text.get())
-        self.assertIn("无法播放录像：所选录像文件不存在。", self._log_text())
-        with open(core.launcher_log_path(), encoding="utf-8") as stream:
-            self.assertIn(raw, stream.read())
-        self.window.language_choice.set("English")
-        self.window._language_selected()
-        self.assertIn(raw, self._log_text())
 
     def test_first_run_prompts_once_when_the_launcher_starts(self):
         notice = mock.Mock()
@@ -409,10 +381,8 @@ class WindowTest(unittest.TestCase):
 
         request.assert_called_once_with()
         notice.assert_called_once_with(
-            "免费声明 / Free Distribution Notice",
-            "本离线mod免费提供，禁止转卖，如果你付费购买，请退款、举报卖给你的人。\n\n"
-            "This offline Mod is distributed free of charge. Resale is prohibited. "
-            "If you paid for it, please request a refund and report the seller.",
+            "免费声明",
+            "本离线mod免费提供，禁止转卖，如果你付费购买，请退款、举报卖给你的人。",
             parent=self.window.root)
         self.assertTrue(core.load_settings()["free_notice_seen"])
         reopened = wot_launcher.LauncherWindow(_FakeTk, _FakeTtk, self.dialog)
@@ -2361,9 +2331,7 @@ class WindowTest(unittest.TestCase):
             self.window._save_settings()
             save.assert_not_called()
             info.assert_not_called()
-            self.assertIn('See the diagnostic logs for details.', error.call_args.args[1])
-        with open(core.launcher_log_path(), encoding="utf-8") as stream:
-            self.assertIn('locked old data', stream.read())
+            self.assertIn('locked old data', error.call_args.args[1])
 
     def test_normal_preferences_cleanup_runs_after_confirmation(self):
         game_root = self._game("0.9.22.0.1", "1513")
@@ -2442,9 +2410,6 @@ class WindowTest(unittest.TestCase):
         self.assertIn("Enter the address", self._log_text())
 
     def test_a_matching_existing_server_is_reused(self):
-        # The harness enables diagnostics for trace tests. This case exercises
-        # an ordinary LAN entry, not the fresh-server diagnostic entry.
-        self.window._diagnostic_entry = False
         with mock.patch("core.listener_status",
                         return_value=core.LISTENER_COMPATIBLE), \
                 mock.patch("wot_launcher.subprocess.Popen") as popen:
@@ -2472,21 +2437,7 @@ class WindowTest(unittest.TestCase):
         popen.assert_not_called()
         self.assertIn("fresh launcher-owned server", self._log_text())
 
-    def test_diagnostic_entry_refuses_an_external_compatible_server(self):
-        self.window._diagnostic_entry = True
-        with mock.patch("core.listener_status",
-                        return_value=core.LISTENER_COMPATIBLE), \
-                mock.patch("wot_launcher.subprocess.Popen") as popen, \
-                mock.patch("wot_launcher.bot_tactics_store.Store") as store:
-            self.assertFalse(self.window._start_server(
-                self.settings_dir, core.PORT_0_9_22))
-        popen.assert_not_called()
-        store.assert_not_called()
-        self.assertIn("fresh launcher-owned server", self._log_text())
-
     def test_exact_lineup_refuses_an_external_compatible_server(self):
-        # Isolate the exact-roster guard from the earlier diagnostic-mode guard.
-        self.window._diagnostic_entry = False
         lineup = [{
             "team": 2, "slot": 0,
             "vehicle": "germany:G12_Ltraktor",
@@ -2522,31 +2473,7 @@ class WindowTest(unittest.TestCase):
             environment[core.SERVER_BOT_LINEUP_ENV_0922])
         self.window._stop_server(force=True)
 
-    def test_only_test_scenes_and_explicit_diagnostics_ignore_the_personal_profile(self):
-        for diagnostic_entry, fixture, expected in ((False, '0', 'profile-1.json'),
-                                                     (False, '3', None),
-                                                     (True, '0', None)):
-            with self.subTest(diagnostic_entry=diagnostic_entry, fixture=fixture):
-                self.window._diagnostic_entry = diagnostic_entry
-                with mock.patch.dict(os.environ, {'WOT_OFFLINE_DIAGNOSTICS': '1',
-                                                  'WOT_OFFLINE_EQUIPMENT_TEST': fixture,
-                                                  'WOT_0922_BOT_TACTICS_PATH': 'stale.json'}), \
-                        mock.patch('core.listener_status', return_value=core.LISTENER_FREE), \
-                        mock.patch('core.wait_for_server', return_value=True), \
-                        mock.patch('core.local_addresses', return_value=[]), \
-                        mock.patch('wot_launcher.bot_tactics_store.Store') as store, \
-                        mock.patch('wot_launcher.subprocess.Popen', return_value=_Process()) as launch:
-                    store.return_value.ensure_active.return_value = 'profile-1.json'
-                    self.assertTrue(self.window._start_server(
-                        self.settings_dir, core.PORT_0_9_22, loopback_only=True))
-                    self.assertEqual(expected, launch.call_args.kwargs['env'].get(
-                        'WOT_0922_BOT_TACTICS_PATH'))
-                    if expected is None:
-                        store.assert_not_called()
-                self.window._stop_server(force=True)
-
     def test_launcher_owned_server_reuse_requires_game_and_visibility_context(self):
-        self.window._diagnostic_entry = False
         server = _Process()
         self.window._server = server
         game_root = os.path.realpath(self.settings_dir)
@@ -2564,38 +2491,6 @@ class WindowTest(unittest.TestCase):
                 os.path.join(self.settings_dir, "other"),
                 core.PORT_0_9_22))
         listener.assert_not_called()
-        self.assertIn("different game or visibility", self._log_text())
-
-    def test_launcher_owned_server_reuse_requires_tactics_and_scene_context(self):
-        self.window._server = _Process()
-        self.window._diagnostic_entry = True
-        self.window._server_context = {
-            "game_root": os.path.normcase(os.path.realpath(self.settings_dir)),
-            "port_version": core.PORT_0_9_22,
-            "loopback_only": False,
-            "built_in_tactics": True,
-            "test_scene": (),
-        }
-        with mock.patch("core.listener_status") as listener, \
-                mock.patch("wot_launcher.subprocess.Popen") as popen:
-            self.assertTrue(self.window._start_server(
-                self.settings_dir, core.PORT_0_9_22))
-            self.window._diagnostic_entry = False
-            self.assertFalse(self.window._start_server(
-                self.settings_dir, core.PORT_0_9_22))
-            self.window._server_context.update(
-                loopback_only=True, test_scene=("3", "0", "0"))
-            with mock.patch.dict(os.environ, {
-                    "WOT_OFFLINE_EQUIPMENT_TEST": "3",
-                    "WOT_OFFLINE_ROOF_CRUSH_TEST": "0",
-                    "WOT_OFFLINE_ROOF_SHOT_DROP": "0"}):
-                self.assertTrue(self.window._start_server(
-                    self.settings_dir, core.PORT_0_9_22, loopback_only=True))
-                os.environ["WOT_OFFLINE_EQUIPMENT_TEST"] = "4"
-                self.assertFalse(self.window._start_server(
-                    self.settings_dir, core.PORT_0_9_22, loopback_only=True))
-        listener.assert_not_called()
-        popen.assert_not_called()
         self.assertIn("different game or visibility", self._log_text())
 
     def test_persistent_server_survives_session_cleanup_until_stopped(self):

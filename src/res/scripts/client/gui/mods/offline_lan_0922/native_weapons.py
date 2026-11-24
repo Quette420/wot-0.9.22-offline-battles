@@ -12,8 +12,6 @@ import random
 import sys
 
 from .worker_diagnostics import observed
-from . import shot_dispersion
-from .burst_mechanics import TriggerClock, TERMINAL_REASONS
 
 
 CONFIG_FIELDS = (
@@ -33,18 +31,6 @@ BURST_FIELDS = (
 )
 TARGET_KINDS = ('', 'bot', 'human')
 CATEGORIES = ('standard', 'premium', 'he')
-# Fixed native TerminationReason values, not caller-selected policy flags.
-TERMINATION_CODES = dict((reason, index + 1) for index, reason in enumerate((
-    'actor_destroyed', 'battle_ended', 'round_changed', 'gun_unavailable',
-    'weapon_replaced', 'ammunition_unavailable', 'launch_unavailable',
-    'transport_unavailable', 'native_failure',
-)))
-
-
-def _termination_code(reason):
-    if reason not in TERMINAL_REASONS:
-        raise ValueError('trigger termination is not a physical lifecycle reason')
-    return TERMINATION_CODES[reason]
 
 
 def _gun_row(gun):
@@ -311,20 +297,10 @@ class NativeWeapons(object):
         actor = self.actors[int(actor_id)]
         if not actor.command(20, (int(count), interval, reload_factor)):
             return ()
-        actor.burst.terminal_reason = None
         return actor.burst.advance(0.0)
 
-    def abort(self, actor_id):
-        """Withdraw an armed but still uncommitted trigger without a debit."""
-        return bool(self.actors[int(actor_id)].command(30, ()))
-
-    def terminate(self, actor_id, reason):
-        """End a physically impossible trigger; tactical events are rejected."""
-        actor = self.actors[int(actor_id)]
-        changed = bool(actor.command(21, (_termination_code(reason),)))
-        if changed:
-            actor.burst.terminal_reason = reason
-        return changed
+    def cancel(self, actor_id):
+        return bool(self.actors[int(actor_id)].command(21, ()))
 
     def commit(self, actor_id, launch, edge, dispersion_factor, state=None):
         actor = self.actors[int(actor_id)]
@@ -335,11 +311,7 @@ class NativeWeapons(object):
             state['fire_seq'] = actor.fire_seq
             state['clip'] = actor.gun.clip
             actor.ammo.publish(state)
-            # A slow simulation step can have several overdue physical
-            # edges. Publish the wire frontier only after that due batch is
-            # drained; the intermediate negative debt is internal state.
-            if not actor.burst.active or actor.burst.time_left >= -1.0e-9:
-                actor.burst.publish(state)
+            actor.burst.publish(state)
             state['shells_before_shot'] = sum(actor.ammo.remaining) + 1
         return bool(result)
 
@@ -386,6 +358,7 @@ class NativeWeapons(object):
                  (int(group) & 0x7fffffff) * 6113 +
                  (int(burst_index) & 0xffff) * 3571) & 0x7fffffff)
         generator = random.Random(seed)
+        from gui.mods.offline_lan_0922 import shot_dispersion
         radius = shot_dispersion.radius(dispersion_angle, generator.gauss, generator.uniform)
         azimuth = generator.uniform(0.0, 2.0 * math.pi)
         if base_direction is None:
@@ -433,7 +406,6 @@ class _Actor(object):
         self.gun = NativeGun(self, gun)
         self.ammo = NativeAmmo(self, ammo)
         self.burst = NativeBurst(self)
-        self.burst.terminal_reason = getattr(burst, 'terminal_reason', None)
         self.fire_seq = 0
         self.aim = (0.0, 0.0, 0.0, False)
         self.aim_descriptor = None
@@ -466,7 +438,6 @@ class _Actor(object):
             setattr(self.original_ammo, name, list(value) if name == 'remaining' else value)
         for name in BURST_FIELDS:
             setattr(self.original_burst, name, getattr(self.burst, name))
-        self.original_burst.terminal_reason = self.burst.terminal_reason
 
 
 class NativeGun(object):
@@ -573,12 +544,8 @@ class NativeGun(object):
     def fire_burst_round(self, final_round, reload_factor=1.0):
         return bool(self._actor.command(8, (int(bool(final_round)),)))
 
-    def abort_burst(self):
-        # The caller must first obtain TriggerClock.abort/Store.abort.
-        return bool(self._actor.command(31, ()))
-
-    def terminate_burst(self, reason):
-        return bool(self._actor.command(9, (_termination_code(reason),)))
+    def cancel_burst(self):
+        return bool(self._actor.command(9, ()))
 
 
 class NativeAmmo(object):
@@ -646,16 +613,12 @@ class NativeAmmo(object):
                      ammo_reload_pending=bool(self.reload_pending))
 
 
-class NativeBurst(TriggerClock):
-    """Detached observation facade for the native physical trigger frontier."""
-
-    WIRE_FIELDS = TriggerClock.WIRE_FIELDS
+class NativeBurst(object):
+    WIRE_FIELDS = ('burst_active', 'burst_group_seq', 'burst_count',
+                   'burst_next_index', 'burst_interval', 'burst_time_left',
+                   'burst_shell_index')
 
     def __init__(self, actor):
-        # Python 2 checks the receiver type of an unbound class method.
-        # Reuse the clock's read-only frontier checks through a real subtype;
-        # all writes still go exclusively through the native actor commands.
-        TriggerClock.__init__(self)
         self._actor = actor
 
     def _sync(self, row):
@@ -672,10 +635,7 @@ class NativeBurst(TriggerClock):
             return False
         if math.isnan(values[2]) or math.isinf(values[2]):
             return False
-        changed = bool(self._actor.command(15, values))
-        if changed:
-            self.terminal_reason = None
-        return changed
+        return bool(self._actor.command(15, values))
 
     def advance(self, dt):
         try:
@@ -686,30 +646,26 @@ class NativeBurst(TriggerClock):
             return ()
         return tuple(_edge(row) for row in self._actor.command(16, (dt,)))
 
-    def accepts(self, edge):
-        return TriggerClock.accepts(self, edge)
-
-    def commit(self, edge):
-        if not self.accepts(edge):
+    def cancel(self, launched_count=None):
+        try:
+            launched_count = self.next_index if launched_count is None else int(launched_count)
+        except (TypeError, ValueError, OverflowError):
             return False
-        return bool(self._actor.command(28, (_edge_row(edge),)))
-
-    def abort(self):
-        return bool(self._actor.command(29, ()))
-
-    def terminate(self, reason):
-        changed = bool(self._actor.command(17, (_termination_code(reason),)))
-        if changed:
-            self.terminal_reason = reason
-        return changed
+        if launched_count < 0:
+            return False
+        return bool(self._actor.command(17, (launched_count,)))
 
     def publish(self, state):
-        TriggerClock.publish(self, state)
+        state.update(burst_active=bool(self.active), burst_group_seq=int(self.group_seq),
+                     burst_count=int(self.count), burst_next_index=int(self.next_index),
+                     burst_interval=round(float(self.interval), 6),
+                     burst_time_left=round(max(0.0, float(self.time_left)), 6),
+                     burst_shell_index=int(self.shell_index))
 
     def restore(self, raw, fire_seq):
-        candidate = TriggerClock()
+        from .burst_mechanics import BurstClock
+        candidate = BurstClock()
         if not candidate.restore(raw, fire_seq):
             return False
         self._actor.command(18, (tuple(getattr(candidate, name) for name in BURST_FIELDS), int(fire_seq)))
-        self.terminal_reason = None
         return True

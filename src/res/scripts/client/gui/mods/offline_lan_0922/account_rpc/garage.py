@@ -1315,9 +1315,11 @@ class GarageState(object):
                         purchases.extend((_int(item.compactDescr), needed))
                 updates[kind, identifier] = bindings
             if purchases:
-                # CMD 119 is buyAndEquipOutfit, not an inventory-only equip.
-                # Nothing above has been committed. Buy only the deficits,
-                # then recompute transfers from the purchased inventory.
+                # #1513 MainView.buyAndExit sends no CMD 118: its OutfitApplier
+                # calls Shop.buyAndEquipOutfit, which is CMD 119. The retail
+                # command therefore buys every unit the outfit lacks. Nothing
+                # above has been committed; buy only the deficits, then
+                # recompute the transfer from the purchased inventory.
                 self.buy_customizations(record['id'], purchases)
                 return self._outfit_stock_plan(record, replacement)
             return updates
@@ -1353,14 +1355,18 @@ class GarageState(object):
         except Exception as error:
             raise GarageError('the client refused the outfit: %s' % error)
 
+        # The purchase and the installation succeed or fail together.
         with self._transaction():
             staged = copy.deepcopy(record)
             outfits = staged.setdefault('outfits', {})
-            # A custom season replaces the styled outfit selected by retail.
+            # Vehicle.getOutfit prioritizes a styled outfit.  Leaving the
+            # previous ALL-season style beside a newly applied custom season
+            # would make the accepted CMD 119 invisible in garage and battle.
             if season != CUSTOMIZATION_ALL_SEASONS:
                 outfits.pop(CUSTOMIZATION_ALL_SEASONS, None)
             outfits[season] = (canonical, True)
-            stock_updates = self._outfit_stock_plan(record, outfits, purchase_missing=True)
+            stock_updates = self._outfit_stock_plan(
+                record, outfits, purchase_missing=True)
             self._commit_outfit_stock(stock_updates)
             record.clear()
             record.update(staged)

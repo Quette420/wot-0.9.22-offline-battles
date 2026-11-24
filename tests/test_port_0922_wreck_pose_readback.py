@@ -78,21 +78,6 @@ class WreckReadbackTests(unittest.TestCase):
         state._engine_owns_entity = lambda: False
         self.assertFalse(state.reconcile_wreck_pose(1.))
 
-    def test_hydraulic_corpse_compares_and_restores_its_mounted_provider(self):
-        state = self.scene()
-        mounted = Matrix(state.provider)
-        mounted.translation.y += .18
-        mounted.axes = ((1., 0., 0.), (0., .98, .2), (0., -.2, .98))
-        state._canonical_hydraulic_provider = mounted
-        state.entity.model = CopyingModel(mounted)
-        self.assertFalse(state.reconcile_wreck_pose(10.))
-        self.assertEqual(0, state.entity.model.writes)
-        state.entity.model = CopyingModel(state.provider)
-        with mock.patch('gui.mods.offline_lan_0922.native_input_diagnostics.write_json_record'):
-            self.assertTrue(state.reconcile_wreck_pose(11.))
-        self.assertEqual(mounted.axes, state.entity.model.matrix.axes)
-        self.assertFalse(state.reconcile_wreck_pose(12.))
-
     def test_final_duplicate_pose_still_checks_a_dead_compound(self):
         from test_port_0922_battle_runtime import BattleRuntime, _runtime
         battle = BattleRuntime(_runtime())

@@ -16,7 +16,6 @@ import functools
 import copy
 import ctypes
 import dataclasses
-import decimal
 import hashlib
 import heapq
 import io
@@ -51,7 +50,6 @@ SERVER_STDLIB_MODULES = (
     copy.__name__,
     ctypes.__name__,
     dataclasses.__name__,
-    decimal.__name__,
     hashlib.__name__,
     heapq.__name__,
     io.__name__,

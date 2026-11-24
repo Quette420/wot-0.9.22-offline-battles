@@ -4,48 +4,11 @@ from __future__ import print_function
 
 import math
 
-from . import shot_geometry
-
 
 DISABLED = 0
 SWITCHING_ON = 1
 ENABLED = 2
 SWITCHING_OFF = 3
-
-
-def compose_body(position, body, correction, center_z):
-    """Apply the local hydraulic pivot before the chassis world rotation."""
-    position = tuple(_finite(value, 'position') for value in position)
-    body = tuple(_finite(value, 'body rotation') for value in body)
-    correction = _finite(correction, 'hydraulic correction')
-    center_z = _finite(center_z, 'hydraulic pivot')
-    translated = shot_geometry.transform_vehicle_point(
-        correction_translation(correction, center_z), position, *body)
-    right, up, forward = [shot_geometry.transform_vehicle_vector(
-        shot_geometry.transform_vehicle_vector(vector, 0., correction, 0.), *body)
-        for vector in ((1., 0., 0.), (0., 1., 0.), (0., 0., 1.))]
-    pitch = math.asin(max(-1., min(1., -forward[1])))
-    if abs(math.cos(pitch)) < 1.e-9:
-        raise ValueError('singular hydraulic body')
-    return translated, (math.atan2(forward[0], forward[2]), pitch,
-                        math.atan2(right[1], up[1]))
-
-
-def body_pose(state, descriptor):
-    """Derive the gun/body pose without changing the integrated chassis state."""
-    position = tuple(float(state.get(axis, 0.)) for axis in ('x', 'y', 'z'))
-    body = tuple(float(state.get(axis, 0.)) for axis in ('yaw', 'pitch', 'roll'))
-    # The local native actuator already publishes its complete body matrix.
-    if '_foreground_support_blocked' in state:
-        return position, tuple(state.get('_gun_aim_body', body))
-    correction = float(state.get('suspension_pitch', 0.))
-    if not correction:
-        return position, body
-    params = pitch_params(descriptor)
-    if params is None or not params['isAvailable']:
-        return position, body
-    flat = (body[0], float(state.get('terrain_pitch', body[1] - correction)), body[2])
-    return compose_body(position, flat, correction, params['centerZ'])
 
 
 def _field(value, name, default=None):

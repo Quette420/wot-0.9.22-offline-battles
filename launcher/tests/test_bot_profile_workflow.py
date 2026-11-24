@@ -75,10 +75,10 @@ class ProfileEditorTests(unittest.TestCase):
         with mock.patch.object(ui.messagebox,'askyesno') as ask:
             e.profile_name.set('A');e.open_profile()
             ask.assert_not_called();self.assertEqual('A',e.document['name'])
-            e.rule_vars['ammo_limit'].set('1');e.open_profile()
-            self.assertEqual('1',e.rule_vars['ammo_limit'].get())
+            e.rule_vars['reaction_seconds'].set('1');e.open_profile()
+            self.assertEqual('1',e.rule_vars['reaction_seconds'].get())
             e.profile_name.set('B');e.open_profile();ask.assert_not_called()
-            self.assertEqual('',e.rule_vars['ammo_limit'].get())
+            self.assertEqual('',e.rule_vars['reaction_seconds'].get())
         self.errors.assert_not_called()
 
     def test_dirty_cancel_and_read_failure_keep_draft_and_display(self):
@@ -139,8 +139,7 @@ class ProfileEditorTests(unittest.TestCase):
             e.delete_profile()
         self.assertEqual('A',e.document['name'])
         with mock.patch.object(ui.messagebox,'askyesno',return_value=True) as ask:e.delete_profile()
-        self.assertIn('「默认」' if e.zh else 'Default',ask.call_args.args[1])
-        self.assertTrue(e.builtin)
+        self.assertIn('Default',ask.call_args.args[1]);self.assertTrue(e.builtin)
         self.assertEqual('Default',self.store.active()['name'])
 
     def test_new_collision_and_cancelled_import_keep_current_draft(self):

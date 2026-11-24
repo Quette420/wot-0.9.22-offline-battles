@@ -150,16 +150,14 @@ class WreckContactRecoveryTests(unittest.TestCase):
         self.assertEqual(original_peer,self.peer)
         self.assertGreater(self.adapter._wreck_attempts[1]['elapsed'],9.)
 
-    def test_enemy_hull_ahead_is_avoided_without_replacing_route(self):
+    def test_enemy_hull_ahead_does_not_replace_route_with_avoidance(self):
         self.route()
         for actor in (2,1000002):
             self.peer.update(id=actor,team=2,alive=True)
             command=self.decide()
             self.assertEqual(1.,command['throttle'])
-            self.assertNotEqual(0.,command['turn'])
-            self.assertEqual('avoid',command['recovery_mode'])
-            self.assertEqual(self.order['move_position'],command['move_position'])
-            self.assertEqual(self.order['target_id'],command['target_id'])
+            self.assertEqual(0.,command['turn'])
+            self.assertEqual('drive',command['recovery_mode'])
 
     def test_live_ally_side_contact_retains_checked_avoidance(self):
         # Isolate checked physical recovery without an active engagement.
@@ -169,12 +167,11 @@ class WreckContactRecoveryTests(unittest.TestCase):
         self.assertEqual({-1.,1.},set(c['throttle'] for c in commands))
         self.assertTrue(all(c['recovery_mode']=='contact_escape' for c in commands))
 
-    def test_failed_driver_callback_preserves_all_physical_neighbours(self):
+    def test_failed_driver_callback_restores_all_physical_neighbours(self):
         self.peer.update(alive=True,team=2)
         original=self.state['neighbours']
         def failed(*args):
-            self.assertIs(original,self.state['neighbours'])
-            self.assertEqual([self.peer],self.state['neighbours'])
+            self.assertEqual([],self.state['neighbours'])
             raise RuntimeError('navigation failed')
         self.adapter.navigation_target=failed
         with self.assertRaisesRegex(RuntimeError,'navigation failed'):
@@ -294,15 +291,9 @@ class WreckContactRecoveryTests(unittest.TestCase):
             self.assertTrue(all(c['fire_allowed'] and c['target_id']==9 for c in commands))
             self.order['target_id'] = None
             self.assertEqual('wreck_push', self.decide()['recovery_mode'])
-        self.setUp()
         self.peer.update(alive=True, team=2)
         self.assertFalse(self.decide()['movement_intent'])
         self.assertEqual(0., self.decide()['throttle'])
-        self.order['target_id'] = None
-        command = self.decide()
-        self.assertTrue(command['movement_intent'])
-        self.assertEqual('contact_escape', command['recovery_mode'])
-        self.assertNotEqual(0., command['throttle'])
 
     def test_rear_hull_requires_checked_forward_exit(self):
         # Isolate checked physical recovery without an active engagement.

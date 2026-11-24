@@ -11,19 +11,12 @@ def _invalidate(runtime, state):
 
 
 def parking_exclusions(runtime, state):
-    result = set(key[1] for key, slot in getattr(runtime, '_spg_mode_slots', {}).items()
-                 if key[0] == state['team'] and (slot['disabled'] or
-                 slot['owner'] not in (None, state['id'])))
-    shared = getattr(runtime, 'spg_reservation_exclusions', None)
-    if callable(shared):
-        result.update(shared(state))
-    return sorted(result)
+    return sorted(key[1] for key, slot in getattr(runtime, '_spg_mode_slots', {}).items()
+                  if key[0] == state['team'] and (slot['disabled'] or
+                  slot['owner'] not in (None, state['id'])))
 
 
 def release_parking(runtime, state, failed=False):
-    release = getattr(runtime, 'spg_reservation_request', None)
-    if callable(release):
-        release(state, None)
     for slot in getattr(runtime, '_spg_mode_slots', {}).values():
         if slot['owner'] == state['id']:
             slot.update(owner=None, disabled=slot['disabled'] or failed)
@@ -42,7 +35,7 @@ def update(runtime, now):
     if getattr(runtime, '_spg_modes_tick', None) == token:
         return
     runtime._spg_modes_tick = token
-    states = list(_roster_states(runtime))
+    states = list(runtime._ordered_states())
     round_id = token[0]
     if not hasattr(runtime, '_spg_modes_round') or runtime._spg_modes_round != round_id:
         runtime._spg_modes_round = round_id
@@ -131,8 +124,3 @@ def update(runtime, now):
                           _spg_deployment='parking')
             slot['owner'] = chosen['id']
             _invalidate(runtime, chosen)
-
-
-def _roster_states(runtime):
-    """Read non-spatial admission identities; default to the original roster."""
-    return getattr(runtime, 'spg_roster_states', runtime._ordered_states)()

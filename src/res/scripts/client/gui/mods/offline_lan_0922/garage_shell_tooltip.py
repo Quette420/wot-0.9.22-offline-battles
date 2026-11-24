@@ -2,8 +2,6 @@
 
 import math
 
-from gui.mods.offline_lan_0922.ui_i18n import tr
-
 
 def _text(value):
     return value.decode('utf-8') if isinstance(value, bytes) else value
@@ -21,7 +19,7 @@ class GarageShellTooltipPatch(object):
         damage_names = tuple(_text(module.text_styles.main(module._ms(
             '#menu:moduleInfo/params/' + name)))
             for name in ('damage', 'avgDamage'))
-        speed_label = tr('Shell velocity').encode('utf-8')
+        speed_label = u'\u70ae\u5f39\u901f\u5ea6'.encode('utf-8')
         speed_name = _text(module.text_styles.main(speed_label))
         # Both native detailed constructors return parameter dictionaries with
         # data.name. Use the native label, not an assumed fixed row number.
@@ -66,7 +64,7 @@ class GarageShellTooltipPatch(object):
                     value = scheme[2 if speed > baseline else 0](value)
             row = constructor._packParameterBlock(
                 speed_label, value,
-                tr(' (m/s)').encode('utf-8'))
+                u' (\u7c73/\u79d2)'.encode('utf-8'))
             blocks.insert(damage_index + 1, row)
             break
         return blocks

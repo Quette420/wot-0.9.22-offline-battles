@@ -1160,23 +1160,18 @@ class ErrorReportTest(unittest.TestCase):
         report = os.path.join(self.root, "report with spaces.zip")
         physical = os.path.join(self.root, "LocalCache", "report with spaces.zip")
         self._write(report, b"zip")
-        for location in (report, physical):
-            with self.subTest(redirected=location != report):
-                runner = mock.Mock()
-                with mock.patch.object(error_reports.os.path, "realpath",
-                                       return_value=location) as resolve:
-                    error_reports.select_in_explorer(report, runner=runner)
+        calls = []
 
-                resolve.assert_called_once_with(report)
-                self.assertEqual(["explorer.exe", "/select,", location],
-                                 runner.call_args.args[0])
-
-    def test_missing_report_never_opens_an_explorer_window(self):
-        runner = mock.Mock()
-        with self.assertRaisesRegex(core.LauncherError, "ZIP is missing"):
+        with mock.patch.object(error_reports.os.path, "realpath",
+                               return_value=physical) as resolve:
             error_reports.select_in_explorer(
-                os.path.join(self.root, "missing.zip"), runner=runner)
-        runner.assert_not_called()
+                report, runner=lambda *args, **kwargs: calls.append(
+                    (args, kwargs)))
+
+        resolve.assert_called_once_with(report)
+        self.assertEqual(
+            ["explorer.exe", "/select,", physical],
+            calls[0][0][0])
 
 
 if __name__ == "__main__":

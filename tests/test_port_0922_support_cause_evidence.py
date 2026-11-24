@@ -2,7 +2,6 @@
 import contextlib
 import io
 import json
-import os
 import unittest
 from unittest import mock
 
@@ -39,7 +38,6 @@ class SupportCauseEvidenceTests(unittest.TestCase):
         return [json.loads(line.split('BOT SUPPORT MODE ',1)[1])
                 for line in text.splitlines() if 'BOT SUPPORT MODE ' in line]
 
-    @mock.patch.dict(os.environ, {'WOT_OFFLINE_COMBAT_DIAGNOSTICS': '1'})
     def test_height_settle_and_actual_ground_return_are_distinguishable(self):
         for actual_return in (False,True):
             terrain = [0.]
@@ -63,7 +61,6 @@ class SupportCauseEvidenceTests(unittest.TestCase):
             self.assertEqual(1. if actual_return else 0.,point['ground_delta'])
             self.assertEqual(1.,closing['opening']['position'][1])
 
-    @mock.patch.dict(os.environ, {'WOT_OFFLINE_COMBAT_DIAGNOSTICS': '1'})
     def test_new_episode_cannot_report_an_old_solver(self):
         runtime,state = self.scene(lambda x,z:0.)
         state.update(y=1.,airborne=True,_support_mode_solver_receipt={'stale':True})

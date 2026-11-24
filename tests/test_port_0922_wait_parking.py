@@ -100,32 +100,6 @@ class WaitParkingTests(unittest.TestCase):
         self.assertAlmostEqual(3.141592653589793,abs(attack['target_yaw']))
         self.assertEqual(0,attack['throttle'])
 
-    def test_turning_and_combat_handoff_preserve_the_original_wait_clock(self):
-        p,m=self.setup_parking([[0,0,10]])
-        states=[_state(11,1,0,0)]
-        first=self.orders(p,m[:1],states,1)[11]
-        self.assertEqual('waiting',first['parking_phase'])
-        area=copy.deepcopy(first['parking_area'])
-        self.assertEqual({'x':0.,'y':0.,'z':0.},area['point'])
-        state=p._route_states[11]
-        arrival=copy.deepcopy(state['parking_arrived'])
-        pose=copy.deepcopy(state['parking_pose'])
-        for now,yaw in ((3,.8),(7,-.9),(10.99,1.2)):
-            states[0]['yaw']=yaw
-            order=self.orders(p,m[:1],states,now)[11]
-            bot=p._alive_bots(m[:1],states)[0]
-            order.update(target_id=7,face_position={'x':0,'y':0,'z':-100})
-            p._apply_authored_route_order(order,bot,{'x':0,'y':0,'z':0},now)
-            self.assertEqual('waiting',order['parking_phase'])
-            self.assertEqual(0,order['throttle_override'])
-            self.assertEqual(-100,order['face_position']['z'])
-            self.assertEqual(arrival,state['parking_arrived'])
-            self.assertEqual(pose,state['parking_pose'])
-            self.assertEqual(area,order['parking_area'])
-        completed=self.orders(p,m[:1],states,11)[11]
-        self.assertEqual(1,completed['route_index'])
-        self.assertNotEqual('waiting',completed.get('parking_phase'))
-
     def test_three_distinct_places_and_fourth_uses_parent_gate(self):
         p,m=self.setup_parking();states=[_state(i,1,-100-(i-11)*15,0) for i in range(11,15)]
         first=self.orders(p,m,states,1)

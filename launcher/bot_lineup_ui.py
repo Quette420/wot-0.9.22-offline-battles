@@ -24,7 +24,8 @@ ZH = {
     'Choose a filtered vehicle': '请选择筛选后的车辆',
     'Tier filters only narrow the vehicle lists; choose a vehicle to change a slot.':
     '级别仅筛选车辆列表；选择车辆后才修改槽位。',
-    'Difficulty': '难度', 'All': '全部',
+    'Difficulty': '难度', 'All': '全部', 'Light tank': '轻坦', 'Medium tank': '中坦',
+    'Heavy tank': '重坦', 'Tank destroyer': '坦歼', 'SPG': '自行火炮',
     'Random vehicle': '随机车辆', 'Empty / do not participate': '空槽／不参战',
     'Clear all slots in this team': '清空本队全部槽位',
     'Individual slot settings': '各槽位独立设置',
@@ -111,7 +112,7 @@ class BotLineupEditorWindow:
         row = {}
         for column, field in enumerate(('nation', 'vehicle_class', 'tier', 'vehicle', 'skill'), 1):
             row[field] = self._tk.StringVar(value='')
-            width = {'nation': 16, 'vehicle_class': 20, 'tier': 6, 'vehicle': 25, 'skill': 24}[field]
+            width = {'nation': 16, 'vehicle_class': 15, 'tier': 6, 'vehicle': 25, 'skill': 24}[field]
             box = self._ttk.Combobox(frame, textvariable=row[field], state='readonly', width=width)
             box.grid(row=gridrow, column=offset+column, sticky='we', padx=3, pady=1)
             row[field+'_box'] = box

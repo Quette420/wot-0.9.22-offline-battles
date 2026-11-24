@@ -13,43 +13,6 @@ from gui.mods.offline_lan_0922 import environment_modules, loadout, player_criti
 
 
 class EquipmentSkillEffectsTests(unittest.TestCase):
-    def test_native_bot_perception_receives_relay_designated_and_last_effort(self):
-        from gui.mods.offline_lan_0922.native_control_core import NativeControl
-        descriptor = critical_fixture._descriptor()
-        profile = dict(invisibility_moving=(0, 1), invisibility_still=(0, 1),
-                       has_camouflage_net=False)
-        owner = object.__new__(NativeControl)
-        owner.runtime = types.SimpleNamespace(_descriptors={1: descriptor},
-            _vision_ranges={1: (330, 330, None)},
-            _spotting_profile=lambda source, tick: ((0.1, 0.1), 1.0, profile),
-            _source_radio_range=lambda source, tick: 700)
-        source = dict(id=1, kind='bot', critical={})
-        with mock.patch.object(bot_fittings, 'skill_count', return_value=1), \
-                mock.patch.object(bot_fittings, 'skill_level', return_value=100), \
-                mock.patch.object(bot_runtime, '_critical_factor', return_value=1.0):
-            values, last, designated = owner._project_actor_config(source, 1)
-        self.assertTrue(last)
-        self.assertTrue(designated)
-        self.assertEqual(0.1, values[16])
-        self.assertEqual(bot_runtime.spotting.SPOT_MEMORY_SECONDS + 2, values[17])
-        self.assertEqual(2, values[18])
-
-    def test_bot_controlled_impact_reads_living_driver_and_keeps_liner_factor(self):
-        descriptor = critical_fixture._descriptor()
-        descriptor.miscAttrs['antifragmentationLiningFactor'] = 1.3
-        for level in (0, 50, 100):
-            with mock.patch.object(bot_fittings, 'skill_level', return_value=level):
-                profile = bot_runtime._bot_ram_profile(descriptor, {'crew_ko': []})
-            self.assertAlmostEqual(level * 0.0015, profile['ramming_bonus'])
-            self.assertEqual(1.3, profile['spall_coefficient'])
-
-    def test_bot_shot_freezes_deadeye_from_current_carrier_state(self):
-        for count in (0, 1):
-            with mock.patch.object(bot_fittings, 'skill_count', return_value=count), \
-                    mock.patch('gui.mods.offline_lan_0922.descriptor_donation.project_shot') as project:
-                bot_fittings.project_shot(object(), {'shell': {}}, {'crew_ko': ['gunner']})
-            self.assertEqual(bool(count), project.call_args.kwargs['deadeye'])
-
     def test_liner_changes_the_real_crew_roll_for_shots_and_explosions(self):
         scene = critical_fixture.CriticalDamageTests()
         scene.setUp()
@@ -74,37 +37,6 @@ class EquipmentSkillEffectsTests(unittest.TestCase):
                 self.assertEqual(injured, 'commander' in delta['crew_ko'])
                 roll.assert_called_once()
 
-    def test_intuition_keeps_reload_progress_and_inventory_and_does_not_reroll(self):
-        descriptor = critical_fixture._descriptor()
-        gun = types.SimpleNamespace(clip_size=1, burst_count=1,
-            elapsed=4.0, reload_duration=10.0, shell_index=lambda value: value)
-        ammo = object.__new__(bot_runtime._BotAmmoState)
-        ammo.shell_count = 2
-        ammo.categories = {0: 'standard', 1: 'premium'}
-        ammo.remaining, ammo.loaded, ammo.next = [5, 7], 0, 0
-        ammo.plan_pending, ammo.reload_pending = False, True
-        burst = types.SimpleNamespace(active=False)
-        with mock.patch.object(bot_fittings, 'skill_count', return_value=2), \
-                mock.patch.object(bot_runtime.random, 'random', return_value=0.1) as roll:
-            self.assertTrue(bot_runtime._bot_intuition({}, descriptor, gun, ammo, burst, 1))
-            self.assertFalse(bot_runtime._bot_intuition({}, descriptor, gun, ammo, burst, 1))
-        roll.assert_called_once()
-        self.assertEqual([5, 7], ammo.remaining)
-        self.assertEqual((1, 1, True), (ammo.loaded, ammo.next, ammo.reload_pending))
-        self.assertEqual((4.0, 10.0), (gun.elapsed, gun.reload_duration))
-
-    def test_intuition_does_not_roll_for_magazines_bursts_or_initial_loading(self):
-        gun = types.SimpleNamespace(clip_size=2, burst_count=1)
-        ammo = types.SimpleNamespace(plan_pending=False)
-        burst = types.SimpleNamespace(active=False)
-        with mock.patch.object(bot_fittings, 'skill_count') as count:
-            self.assertFalse(bot_runtime._bot_intuition({}, None, gun, ammo, burst, 1))
-            gun.clip_size, gun.burst_count = 1, 2
-            self.assertFalse(bot_runtime._bot_intuition({}, None, gun, ammo, burst, 1))
-            gun.burst_count, ammo.plan_pending = 1, True
-            self.assertFalse(bot_runtime._bot_intuition({}, None, gun, ammo, burst, 1))
-        count.assert_not_called()
-
     def test_all_four_liners_preserve_native_crew_protection_in_player_handoff(self):
         for protection in (0.8, 0.75, 0.7, 0.5):
             descriptor = critical_fixture._strict_1513_descriptor()
@@ -114,6 +46,32 @@ class EquipmentSkillEffectsTests(unittest.TestCase):
             restored = player_critical_mechanics.descriptor_from_profile(canonical)
             self.assertEqual(protection, device_damage._misc_factor(
                 restored, 'crewChanceToHitFactor'))
+
+    def test_toolbox_repair_factor_survives_player_handoff(self):
+        # The server rebuilds the player vehicle from this profile. Without
+        # the factor its empty miscAttrs silently drop the toolbox for every
+        # non-track module repair.
+        for toolbox in (1.0, 1.25, 1.5):
+            descriptor = critical_fixture._strict_1513_descriptor()
+            descriptor.miscAttrs.repairSpeedFactor = toolbox
+            canonical = wire._canonical_critical(
+                player_critical_mechanics.project_profile(descriptor))
+            restored = player_critical_mechanics.descriptor_from_profile(canonical)
+            self.assertEqual(toolbox, device_damage._misc_factor(
+                restored, 'repairSpeedFactor'))
+            self.assertAlmostEqual(
+                device_damage.repair_seconds('engineHealth', descriptor, repair_factor=1.0),
+                device_damage.repair_seconds('engineHealth', restored, repair_factor=1.0))
+
+    def test_player_repair_uses_current_crew_row_not_garage_constant(self):
+        snapshot = {'loadout': {'repair_factor': 1.0}, 'crew': {'dynamic_spotting': {
+            'crew': ['commander', 'driver'],
+            'states': {'0:0': {'battle_factors': dict(crew_battle.DEFAULTS, repair_speed_factor=1.0)},
+                       '2:0': {'battle_factors': dict(crew_battle.DEFAULTS, repair_speed_factor=0.6)}}}}}
+        healthy = crew_battle.for_critical(snapshot, {'crew_ko': []})
+        injured = crew_battle.for_critical(snapshot, {'crew_ko': ['driver']})
+        self.assertEqual(1.0, healthy['repair_speed_factor'])
+        self.assertEqual(0.6, injured['repair_speed_factor'])
 
     def test_protection_wire_rejects_invalid_values_and_does_not_alias(self):
         profile = player_critical_mechanics.project_profile(
@@ -204,28 +162,6 @@ class EquipmentSkillEffectsTests(unittest.TestCase):
                 mock.patch('gui.mods.offline_lan_0922.native_input_diagnostics.validation_event') as emit:
             critical_damage.report_fire_model(types.SimpleNamespace(), 0.57)
         self.assertIsNone(emit.call_args.kwargs['native_health_burn_per_second'])
-
-    def test_bot_skill_projection_uses_physical_roles_and_surviving_carriers(self):
-        descriptor = types.SimpleNamespace(type=types.SimpleNamespace(
-            crewRoles=[('commander', 'radioman'), ('loader',), ('loader',)]))
-        crew = [types.SimpleNamespace(skills=('radioman_retransmitter', 'gunner_sniper')),
-                types.SimpleNamespace(skills=('loader_intuition',)),
-                types.SimpleNamespace(skills=('loader_intuition',))]
-        value = dict(crew=crew, crew_roster=('commander', 'loader', 'loader1'))
-        items = types.ModuleType('items')
-        items.tankmen = types.SimpleNamespace(TankmanDescr=lambda raw: raw)
-        try:
-            bot_fittings.register(descriptor, value)
-            with mock.patch.dict('sys.modules', {'items': items}):
-                self.assertEqual(2, bot_fittings.skill_count(descriptor, 'loader_intuition'))
-                self.assertEqual(1, bot_fittings.skill_count(
-                    descriptor, 'loader_intuition', {'crew_ko': ['loader']}))
-                self.assertEqual(0, bot_fittings.skill_count(descriptor, 'gunner_sniper'))
-                self.assertEqual(100, bot_fittings.skill_level(descriptor, 'radioman_retransmitter'))
-                self.assertEqual(0, bot_fittings.skill_level(
-                    descriptor, 'radioman_retransmitter', {'crew_ko': ['commander']}))
-        finally:
-            bot_fittings._CONTEXTS.pop(id(descriptor), None)
 
 
 if __name__ == '__main__':

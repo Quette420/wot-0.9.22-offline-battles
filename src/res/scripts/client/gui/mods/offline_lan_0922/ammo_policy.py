@@ -66,17 +66,10 @@ def ordered(profile, remaining=None):
         return shells
     shells = list(profile.get('shells') or ())
     manual = 'ammo_ratios' in profile
-    from .vehicle_control import ammunition_validation
-    nation = str(profile.get('vehicle_name', '')).split(':')[0]
-    gun_identity = nation + ':' + str(profile.get('gun_name', ''))
-    reviewed_primary = any((gun_identity, nation + ':' + str(s.get('name', '')))
-                           in ammunition_validation.FULL_VALIDATION_HE for s in shells)
-    roles = profile_roles(profile) if not manual or reviewed_primary else None
+    roles = None if manual else profile_roles(profile)
     if roles is not None:
-        if not manual:
-            shells = [s for s in shells if int(s['index']) in roles]
-        shells.sort(key=lambda s: ('standard', 'premium', 'he').index(
-            roles.get(int(s['index']), 'he')))
+        shells = [s for s in shells if int(s['index']) in roles]
+        shells.sort(key=lambda s: ('standard', 'premium', 'he').index(roles[int(s['index'])]))
     else:
         kinds = {'ARMOR_PIERCING': 0, 'ARMOR_PIERCING_CR': 1,
                  'HOLLOW_CHARGE': 2, 'HIGH_EXPLOSIVE': 3}
@@ -99,14 +92,6 @@ def ordered(profile, remaining=None):
 
 
 def stages(profile, remaining=None):
-    if remaining is not None and profile.get('class_tag') == 'SPG':
-        # A fitted rack can contain both HE identities even when the default
-        # allocation would choose one. Preserve the original main/backup order.
-        nation = str(profile.get('vehicle_name', '')).split(':')[0]
-        return sorted((shell for shell in profile.get('shells', ()) if is_he(shell)
-                       and int(shell['index']) < len(remaining) and remaining[int(shell['index'])] > 0),
-                      key=lambda shell: (nation+':'+shell.get('name', '') in GOLD_SHELLS,
-                                         int(shell['index'])))
     shells = ordered(profile)
     if 'ammo_ratios' in profile:
         pass
@@ -225,8 +210,6 @@ class ShotPolicy(object):
     def _same_phase(self, left, right):
         if left == right:
             return True
-        if self.profile.get('class_tag') == 'SPG':
-            return False
         rows = dict((int(s['index']), s) for s in self.profile.get('shells', ()))
         return left in rows and right in rows and is_he(rows[left]) and is_he(rows[right])
 

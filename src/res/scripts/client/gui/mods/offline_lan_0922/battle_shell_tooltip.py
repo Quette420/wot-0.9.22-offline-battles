@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Format installed shell data in the reference client's tooltip layout."""
+"""Format installed shell data in the reference client's Chinese layout."""
 import math
 import re
-
-from gui.mods.offline_lan_0922.ui_i18n import tr
 
 
 def _shot_field(shot, name, default=None):
@@ -18,7 +16,7 @@ def _shot_field(shot, name, default=None):
 
 def _speed_line(body, value):
     """Reuse the stock parameter row's label/value font spans and separator."""
-    label = tr('Shell velocity') + tr(' (m/s)')
+    label = u'\u70ae\u5f39\u901f\u5ea6 (\u7c73/\u79d2)'
     separator = re.search(r'<br\s*/?>|\n', body, re.I)
     separator = separator.group(0) if separator is not None else u'\n'
     for row in re.split(r'<br\s*/?>|\n', body, flags=re.I):
@@ -53,10 +51,10 @@ def _speed_line(body, value):
 
 
 _SHELL_TITLES = {
-    'ARMOR_PIERCING': 'Armor-piercing shell',
-    'ARMOR_PIERCING_CR': 'Armor-piercing composite rigid shell',
-    'HOLLOW_CHARGE': 'High-explosive anti-tank shell',
-    'HIGH_EXPLOSIVE': 'High-explosive shell',
+    'ARMOR_PIERCING': u'\u7a7f\u7532\u5f39',
+    'ARMOR_PIERCING_CR': u'\u5408\u91d1\u7a7f\u7532\u5f39',
+    'HOLLOW_CHARGE': u'\u9ad8\u7206\u53cd\u5766\u514b\u5f39',
+    'HIGH_EXPLOSIVE': u'\u9ad8\u7206\u5f39',
 }
 
 
@@ -108,18 +106,18 @@ def _reference_body(body, shot, shell):
     affected = kind in ('ARMOR_PIERCING', 'ARMOR_PIERCING_CR')
     power = near + (u'-' + far if affected else u'')
     result = [
-        row(tr('Average damage'), tr('%s points') % damage),
-        row(tr('Average penetration'), (tr('%s mm') % power) + u'*'),
-        row(tr('Shell velocity'), tr('%s m/s') % speed),
+        row(u'\u5e73\u5747\u4f24\u5bb3', damage + u'\u70b9'),
+        row(u'\u5e73\u5747\u7a7f\u6df1', power + u'\u6beb\u7c73*'),
+        row(u'\u70ae\u5f39\u901f\u5ea6', speed + u'\u7c73/\u79d2'),
     ]
     if radius is not None:
-        result.append(row(tr('Damage radius'), tr('%s m') % radius))
+        result.append(row(u'\u4f24\u5bb3\u534a\u5f84', radius + u'\u7c73'))
     if len(parameter_rows) >= 2:
         result.extend(rows[parameter_rows[1] + 1:])
-    note = tr('*Affected by distance: 50–500 m' if affected else
-              '*This shell type is unaffected by distance')
+    note = (u'*\u53d7\u8ddd\u79bb\u5f71\u54cd: 50 - 500\u7c73' if affected else
+            u'*\u6b64\u7c7b\u578b\u70ae\u5f39\u4e0d\u53d7\u8ddd\u79bb\u5f71\u54cd')
     result.extend((u'', value_font + note + u'</font>' if fonts else note))
-    return separator.join(result), tr(_SHELL_TITLES[kind])
+    return separator.join(result), _SHELL_TITLES[kind]
 
 
 def append_speed(tooltip, shell, vehicle, number_format=None):
